@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "descargador-consola"
+version = "1.0.0"
+description = "Descargador de videos por URL con arquitectura limpia"
+requires-python = ">=3.10"
+dependencies = ["yt-dlp[default]>=2026.8.19", "imageio-ffmpeg>=0.6.0"]
+
+[project.scripts]
+descargar = "descargador.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["descargador*"]
