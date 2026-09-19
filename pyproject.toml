@@ -4,13 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "descargador-consola"
-version = "1.0.0"
+version = "1.1.0"
 description = "Descargador de videos por URL con arquitectura limpia"
 requires-python = ">=3.10"
 dependencies = ["yt-dlp[default]>=2026.8.19", "imageio-ffmpeg>=0.6.0"]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "mypy>=1.11"]
 
 [project.scripts]
 descargar = "descargador.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["descargador*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["descargador", "tests"]
+ignore_missing_imports = true
+warn_unused_ignores = false

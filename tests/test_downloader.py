@@ -1,17 +1,37 @@
 import contextlib
 import io
-from pathlib import Path
+import tempfile
 import unittest
-from unittest.mock import Mock
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from descargador.application import DownloadVideo
-from descargador.cli import main
-from descargador.domain import DownloadError, DownloadRequest, DownloadResult
+from descargador.application import DownloadVideo, InspectVideo
+from descargador.cli import (
+    acciones_ajustes,
+    describir_ajustes,
+    formato_tamano,
+    formato_tiempo,
+    leer_lista,
+    main,
+)
+from descargador.domain import (
+    DownloadError,
+    DownloadOptions,
+    DownloadProgress,
+    DownloadRequest,
+    DownloadResult,
+    VideoInfo,
+    parse_section,
+    parse_timestamp,
+)
+from descargador.infrastructure import YtDlpDownloader, incrusta_caratula
 
 
 class DownloadTests(unittest.TestCase):
     def test_rejects_invalid_urls_before_adapter(self):
-        for url in ("", "hola", "file:///video.mp4", "ftp://example.com/a", "https://", "https://a:bad/v", "https://a/a b"):
+        invalidas = ("", "hola", "file:///video.mp4", "ftp://example.com/a",
+                     "https://", "https://a:bad/v", "https://a/a b")
+        for url in invalidas:
             with self.subTest(url=url):
                 adapter = Mock()
                 with self.assertRaises(DownloadError):
@@ -22,7 +42,8 @@ class DownloadTests(unittest.TestCase):
         adapter = Mock()
         adapter.download.return_value = DownloadResult((Path("out/video.mp4"),))
         result = DownloadVideo(adapter).execute("  https://example.com/v?a=1&b=2  ", Path("out"))
-        adapter.download.assert_called_once_with(DownloadRequest("https://example.com/v?a=1&b=2", Path("out")))
+        esperada = DownloadRequest("https://example.com/v?a=1&b=2", Path("out"))
+        adapter.download.assert_called_once_with(esperada)
         self.assertEqual(result.files, (Path("out/video.mp4"),))
 
     def test_cli_invalid_url_returns_failure_without_traceback(self):
@@ -32,6 +53,226 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("URL válida", output.getvalue())
         self.assertNotIn("Traceback", output.getvalue())
+
+    def test_inspect_use_case_delegates_without_downloading(self):
+        adapter = Mock()
+        adapter.inspect.return_value = VideoInfo("Un video")
+        info = InspectVideo(adapter).execute("https://example.com/v", Path("out"))
+        self.assertEqual(info.title, "Un video")
+        adapter.download.assert_not_called()
+
+
+class OptionTests(unittest.TestCase):
+    def test_rejects_invalid_options(self):
+        casos = [{"quality": 0}, {"quality": -720}, {"audio_format": "wma"}, {"audio_bitrate": "alto"}]
+        for caso in casos:
+            with self.subTest(**caso), self.assertRaises(DownloadError):
+                DownloadOptions(**caso)
+
+    def test_rejects_inverted_section(self):
+        with self.assertRaises(DownloadError):
+            DownloadOptions(section=(120.0, 30.0))
+
+    def test_parses_timestamps(self):
+        self.assertEqual(parse_timestamp("90"), 90)
+        self.assertEqual(parse_timestamp("1:30"), 90)
+        self.assertEqual(parse_timestamp("01:02:03"), 3723)
+
+    def test_parses_sections_with_open_ends(self):
+        self.assertEqual(parse_section("00:30-02:15"), (30.0, 135.0))
+        self.assertEqual(parse_section("-1:00"), (0.0, 60.0))
+        self.assertEqual(parse_section("1:00-")[0], 60.0)
+
+    def test_rejects_malformed_sections(self):
+        for texto in ("", "0:30", "2:15-0:30", "a-b", "1:2:3:4-5"):
+            with self.subTest(texto=texto), self.assertRaises(DownloadError):
+                parse_section(texto)
+
+    def test_progress_percent(self):
+        self.assertAlmostEqual(DownloadProgress("downloading", downloaded=50, total=200).percent, 25.0)
+        self.assertIsNone(DownloadProgress("downloading", downloaded=50).percent)
+
+
+class AdapterTests(unittest.TestCase):
+    """Comprueban la traducción a opciones de yt-dlp sin tocar la red."""
+
+    def test_filter_rejects_playlists_and_live(self):
+        self.assertIsNotNone(YtDlpDownloader._single_video({"_type": "playlist"}))
+        self.assertIsNotNone(YtDlpDownloader._single_video({"is_live": True}))
+        self.assertIsNone(YtDlpDownloader._single_video({"title": "normal"}))
+
+    def test_thumbnail_is_skipped_when_ffprobe_is_missing(self):
+        """Sin ffprobe la carátula se omite en video, pero nunca en audio."""
+        sin_probe = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(), caratula=False)]
+        self.assertNotIn("EmbedThumbnail", sin_probe)
+        self.assertIn("FFmpegMetadata", sin_probe)
+        with patch("descargador.infrastructure.shutil.which", return_value=None):
+            self.assertTrue(incrusta_caratula(audio_only=True))
+            self.assertFalse(incrusta_caratula(audio_only=False))
+
+    def test_format_selection(self):
+        self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions()), "bv*+ba/b")
+        self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
+        self.assertIn("height<=720", YtDlpDownloader._seleccion_formato(DownloadOptions(quality=720)))
+
+    def test_audio_extracted_before_embedding_thumbnail(self):
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(audio_only=True))]
+        self.assertLess(claves.index("FFmpegExtractAudio"), claves.index("EmbedThumbnail"))
+        self.assertIn("FFmpegMetadata", claves)
+
+    def test_subtitles_only_embedded_for_video(self):
+        video = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(subtitles=("es",)))]
+        solo_audio = DownloadOptions(subtitles=("es",), audio_only=True)
+        audio = [p["key"] for p in YtDlpDownloader._postprocesadores(solo_audio)]
+        self.assertIn("FFmpegEmbedSubtitle", video)
+        self.assertNotIn("FFmpegEmbedSubtitle", audio)
+
+    def test_sponsorblock_needs_both_postprocessors(self):
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(skip_sponsors=True))]
+        self.assertLess(claves.index("SponsorBlock"), claves.index("ModifyChapters"))
+
+
+class CliTests(unittest.TestCase):
+    def _adaptador(self, patched):
+        adaptador = patched.return_value
+        adaptador.download.return_value = DownloadResult((Path("descargas/v.mp4"),))
+        adaptador.inspect.return_value = VideoInfo("Un video", "Autor", 90.0)
+        return adaptador
+
+    def test_quality_and_audio_flags_reach_the_adapter(self):
+        with patch("descargador.cli.YtDlpDownloader") as patched:
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["https://example.com/v", "-c", "720", "--subs", "es"]), 0)
+        opciones = adaptador.download.call_args.args[0].options
+        self.assertEqual(opciones.quality, 720)
+        self.assertEqual(opciones.subtitles, ("es",))
+        self.assertFalse(opciones.audio_only)
+
+    def test_already_archived_is_skipped_not_failed(self):
+        salida = io.StringIO()
+        with patch("descargador.cli.YtDlpDownloader") as patched:
+            adaptador = self._adaptador(patched)
+            adaptador.download.return_value = DownloadResult(())
+            with contextlib.redirect_stdout(salida):
+                codigo = main(["https://example.com/v", "--registro"])
+        self.assertEqual(codigo, 0)
+        self.assertIn("Omitido", salida.getvalue())
+
+    def test_info_inspects_without_downloading(self):
+        salida = io.StringIO()
+        with patch("descargador.cli.YtDlpDownloader") as patched:
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(salida):
+                self.assertEqual(main(["https://example.com/v", "--info"]), 0)
+        adaptador.download.assert_not_called()
+        adaptador.inspect.assert_called_once()
+        self.assertIn("Un video", salida.getvalue())
+
+    def test_batch_continues_after_a_failure_and_reports(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            lista = Path(carpeta) / "urls.txt"
+            lista.write_text("# comentario\nhttps://example.com/a\n\nincorrecta\n"
+                             "https://example.com/b\n", encoding="utf-8")
+            salida, errores = io.StringIO(), io.StringIO()
+            with patch("descargador.cli.YtDlpDownloader") as patched:
+                adaptador = self._adaptador(patched)
+                with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(errores):
+                    codigo = main(["--desde", str(lista)])
+        self.assertEqual(codigo, 1)
+        self.assertEqual(adaptador.download.call_count, 2)
+        self.assertIn("2 correctas, 1 con error", salida.getvalue())
+
+    def test_clipboard_supplies_the_url(self):
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("descargador.cli.leer_portapapeles", return_value="https://example.com/v") as pegar:
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["--pegar"]), 0)
+        pegar.assert_called_once()
+        self.assertEqual(adaptador.download.call_args.args[0].url, "https://example.com/v")
+
+    def test_update_exits_without_touching_the_adapter(self):
+        with patch("descargador.cli.actualizar_motor", return_value=0) as actualizar, \
+             patch("descargador.cli.YtDlpDownloader") as patched:
+            self.assertEqual(main(["--actualizar"]), 0)
+        actualizar.assert_called_once()
+        patched.assert_not_called()
+
+    def test_reads_url_list_skipping_comments(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            lista = Path(carpeta) / "urls.txt"
+            lista.write_text("# nota\n\nhttps://a.com/1\n  https://a.com/2  \n", encoding="utf-8")
+            self.assertEqual(leer_lista(lista), ["https://a.com/1", "https://a.com/2"])
+            vacia = Path(carpeta) / "vacia.txt"
+            vacia.write_text("# solo comentarios\n", encoding="utf-8")
+            with self.assertRaises(DownloadError):
+                leer_lista(vacia)
+
+    def test_interactive_menu_applies_video_settings(self):
+        """1 video, 1 calidad 720, 2 subtítulos es, Enter para continuar."""
+        respuestas = ["1", "1", "720", "2", "es", "", "https://example.com/v"]
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("builtins.input", side_effect=respuestas):
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([]), 0)
+        opciones = adaptador.download.call_args.args[0].options
+        self.assertEqual(opciones.quality, 720)
+        self.assertEqual(opciones.subtitles, ("es",))
+
+    def test_interactive_menu_applies_audio_settings(self):
+        """2 audio, 1 códec m4a, 2 bitrate 320, Enter para continuar."""
+        respuestas = ["2", "1", "m4a", "2", "320", "", "https://example.com/v"]
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("builtins.input", side_effect=respuestas):
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([]), 0)
+        opciones = adaptador.download.call_args.args[0].options
+        self.assertTrue(opciones.audio_only)
+        self.assertEqual(opciones.audio_format, "m4a")
+        self.assertEqual(opciones.audio_bitrate, "320")
+
+    def test_settings_menu_keeps_value_when_input_is_invalid(self):
+        respuestas = ["1", "1", "altísima", "", "https://example.com/v"]
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("builtins.input", side_effect=respuestas):
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([]), 0)
+        self.assertIsNone(adaptador.download.call_args.args[0].options.quality)
+
+    def test_settings_menu_can_cancel(self):
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("builtins.input", side_effect=["1", "0"]):
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([]), 0)
+        adaptador.download.assert_not_called()
+
+    def test_flags_skip_the_interactive_menu(self):
+        with patch("descargador.cli.YtDlpDownloader") as patched, \
+             patch("builtins.input", side_effect=AssertionError("no debe preguntar")):
+            adaptador = self._adaptador(patched)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["https://example.com/v", "-c", "480"]), 0)
+        self.assertEqual(adaptador.download.call_args.args[0].options.quality, 480)
+
+    def test_settings_menu_offers_the_right_options(self):
+        video = [nombre for nombre, _ in acciones_ajustes(audio=False)]
+        audio = [nombre for nombre, _ in acciones_ajustes(audio=True)]
+        self.assertIn("Subtítulos", video)
+        self.assertNotIn("Subtítulos", audio)
+        self.assertIn("Formato", audio)
+        resumen = " ".join(describir_ajustes(DownloadOptions(quality=720), Path("descargas"), audio=False))
+        self.assertIn("hasta 720p", resumen)
+
+    def test_human_readable_helpers(self):
+        self.assertEqual(formato_tamano(None), "--")
+        self.assertEqual(formato_tamano(1536), "1.5 KB")
+        self.assertEqual(formato_tiempo(90), "01:30")
+        self.assertEqual(formato_tiempo(3723), "1:02:03")
 
 
 if __name__ == "__main__":

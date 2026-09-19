@@ -1,36 +1,141 @@
-"""Adaptador de yt-dlp: red, archivos y unión con FFmpeg."""
-from pathlib import Path
+"""Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
+import os
 import shutil
+import subprocess
+import sys
+from collections.abc import Callable
+from pathlib import Path
 
-from .domain import DownloadError, DownloadRequest, DownloadResult
+from .domain import (
+    SPONSOR_CATEGORIES,
+    DownloadError,
+    DownloadOptions,
+    DownloadProgress,
+    DownloadRequest,
+    DownloadResult,
+    MediaFormat,
+    VideoInfo,
+)
+
+FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
+
+
+def _cargar_motor():
+    """Importa el motor tarde para poder explicar la falta de dependencias."""
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+        from yt_dlp import YoutubeDL
+        from yt_dlp.utils import YoutubeDLError, download_range_func
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+    return YoutubeDL, YoutubeDLError, download_range_func, get_ffmpeg_exe
+
+
+def _runtimes_js() -> dict:
+    return {nombre: {} for nombre in ("deno", "node") if shutil.which(nombre)}
+
+
+def _preparar_ffmpeg(get_ffmpeg_exe) -> str:
+    """Devuelve la ruta de FFmpeg y se asegura de que también esté en el PATH.
+
+    Para el recorte de fragmentos, yt-dlp comprueba la disponibilidad de FFmpeg
+    buscándolo en el PATH e ignora ffmpeg_location (así lo documenta su propio
+    código). El binario de imageio-ffmpeg no se llama ffmpeg, de modo que se
+    crea un alias junto al original la primera vez.
+    """
+    encontrado = shutil.which("ffmpeg")
+    if encontrado:
+        return encontrado
+    original = Path(get_ffmpeg_exe())
+    alias = original.with_name("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    if not alias.exists():
+        try:
+            os.link(original, alias)
+        except OSError:
+            try:
+                shutil.copy2(original, alias)
+            except OSError:
+                return str(original)
+    carpeta = str(alias.parent)
+    if carpeta not in os.environ.get("PATH", "").split(os.pathsep):
+        os.environ["PATH"] = carpeta + os.pathsep + os.environ.get("PATH", "")
+    return str(alias)
+
+
+def incrusta_caratula(audio_only: bool) -> bool:
+    """Indica si la carátula puede incrustarse sin abortar el postprocesado.
+
+    En audio se resuelve con mutagen o con FFmpeg. En video el contenedor puede
+    acabar siendo MKV, y ahí yt-dlp necesita ffprobe, que no acompaña a
+    imageio-ffmpeg; sin él se omite la carátula en lugar de perder la descarga.
+    """
+    return audio_only or bool(shutil.which("ffprobe"))
 
 
 class YtDlpDownloader:
+    def __init__(self, on_progress: Callable[[DownloadProgress], None] | None = None):
+        self._on_progress = on_progress
+
+    # -- consulta ---------------------------------------------------------
+    def inspect(self, request: DownloadRequest) -> VideoInfo:
+        YoutubeDL, YoutubeDLError, _, _ = _cargar_motor()
+        opciones = {
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+        }
+        try:
+            with YoutubeDL(opciones) as engine:
+                info = engine.extract_info(request.url, download=False)
+            if not info:
+                raise DownloadError("No se obtuvo información. Comprueba la URL.")
+            if info.get("_type") in {"playlist", "multi_video"}:
+                raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
+            return VideoInfo(
+                title=info.get("title") or "(sin título)",
+                uploader=info.get("uploader") or info.get("channel"),
+                duration=info.get("duration"),
+                formats=tuple(self._formato(f) for f in (info.get("formats") or [])),
+            )
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(f"No se pudo consultar el video: {exc}") from exc
+
+    @staticmethod
+    def _formato(datos: dict) -> MediaFormat:
+        alto = datos.get("height")
+        return MediaFormat(
+            format_id=datos.get("format_id") or "",
+            ext=datos.get("ext") or "",
+            resolution=datos.get("resolution") or (f"{alto}p" if alto else "solo audio"),
+            filesize=datos.get("filesize") or datos.get("filesize_approx"),
+            note=datos.get("format_note") or "",
+        )
+
+    # -- descarga ---------------------------------------------------------
     def download(self, request: DownloadRequest) -> DownloadResult:
-        try:
-            from yt_dlp import YoutubeDL
-            from yt_dlp.utils import DownloadError as EngineError
-            from imageio_ffmpeg import get_ffmpeg_exe
-        except ImportError as exc:
-            raise DownloadError('Faltan dependencias. Ejecuta: python -m pip install -e .') from exc
+        YoutubeDL, YoutubeDLError, download_range_func, get_ffmpeg_exe = _cargar_motor()
+        opts = request.options
+        archivos: list[Path] = []
 
-        files: list[Path] = []
-
-        def finished(filename):
-            if filename:
-                files.append(Path(filename).resolve())
+        def terminado(nombre):
+            if nombre:
+                archivos.append(Path(nombre).resolve())
 
         try:
-            destination = request.destination.expanduser().resolve()
-            if request.audio_only:
-                destination = destination / "audio"
-            destination.mkdir(parents=True, exist_ok=True)
-            ffmpeg = shutil.which("ffmpeg") or get_ffmpeg_exe()
+            destino = request.destination.expanduser().resolve()
+            if opts.audio_only:
+                destino = destino / "audio"
+            destino.mkdir(parents=True, exist_ok=True)
+            ffmpeg = _preparar_ffmpeg(get_ffmpeg_exe)
+            caratula = incrusta_caratula(opts.audio_only)
             options = {
-                "paths": {"home": str(destination)},
+                "paths": {"home": str(destino)},
                 "outtmpl": {"default": "%(title).120B [%(id)s].%(ext)s"},
                 "windowsfilenames": True,
-                "format": "ba/b" if request.audio_only else "bv*+ba/b",
+                "format": self._seleccion_formato(opts),
                 "ffmpeg_location": ffmpeg,
                 "merge_output_format": "mp4/mkv",
                 "noplaylist": True,
@@ -42,27 +147,81 @@ class YtDlpDownloader:
                 "skip_unavailable_fragments": False,
                 "socket_timeout": 30,
                 "color": "no_color",
-                "post_hooks": [finished],
-                "js_runtimes": {name: {} for name in ("deno", "node") if shutil.which(name)},
+                "post_hooks": [terminado],
+                "postprocessors": self._postprocesadores(opts, caratula),
+                "writethumbnail": caratula,
+                "js_runtimes": _runtimes_js(),
             }
-            if request.audio_only:
-                options["postprocessors"] = [{
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }]
+            if opts.subtitles:
+                options |= {
+                    "writesubtitles": True,
+                    "writeautomaticsub": True,
+                    "subtitleslangs": list(opts.subtitles),
+                }
+            if opts.section:
+                options["download_ranges"] = download_range_func([], [opts.section])
+                options["force_keyframes_at_cuts"] = True
+            if opts.use_archive:
+                options["download_archive"] = str(destino / ".descargadas.txt")
+            if self._on_progress is not None:
+                options |= {"progress_hooks": [self._notificar], "noprogress": True, "quiet": True}
+
             with YoutubeDL(options) as engine:
                 info = engine.extract_info(request.url, download=False, process=False)
                 if info and info.get("_type") in {"playlist", "multi_video"}:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
                 if info:
                     engine.process_ie_result(info, download=True)
-            existing = tuple(dict.fromkeys(p for p in files if p.is_file()))
-            if not existing:
+            existentes = tuple(dict.fromkeys(p for p in archivos if p.is_file()))
+            if not existentes:
+                if opts.use_archive:
+                    # Ya figuraba en el registro: se omite, no es un fallo.
+                    return DownloadResult(())
                 raise DownloadError("No se obtuvo ningún archivo. Comprueba la URL.")
-            return DownloadResult(existing)
-        except (EngineError, OSError, RuntimeError) as exc:
+            return DownloadResult(existentes)
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo completar la descarga: {exc}") from exc
+
+    @staticmethod
+    def _seleccion_formato(opts: DownloadOptions) -> str:
+        if opts.audio_only:
+            return "ba/b"
+        if opts.quality:
+            return f"bv*[height<={opts.quality}]+ba/b[height<={opts.quality}]"
+        return "bv*+ba/b"
+
+    @staticmethod
+    def _postprocesadores(opts: DownloadOptions, caratula: bool = True) -> list[dict]:
+        pps: list[dict] = []
+        if opts.audio_only:
+            pps.append({
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": opts.audio_format,
+                "preferredquality": opts.audio_bitrate,
+            })
+        if opts.skip_sponsors:
+            pps.append({"key": "SponsorBlock", "categories": list(SPONSOR_CATEGORIES),
+                        "when": "after_filter"})
+            pps.append({"key": "ModifyChapters", "remove_sponsor_segments": list(SPONSOR_CATEGORIES)})
+        pps.append({"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": True})
+        if opts.subtitles and not opts.audio_only:
+            pps.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
+        if caratula:
+            pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+        return pps
+
+    def _notificar(self, datos: dict) -> None:
+        if self._on_progress is None:
+            return
+        nombre = datos.get("filename") or ""
+        self._on_progress(DownloadProgress(
+            status=datos.get("status") or "",
+            filename=Path(nombre).name if nombre else "",
+            downloaded=datos.get("downloaded_bytes") or 0,
+            total=datos.get("total_bytes") or datos.get("total_bytes_estimate"),
+            speed=datos.get("speed"),
+            eta=datos.get("eta"),
+        ))
 
     @staticmethod
     def _single_video(info, *, incomplete=False):
@@ -71,3 +230,41 @@ class YtDlpDownloader:
         if info.get("is_live"):
             return "El video está en directo. Usa la URL cuando la transmisión termine."
         return None
+
+
+# -- utilidades del sistema ------------------------------------------------
+def actualizar_motor() -> int:
+    """Actualiza yt-dlp en el intérprete actual."""
+    orden = [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp[default]"]
+    try:
+        return subprocess.call(orden)
+    except OSError as exc:
+        raise DownloadError(f"No se pudo actualizar el motor: {exc}") from exc
+
+
+def abrir_carpeta(ruta: Path) -> None:
+    """Abre la carpeta en el explorador del sistema; nunca interrumpe la descarga."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(ruta)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.call(["open", str(ruta)])
+        else:
+            subprocess.call(["xdg-open", str(ruta)])
+    except OSError:
+        pass
+
+
+def leer_portapapeles() -> str:
+    """Devuelve el texto del portapapeles sin dependencias externas."""
+    try:
+        if sys.platform == "win32":
+            orden = ["powershell", "-NoProfile", "-Command", "Get-Clipboard"]
+        elif sys.platform == "darwin":
+            orden = ["pbpaste"]
+        else:
+            orden = ["xclip", "-selection", "clipboard", "-o"]
+        salida = subprocess.run(orden, capture_output=True, text=True, timeout=15, check=False)
+        return salida.stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise DownloadError(f"No se pudo leer el portapapeles: {exc}") from exc
