@@ -12,27 +12,50 @@ import 'portadas.dart';
 import 'tema.dart';
 
 /// Reproduce un elemento de la biblioteca a pantalla completa.
-class Reproductor extends StatelessWidget {
+class Reproductor extends StatefulWidget {
   const Reproductor({required this.elemento, super.key});
 
   final Elemento elemento;
 
   @override
+  State<Reproductor> createState() => _ReproductorState();
+}
+
+class _ReproductorState extends State<Reproductor> {
+  /// Con clave global el video conserva su estado aunque cambie de sitio en el
+  /// arbol, que es justo lo que pasa al entrar y salir de la ventana flotante.
+  /// Sin ella se reiniciaria desde el principio cada vez.
+  final GlobalKey _claveVideo = GlobalKey();
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(
-          elemento.audio ? 'Reproduciendo' : 'Video',
-          style: const TextStyle(fontSize: 14, color: Colors.white70),
-        ),
-      ),
-      body: _Fondo(
-        elemento: elemento,
-        hijo: elemento.audio ? _Audio(elemento: elemento) : _Video(elemento: elemento),
-      ),
+    final Elemento elemento = widget.elemento;
+    return ValueListenableBuilder<bool>(
+      valueListenable: Nucleo.enVentanaFlotante,
+      builder: (BuildContext context, bool flotando, _) {
+        final Widget contenido = elemento.audio
+            ? _Audio(elemento: elemento)
+            : _Video(key: _claveVideo, elemento: elemento);
+
+        // En la ventana flotante no cabe nada mas que la imagen: ni barra de
+        // titulo ni fondo, que es lo que la afeaba.
+        if (flotando && !elemento.audio) {
+          return ColoredBox(color: Colors.black, child: contenido);
+        }
+
+        return Scaffold(
+          extendBodyBehindAppBar: true,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            iconTheme: const IconThemeData(color: Colors.white),
+            title: Text(
+              elemento.audio ? 'Reproduciendo' : 'Video',
+              style: const TextStyle(fontSize: 14, color: Colors.white70),
+            ),
+          ),
+          body: _Fondo(elemento: elemento, hijo: contenido),
+        );
+      },
     );
   }
 }
@@ -240,7 +263,7 @@ class _BotonGrande extends StatelessWidget {
 }
 
 class _Video extends StatefulWidget {
-  const _Video({required this.elemento});
+  const _Video({required this.elemento, super.key});
 
   final Elemento elemento;
 
