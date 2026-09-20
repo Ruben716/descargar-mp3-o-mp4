@@ -31,3 +31,28 @@ String nombreLimpio(String nombre) {
   final String sinExtension = nombre.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,4}$'), '');
   return sinExtension.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*$'), '').trim();
 }
+
+const Map<String, String> _equivalencias = <String, String>{
+  'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a',
+  'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
+  'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
+  'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o',
+  'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+  'ñ': 'n', 'ç': 'c',
+};
+
+/// Deja un texto listo para comparar: sin mayusculas y sin tildes.
+///
+/// Buscando "corazon" tiene que salir "Corazón": nadie escribe las tildes en
+/// un buscador, y sin esto media biblioteca en castellano seria inencontrable.
+String sinTildes(String texto) {
+  final StringBuffer salida = StringBuffer();
+  for (final String letra in texto.toLowerCase().split('')) {
+    salida.write(_equivalencias[letra] ?? letra);
+  }
+  return salida.toString();
+}
+
+/// Si [texto] contiene [consulta], ignorando mayusculas y tildes.
+bool coincide(String texto, String consulta) =>
+    sinTildes(texto).contains(sinTildes(consulta.trim()));

@@ -7,6 +7,8 @@ import 'package:video_player/video_player.dart';
 
 import 'estado_reproductor.dart';
 import 'formato.dart';
+import 'hoja_cola.dart';
+import 'hoja_suenio.dart';
 import 'nucleo.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -53,6 +55,14 @@ class _ReproductorState extends State<Reproductor> {
               style: const TextStyle(fontSize: 14, color: Colors.white70),
             ),
             actions: <Widget>[
+              if (elemento.audio) ...<Widget>[
+                const _BotonTemporizador(),
+                IconButton(
+                  tooltip: 'Ver la cola',
+                  onPressed: () => abrirCola(context),
+                  icon: const Icon(Icons.queue_music_rounded, size: 22),
+                ),
+              ],
               IconButton(
                 tooltip: 'Compartir',
                 onPressed: () =>
@@ -202,7 +212,13 @@ class _AudioState extends State<_Audio> {
           const SizedBox(height: 4),
           ListenableBuilder(
             listenable: _estado,
-            builder: (BuildContext context, _) => _BotonRepeticion(estado: _estado),
+            builder: (BuildContext context, _) => Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                _BotonAleatorio(estado: _estado),
+                _BotonRepeticion(estado: _estado),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           ListenableBuilder(
@@ -454,6 +470,57 @@ String _sinExtension(String nombre) {
   return sinExt.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*$'), '').trim();
 }
 
+
+/// Abre el temporizador, y se enciende mientras haya uno puesto.
+class _BotonTemporizador extends StatelessWidget {
+  const _BotonTemporizador();
+
+  @override
+  Widget build(BuildContext context) {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    return ListenableBuilder(
+      listenable: estado,
+      builder: (BuildContext context, _) {
+        final bool puesto = estado.finSuenio != null;
+        return IconButton(
+          tooltip: puesto ? 'Temporizador puesto' : 'Temporizador',
+          onPressed: () => abrirTemporizador(context),
+          icon: Icon(
+            puesto ? Icons.bedtime_rounded : Icons.bedtime_outlined,
+            size: 20,
+            color: puesto ? Tema.acento : null,
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Pone y quita el aleatorio.
+class _BotonAleatorio extends StatelessWidget {
+  const _BotonAleatorio({required this.estado});
+
+  final EstadoReproductor estado;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton.icon(
+      onPressed: estado.alternarAleatorio,
+      icon: Icon(
+        Icons.shuffle_rounded,
+        size: 20,
+        color: estado.aleatorio ? Tema.acento : Colors.white38,
+      ),
+      label: Text(
+        estado.aleatorio ? 'Aleatorio' : 'En orden',
+        style: TextStyle(
+          fontSize: 12,
+          color: estado.aleatorio ? Tema.acento : Colors.white38,
+        ),
+      ),
+    );
+  }
+}
 
 /// Cicla entre no repetir, repetir la cola y repetir una sola.
 class _BotonRepeticion extends StatelessWidget {

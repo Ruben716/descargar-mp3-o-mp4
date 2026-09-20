@@ -1,9 +1,15 @@
+import 'dart:math';
+
 import 'package:descargador_movil/main.dart';
 import 'package:descargador_movil/catalogo.dart';
 import 'package:descargador_movil/control_descarga.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/listas.dart';
+import 'package:descargador_movil/fila_pista.dart';
+import 'package:descargador_movil/formato.dart';
 import 'package:descargador_movil/nucleo.dart';
+import 'package:descargador_movil/orden_aleatorio.dart';
+import 'package:descargador_movil/pantalla_biblioteca.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,6 +84,14 @@ void main() {
   /// Abre la app y se queda en Inicio.
   Future<void> abrirInicio(WidgetTester tester) async {
     await tester.pumpWidget(const AplicacionTumbao());
+    await tester.pumpAndSettle();
+  }
+
+  /// Abre la app y salta a Biblioteca.
+  Future<void> abrirBiblioteca(WidgetTester tester) async {
+    await tester.pumpWidget(const AplicacionTumbao());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Biblioteca').last);
     await tester.pumpAndSettle();
   }
 
@@ -475,4 +489,146 @@ void main() {
     expect(mapa['fragmento'], '00:10-00:20');
     expect(mapa['sinPatrocinios'], isTrue);
   });
+
+  // --- Aleatorio, cola y temporizador ------------------------------------
+
+  test('lo encolado a continuacion cae justo detras y no al azar', () {
+    // Regresion: el orden de fabrica reparte las altas en un sitio cualquiera,
+    // asi que "reproducir a continuacion" no reproducia a continuacion.
+    // Se repite: con el reparto al azar acertar la posicion una vez es
+    // cuestion de suerte, veinte seguidas no puede pasar.
+    for (int intento = 0; intento < 20; intento++) {
+      final OrdenAleatorio orden = OrdenAleatorio(azar: Random(intento));
+      orden.insert(0, 5);
+      orden.shuffle(initialIndex: 2);
+      expect(orden.indices.first, 2, reason: 'lo que suena va en cabeza');
+
+      orden.proximaInsercion = 1;
+      orden.insert(5, 1);
+
+      expect(orden.indices[1], 5);
+      expect(orden.indices.length, 6);
+    }
+  });
+
+  test('sin decir donde, lo encolado se reparte al azar', () {
+    final OrdenAleatorio orden = OrdenAleatorio(azar: Random(7));
+    orden.insert(0, 4);
+    orden.insert(4, 1);
+
+    // Cae donde sea, pero cae: ni se pierde ni se duplica.
+    expect(orden.indices.toSet(), <int>{0, 1, 2, 3, 4});
+  });
+
+  test('al insertar en medio, la cola original se recoloca', () {
+    final OrdenAleatorio orden = OrdenAleatorio();
+    orden.insert(0, 3);
+    orden.proximaInsercion = 0;
+    orden.insert(1, 1);
+
+    // La nueva ocupa la posicion 1, asi que las que estaban en 1 y 2 corren.
+    expect(orden.indices.toSet(), <int>{0, 1, 2, 3});
+    expect(orden.indices.first, 1);
+  });
+
+  test('al quitar pistas los indices se recolocan', () {
+    final OrdenAleatorio orden = OrdenAleatorio();
+    orden.insert(0, 5);
+    orden.removeRange(1, 3);
+
+    expect(orden.indices.toSet(), <int>{0, 1, 2});
+  });
+
+  test('el aleatorio se pone y se quita', () async {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    expect(estado.aleatorio, isFalse);
+
+    await estado.alternarAleatorio();
+    expect(estado.aleatorio, isTrue);
+
+    await estado.alternarAleatorio();
+    expect(estado.aleatorio, isFalse);
+  });
+
+  test('el temporizador queda puesto y se puede quitar', () {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    expect(estado.finSuenio, isNull);
+    expect(estado.restanteSuenio, isNull);
+
+    estado.dormirEn(const Duration(minutes: 30));
+    expect(estado.finSuenio, isNotNull);
+    expect(estado.restanteSuenio!.inMinutes, inInclusiveRange(29, 30));
+
+    estado.cancelarSuenio();
+    expect(estado.finSuenio, isNull);
+  });
+
+  test('cerrar el reproductor se lleva el temporizador por delante', () async {
+    // Si no, la app se pausaria sola un rato despues de que ya no suene nada.
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    estado.dormirEn(const Duration(minutes: 15));
+
+    await estado.cerrar();
+
+    expect(estado.finSuenio, isNull);
+  });
+
+  // --- Buscar en la biblioteca -------------------------------------------
+
+  test('la busqueda ignora tildes y mayusculas', () {
+    expect(coincide('Corazon Partio', 'CORAZON'), isTrue);
+    expect(coincide('Corazon Partio', 'partio'), isTrue);
+    expect(coincide('Corazon Partio', 'bailando'), isFalse);
+  });
+
+  testWidgets('buscar en la biblioteca deja solo lo que casa',
+      (WidgetTester tester) async {
+    biblioteca = _conCanciones;
+    await abrirBiblioteca(tester);
+    expect(find.byType(FilaPista), findsNWidgets(3));
+
+    await tester.enterText(find.byType(TextField), 'bailando');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FilaPista), findsOneWidget);
+    expect(find.textContaining('Bailando'), findsWidgets);
+  });
+
+  testWidgets('una busqueda sin resultados lo dice', (WidgetTester tester) async {
+    biblioteca = _conCanciones;
+    await abrirBiblioteca(tester);
+
+    await tester.enterText(find.byType(TextField), 'reggaeton');
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FilaPista), findsNothing);
+    expect(find.text('Nada con ese nombre.'), findsOneWidget);
+  });
+
+  testWidgets('ordenar alfabeticamente no se pierde con las tildes',
+      (WidgetTester tester) async {
+    biblioteca = _conCanciones;
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.swap_vert_rounded));
+    await tester.pumpAndSettle();
+    // Se toca el elemento del menu y no su texto: el texto va desplazado
+    // dentro de la fila y el toque caeria fuera.
+    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<Orden>, 'A - Z'));
+    await tester.pumpAndSettle();
+
+    final List<String> orden = tester
+        .widgetList<FilaPista>(find.byType(FilaPista))
+        .map((FilaPista f) => f.elemento.nombre)
+        .toList();
+    // "Amame" con tilde iria detras de la Z si se comparase en crudo.
+    expect(orden.first, startsWith('Amame'));
+    expect(orden.last, startsWith('Corazon'));
+  });
 }
+
+/// Tres canciones con tildes y duraciones distintas, para filtrar y ordenar.
+const String _conCanciones = '{"ok":true,"elementos":['
+    '{"nombre":"Corazon Partio [c1].mp3","tamano":100,"duracion":300,"audio":true,"uri":"content://audio/1"},'
+    '{"nombre":"Bailando [c2].mp3","tamano":100,"duracion":100,"audio":true,"uri":"content://audio/2"},'
+    '{"nombre":"Amame [c3].mp3","tamano":100,"duracion":200,"audio":true,"uri":"content://audio/3"}]}';

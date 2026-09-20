@@ -125,7 +125,22 @@ class _Menu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
     final List<AccionPista> todas = <AccionPista>[
+      // Encolar solo se ofrece para musica: meter un video en la cola de audio
+      // cortaria la escucha en seco.
+      if (elemento.audio) ...<AccionPista>[
+        AccionPista(
+          icono: Icons.playlist_play_rounded,
+          texto: 'Reproducir a continuacion',
+          alElegir: () => estado.reproducirAContinuacion(elemento),
+        ),
+        AccionPista(
+          icono: Icons.queue_music_rounded,
+          texto: 'Anadir a la cola',
+          alElegir: () => estado.anadirAlFinal(elemento),
+        ),
+      ],
       AccionPista(
         icono: Icons.share_rounded,
         texto: 'Compartir',

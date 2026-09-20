@@ -3,11 +3,23 @@ import 'package:flutter/material.dart';
 import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'fila_pista.dart';
+import 'formato.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 import 'pantalla_lista.dart';
 import 'portadas.dart';
 import 'tema.dart';
+
+/// Por que criterio se ordena lo descargado.
+enum Orden {
+  reciente('Mas reciente'),
+  alfabetico('A - Z'),
+  duracion('Mas larga');
+
+  const Orden(this.etiqueta);
+
+  final String etiqueta;
+}
 
 /// Lo descargado, repartido en canciones, videos y listas.
 ///
@@ -24,8 +36,10 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     with SingleTickerProviderStateMixin {
   final Listas _listas = Listas.instancia;
   late final TabController _pestanas = TabController(length: 3, vsync: this);
+  final TextEditingController _busqueda = TextEditingController();
 
   List<Elemento> _elementos = <Elemento>[];
+  Orden _orden = Orden.reciente;
   bool _cargando = true;
   String? _error;
 
@@ -40,6 +54,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
   @override
   void dispose() {
     _listas.removeListener(_refrescar);
+    _busqueda.dispose();
     _pestanas.dispose();
     super.dispose();
   }
@@ -67,8 +82,38 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     }
   }
 
-  List<Elemento> get _canciones => _elementos.where((Elemento e) => e.audio).toList();
-  List<Elemento> get _videos => _elementos.where((Elemento e) => !e.audio).toList();
+  List<Elemento> get _canciones => _preparar(audio: true);
+  List<Elemento> get _videos => _preparar(audio: false);
+
+  /// Filtra por lo escrito y ordena por el criterio elegido.
+  ///
+  /// El orden por defecto es el que llega del telefono, que ya viene por fecha
+  /// de descarga; por eso "mas reciente" no toca nada.
+  List<Elemento> _preparar({required bool audio}) {
+    final String consulta = _busqueda.text.trim();
+    final List<Elemento> salida = _elementos
+        .where((Elemento e) => e.audio == audio)
+        .where((Elemento e) => consulta.isEmpty || coincide(e.nombre, consulta))
+        .toList();
+    switch (_orden) {
+      case Orden.reciente:
+        break;
+      case Orden.alfabetico:
+        salida.sort((Elemento a, Elemento b) =>
+            sinTildes(nombreLimpio(a.nombre)).compareTo(sinTildes(nombreLimpio(b.nombre))));
+      case Orden.duracion:
+        salida.sort((Elemento a, Elemento b) => b.duracion.compareTo(a.duracion));
+    }
+    return salida;
+  }
+
+  /// Los nombres de lista que casan con la busqueda.
+  List<String> get _nombresListas {
+    final String consulta = _busqueda.text.trim();
+    final List<String> nombres = _listas.nombres;
+    if (consulta.isEmpty) return nombres;
+    return nombres.where((String n) => coincide(n, consulta)).toList();
+  }
 
   Future<void> _eliminar(Elemento elemento) async {
     final bool confirmado = await showDialog<bool>(
@@ -154,6 +199,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
 
     return Column(
       children: <Widget>[
+        _barraBusqueda(),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
           child: TabBar(
@@ -170,7 +216,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
             tabs: <Widget>[
               Tab(text: 'Canciones (${_canciones.length})'),
               Tab(text: 'Videos (${_videos.length})'),
-              Tab(text: 'Listas (${_listas.nombres.length})'),
+              Tab(text: 'Listas (${_nombresListas.length})'),
             ],
           ),
         ),
@@ -189,8 +235,64 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     );
   }
 
+  /// Buscador y orden. Van fuera de las pestanias porque valen para las tres.
+  Widget _barraBusqueda() {
+    final bool buscando = _busqueda.text.trim().isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 6, 8, 2),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: TextField(
+              controller: _busqueda,
+              textInputAction: TextInputAction.search,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                hintText: 'Buscar en lo que tienes',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                isDense: true,
+                suffixIcon: buscando
+                    ? IconButton(
+                        onPressed: () {
+                          _busqueda.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                      )
+                    : null,
+              ),
+            ),
+          ),
+          PopupMenuButton<Orden>(
+            tooltip: 'Ordenar',
+            color: Tema.superficieAlta,
+            icon: Icon(
+              Icons.swap_vert_rounded,
+              color: _orden == Orden.reciente ? Colors.white54 : Tema.acento,
+            ),
+            onSelected: (Orden elegido) => setState(() => _orden = elegido),
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<Orden>>[
+              for (final Orden opcion in Orden.values)
+                CheckedPopupMenuItem<Orden>(
+                  value: opcion,
+                  checked: _orden == opcion,
+                  child: Text(opcion.etiqueta),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _pistas(List<Elemento> elementos, String vacio) {
     if (elementos.isEmpty) {
+      if (_busqueda.text.trim().isNotEmpty) {
+        return const _Vacio(
+          texto: 'Nada con ese nombre.',
+          icono: Icons.search_off_rounded,
+        );
+      }
       return _Vacio(texto: vacio, icono: Icons.library_music_outlined);
     }
     return RefreshIndicator(
@@ -208,7 +310,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
   }
 
   Widget _seccionListas() {
-    final List<String> nombres = _listas.nombres;
+    final List<String> nombres = _nombresListas;
     return Column(
       children: <Widget>[
         Padding(

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'formato.dart';
 import 'nucleo.dart';
+import 'orden_aleatorio.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
 class Pista {
@@ -53,16 +56,40 @@ class EstadoReproductor extends ChangeNotifier {
 
   static final EstadoReproductor instancia = EstadoReproductor._();
 
-  final AudioPlayer motor = AudioPlayer();
+  /// El orden aleatorio es nuestro y no el de fabrica para poder decidir donde
+  /// caen las altas; ver [OrdenAleatorio].
+  final OrdenAleatorio _orden = OrdenAleatorio();
 
-  /// Lo que hay en cola. Sin ella no habria siguiente ni anterior.
+  late final AudioPlayer motor = AudioPlayer(shuffleOrder: _orden);
+
+  /// Lo que hay en cola, en el orden en que se cargo. Sin ella no habria
+  /// siguiente ni anterior.
+  ///
+  /// Va en paralelo a `motor.audioSources`: la posicion `i` de una es la `i` de
+  /// la otra. Con el aleatorio puesto ese **no** es el orden en que suena; para
+  /// eso esta [colaEnEscucha].
   List<Elemento> _cola = <Elemento>[];
   List<Elemento> get cola => List<Elemento>.unmodifiable(_cola);
+
+  /// La cola en el orden en que se va a oir, con el aleatorio ya aplicado.
+  List<Elemento> get colaEnEscucha => <Elemento>[
+    for (final int i in motor.effectiveIndices)
+      if (i < _cola.length) _cola[i],
+  ];
+
+  /// Que posicion de [colaEnEscucha] esta sonando, o -1 si no hay cola.
+  int get posicionEnEscucha {
+    final int? actual = motor.currentIndex;
+    if (actual == null) return -1;
+    return motor.effectiveIndices.indexOf(actual);
+  }
 
   bool get haySiguiente => motor.hasNext;
   bool get hayAnterior => motor.hasPrevious;
 
   LoopMode get repeticion => motor.loopMode;
+
+  bool get aleatorio => motor.shuffleModeEnabled;
 
   /// Reproduce desde una pista y deja el resto en cola detras.
   Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
@@ -77,6 +104,9 @@ class EstadoReproductor extends ChangeNotifier {
     notifyListeners();
     try {
       await motor.setAudioSources(await _fuentes(elementos), initialIndex: desde);
+      // Una cola nueva llega sin barajar. Si el aleatorio seguia puesto de
+      // antes hay que rebarajar, o diria "aleatorio" y sonaria en orden.
+      if (motor.shuffleModeEnabled) await motor.shuffle();
       await motor.play();
     } catch (error) {
       _error = '$error';
@@ -93,14 +123,23 @@ class EstadoReproductor extends ChangeNotifier {
     final List<AudioSource> fuentes = <AudioSource>[];
     for (int i = 0; i < elementos.length; i += 8) {
       final List<Elemento> trozo = elementos.skip(i).take(8).toList();
-      final List<Uri?> artes = await Future.wait(
-        trozo.map((Elemento e) => Nucleo.caratulaArchivo(e.uri)),
-      );
+      final List<Uri?> artes = await Future.wait(trozo.map((Elemento e) => _arte(e.uri)));
       for (int j = 0; j < trozo.length; j++) {
         fuentes.add(_fuente(trozo[j], artes[j]));
       }
     }
     return fuentes;
+  }
+
+  /// Caratulas ya pedidas, para no volver a cruzar a Kotlin por la misma.
+  ///
+  /// Importa al encolar de una en una: sin esto, anadir una pista a la cola
+  /// pagaria otra vez la consulta a MediaStore de una pista que ya suena.
+  final Map<String, Uri?> _artes = <String, Uri?>{};
+
+  Future<Uri?> _arte(String uri) async {
+    if (_artes.containsKey(uri)) return _artes[uri];
+    return _artes[uri] = await Nucleo.caratulaArchivo(uri);
   }
 
   AudioSource _fuente(Elemento elemento, Uri? arte) => AudioSource.uri(
@@ -126,6 +165,88 @@ class EstadoReproductor extends ChangeNotifier {
     await motor.seekToPrevious();
   }
 
+  /// Pone o quita el aleatorio.
+  ///
+  /// Al ponerlo se baraja dejando en cabeza lo que ya suena, para no cortar la
+  /// cancion a mitad; al quitarlo se vuelve al orden en que se cargo la cola.
+  Future<void> alternarAleatorio() async {
+    final bool activar = !motor.shuffleModeEnabled;
+    if (activar) await motor.shuffle();
+    await motor.setShuffleModeEnabled(activar);
+    notifyListeners();
+  }
+
+  /// Mete una pista justo detras de la que suena.
+  Future<void> reproducirAContinuacion(Elemento elemento) async {
+    await _encolar(elemento, aContinuacion: true);
+  }
+
+  /// Mete una pista al final de lo que queda por sonar.
+  Future<void> anadirAlFinal(Elemento elemento) async {
+    await _encolar(elemento, aContinuacion: false);
+  }
+
+  Future<void> _encolar(Elemento elemento, {required bool aContinuacion}) async {
+    if (_cola.isEmpty) {
+      await reproducirLista(<Elemento>[elemento], 0);
+      return;
+    }
+    final int actual = motor.currentIndex ?? 0;
+    final int destino = aContinuacion ? actual + 1 : _cola.length;
+    final AudioSource fuente = _fuente(elemento, await _arte(elemento.uri));
+
+    // El orden aleatorio no sabe donde esta el oyente, asi que se le dice antes
+    // de insertar y se le quita despues: solo vale para esta alta.
+    _orden.proximaInsercion =
+        aContinuacion ? posicionEnEscucha + 1 : motor.effectiveIndices.length;
+    try {
+      await motor.insertAudioSource(destino, fuente);
+    } finally {
+      _orden.proximaInsercion = null;
+    }
+    _cola.insert(destino, elemento);
+    notifyListeners();
+  }
+
+  /// Salta a una pista de la cola por su sitio en el orden de escucha.
+  Future<void> saltarACola(int posicion) async {
+    final List<int> escucha = motor.effectiveIndices;
+    if (posicion < 0 || posicion >= escucha.length) return;
+    await motor.seek(Duration.zero, index: escucha[posicion]);
+    if (!motor.playing) await motor.play();
+  }
+
+  /// Quita de la cola la pista que ocupa esa posicion en el orden de escucha.
+  Future<void> quitarDeCola(int posicion) async {
+    final List<int> escucha = motor.effectiveIndices;
+    if (posicion < 0 || posicion >= escucha.length) return;
+    // Quedarse sin cola es cerrar: dejar el motor con cero fuentes lo deja en
+    // un estado del que no sabe salir.
+    if (escucha.length == 1) {
+      await cerrar();
+      return;
+    }
+    final int original = escucha[posicion];
+    await motor.removeAudioSourceAt(original);
+    _cola.removeAt(original);
+    notifyListeners();
+  }
+
+  /// Reordena la cola arrastrando. [hasta] ya viene sin contar el hueco que
+  /// deja la fila al salir de su sitio.
+  ///
+  /// Solo tiene sentido sin aleatorio: con el puesto, el orden lo decide el
+  /// barajado y moverlo a mano no se podria sostener. La pantalla esconde el
+  /// asa en ese caso, y esto se guarda de todos modos.
+  Future<void> moverEnCola(int desde, int hasta) async {
+    if (aleatorio || desde == hasta) return;
+    if (desde < 0 || desde >= _cola.length) return;
+    final int destino = hasta.clamp(0, _cola.length - 1);
+    await motor.moveAudioSource(desde, destino);
+    _cola.insert(destino, _cola.removeAt(desde));
+    notifyListeners();
+  }
+
   /// Cicla entre no repetir, repetir la cola y repetir una sola.
   Future<void> alternarRepeticion() async {
     final LoopMode siguiente = switch (motor.loopMode) {
@@ -134,6 +255,51 @@ class EstadoReproductor extends ChangeNotifier {
       LoopMode.one => LoopMode.off,
     };
     await motor.setLoopMode(siguiente);
+    notifyListeners();
+  }
+
+  // --- Temporizador de apagado -------------------------------------------
+
+  Timer? _relojSuenio;
+  DateTime? _finSuenio;
+
+  /// Cuando se va a pausar sola, o `null` si no hay temporizador puesto.
+  DateTime? get finSuenio => _finSuenio;
+
+  /// Lo que falta para que se apague, o `null` si no hay temporizador.
+  Duration? get restanteSuenio {
+    final DateTime? fin = _finSuenio;
+    if (fin == null) return null;
+    final Duration queda = fin.difference(DateTime.now());
+    return queda.isNegative ? Duration.zero : queda;
+  }
+
+  /// Pausa la reproduccion dentro de [espera].
+  void dormirEn(Duration espera) {
+    _relojSuenio?.cancel();
+    _finSuenio = DateTime.now().add(espera);
+    _relojSuenio = Timer(espera, () async {
+      await motor.pause();
+      cancelarSuenio();
+    });
+    notifyListeners();
+  }
+
+  /// Pausa al terminar lo que suena ahora.
+  ///
+  /// Se resuelve como un temporizador normal con lo que le queda a la pista, y
+  /// no esperando a que cambie de indice, porque ese cambio tambien lo provoca
+  /// el usuario al pulsar siguiente y apagaria la musica sin venir a cuento.
+  void dormirAlAcabarPista() {
+    final Duration total = motor.duration ?? Duration.zero;
+    final Duration queda = total - motor.position;
+    dormirEn(queda.isNegative ? Duration.zero : queda);
+  }
+
+  void cancelarSuenio() {
+    _relojSuenio?.cancel();
+    _relojSuenio = null;
+    _finSuenio = null;
     notifyListeners();
   }
 
@@ -214,6 +380,7 @@ class EstadoReproductor extends ChangeNotifier {
 
   Future<void> cerrar() async {
     _cola = <Elemento>[];
+    cancelarSuenio();
     try {
       await motor.stop();
     } catch (_) {
@@ -234,6 +401,11 @@ class EstadoReproductor extends ChangeNotifier {
     _actual = null;
     _error = null;
     _preparando = false;
+    _cola = <Elemento>[];
+    _artes.clear();
+    _relojSuenio?.cancel();
+    _relojSuenio = null;
+    _finSuenio = null;
     notifyListeners();
   }
 
