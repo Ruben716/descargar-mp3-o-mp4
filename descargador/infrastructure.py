@@ -73,7 +73,14 @@ def _preparar_ffmpeg() -> str:
     encontrado = shutil.which("ffmpeg")
     if encontrado:
         return encontrado
-    original = Path(_cargar_ffmpeg()())
+    try:
+        localizador = _cargar_ffmpeg()
+    except DownloadError:
+        # Sin imageio-ffmpeg y sin FFmpeg en el PATH: pasa en Android si los
+        # binarios del APK no llegaron a registrarse. Hablar de pip no ayuda.
+        raise DownloadError(
+            "No se encontró FFmpeg, necesario para unir video y audio o crear MP3.") from None
+    original = Path(localizador())
     alias = original.with_name("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     if not alias.exists():
         try:

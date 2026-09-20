@@ -232,7 +232,9 @@ class MainActivity : FlutterActivity() {
         val raiz = File(filesDir, "ffmpeg")
         val destino = File(raiz, "usr/lib")
         val marca = File(raiz, ".completo")
-        if (marca.exists()) return destino
+        // La marca guarda de que instalacion salieron las librerias: al
+        // actualizar la app cambia la ruta nativa y hay que volver a extraer.
+        if (marca.exists() && marca.readText() == nativos) return destino
 
         raiz.deleteRecursively()
         raiz.mkdirs()
@@ -249,13 +251,16 @@ class MainActivity : FlutterActivity() {
                 entrada = zip.nextEntry
             }
         }
-        marca.createNewFile()
+        marca.writeText(nativos)
         return destino
     }
 
     private fun enlazar(origen: File, enlace: File) {
         try {
-            if (enlace.exists()) enlace.delete()
+            // Ojo: exists() sigue el enlace, asi que devuelve false cuando esta
+            // roto (pasa en cada reinstalacion, porque cambia la ruta nativa) y
+            // el enlace viejo se quedaria ahi haciendo fallar a symlink.
+            enlace.delete()
             Os.symlink(origen.absolutePath, enlace.absolutePath)
         } catch (error: Throwable) {
             // Sin enlace simbolico se seguira pudiendo descargar: yt-dlp acepta
