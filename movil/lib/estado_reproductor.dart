@@ -25,6 +25,13 @@ class Pista {
 class EstadoReproductor extends ChangeNotifier {
   EstadoReproductor._() {
     motor.playerStateStream.listen((_) => notifyListeners());
+    // Al saltar de pista dentro de la cola hay que actualizar lo que se ve.
+    motor.currentIndexStream.listen((int? indice) {
+      if (indice == null || indice >= _cola.length) return;
+      final Elemento actual = _cola[indice];
+      _actual = Pista(titulo: actual.nombre, fuente: actual.uri, elemento: actual);
+      notifyListeners();
+    });
     // Un fallo mientras suena no llega por el await de setUrl: viaja por este
     // flujo. Sin escucharlo, el reproductor se quedaba mudo sin explicacion.
     motor.playbackEventStream.listen(
@@ -40,6 +47,88 @@ class EstadoReproductor extends ChangeNotifier {
   static final EstadoReproductor instancia = EstadoReproductor._();
 
   final AudioPlayer motor = AudioPlayer();
+
+  /// Lo que hay en cola. Sin ella no habria siguiente ni anterior.
+  List<Elemento> _cola = <Elemento>[];
+  List<Elemento> get cola => List<Elemento>.unmodifiable(_cola);
+
+  bool get haySiguiente => motor.hasNext;
+  bool get hayAnterior => motor.hasPrevious;
+
+  LoopMode get repeticion => motor.loopMode;
+
+  /// Reproduce desde una pista y deja el resto en cola detras.
+  Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
+    if (elementos.isEmpty) return;
+    _cola = List<Elemento>.from(elementos);
+    _actual = Pista(
+      titulo: elementos[desde].nombre,
+      fuente: elementos[desde].uri,
+      elemento: elementos[desde],
+    );
+    _error = null;
+    notifyListeners();
+    try {
+      await motor.setAudioSources(await _fuentes(elementos), initialIndex: desde);
+      await motor.play();
+    } catch (error) {
+      _error = '$error';
+      _actual = null;
+      notifyListeners();
+    }
+  }
+
+  /// Prepara la cola pidiendo las caratulas de ocho en ocho.
+  ///
+  /// Una a una tardaria demasiado con una lista larga, y todas a la vez
+  /// abriria un hilo por pista en Kotlin.
+  Future<List<AudioSource>> _fuentes(List<Elemento> elementos) async {
+    final List<AudioSource> fuentes = <AudioSource>[];
+    for (int i = 0; i < elementos.length; i += 8) {
+      final List<Elemento> trozo = elementos.skip(i).take(8).toList();
+      final List<Uri?> artes = await Future.wait(
+        trozo.map((Elemento e) => Nucleo.caratulaArchivo(e.uri)),
+      );
+      for (int j = 0; j < trozo.length; j++) {
+        fuentes.add(_fuente(trozo[j], artes[j]));
+      }
+    }
+    return fuentes;
+  }
+
+  AudioSource _fuente(Elemento elemento, Uri? arte) => AudioSource.uri(
+    Uri.parse(elemento.uri),
+    tag: MediaItem(
+      id: elemento.uri,
+      title: nombreLimpio(elemento.nombre),
+      album: 'Descargador',
+      artUri: arte,
+    ),
+  );
+
+  Future<void> siguiente() async {
+    if (motor.hasNext) await motor.seekToNext();
+  }
+
+  /// Como en cualquier reproductor: si ya sono un rato, vuelve al principio.
+  Future<void> anterior() async {
+    if (motor.position > const Duration(seconds: 3) || !motor.hasPrevious) {
+      await motor.seek(Duration.zero);
+      return;
+    }
+    await motor.seekToPrevious();
+  }
+
+  /// Cicla entre no repetir, repetir la cola y repetir una sola.
+  Future<void> alternarRepeticion() async {
+    final LoopMode siguiente = switch (motor.loopMode) {
+      LoopMode.off => LoopMode.all,
+      LoopMode.all => LoopMode.one,
+      LoopMode.one => LoopMode.off,
+    };
+    await motor.setLoopMode(siguiente);
+    notifyListeners();
+  }
 
   Pista? _actual;
   Pista? get actual => _actual;
@@ -117,6 +206,7 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   Future<void> cerrar() async {
+    _cola = <Elemento>[];
     try {
       await motor.stop();
     } catch (_) {

@@ -191,29 +191,46 @@ class _AudioState extends State<_Audio> {
               );
             },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 4),
+          ListenableBuilder(
+            listenable: _estado,
+            builder: (BuildContext context, _) => _BotonRepeticion(estado: _estado),
+          ),
+          const SizedBox(height: 4),
           ListenableBuilder(
             listenable: _estado,
             builder: (BuildContext context, _) => Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 IconButton(
-                  iconSize: 34,
+                  iconSize: 30,
+                  color: _estado.hayAnterior ? Colors.white70 : Colors.white24,
+                  onPressed: _estado.anterior,
+                  icon: const Icon(Icons.skip_previous_rounded),
+                ),
+                IconButton(
+                  iconSize: 30,
                   color: Colors.white70,
                   onPressed: () => _estado.saltar(const Duration(seconds: -10)),
                   icon: const Icon(Icons.replay_10),
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 12),
                 _BotonGrande(
                   sonando: _estado.sonando,
                   alPulsar: _estado.alternar,
                 ),
-                const SizedBox(width: 20),
+                const SizedBox(width: 12),
                 IconButton(
-                  iconSize: 34,
+                  iconSize: 30,
                   color: Colors.white70,
                   onPressed: () => _estado.saltar(const Duration(seconds: 10)),
                   icon: const Icon(Icons.forward_10),
+                ),
+                IconButton(
+                  iconSize: 30,
+                  color: _estado.haySiguiente ? Colors.white70 : Colors.white24,
+                  onPressed: _estado.haySiguiente ? _estado.siguiente : null,
+                  icon: const Icon(Icons.skip_next_rounded),
                 ),
               ],
             ),
@@ -427,4 +444,38 @@ class _VideoState extends State<_Video> {
 String _sinExtension(String nombre) {
   final String sinExt = nombre.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,4}$'), '');
   return sinExt.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*$'), '').trim();
+}
+
+
+/// Cicla entre no repetir, repetir la cola y repetir una sola.
+class _BotonRepeticion extends StatelessWidget {
+  const _BotonRepeticion({required this.estado});
+
+  final EstadoReproductor estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool activa = estado.repeticion != LoopMode.off;
+    return TextButton.icon(
+      onPressed: estado.alternarRepeticion,
+      icon: Icon(
+        estado.repeticion == LoopMode.one
+            ? Icons.repeat_one_rounded
+            : Icons.repeat_rounded,
+        size: 20,
+        color: activa ? Tema.acento : Colors.white38,
+      ),
+      label: Text(
+        switch (estado.repeticion) {
+          LoopMode.off => 'Sin repetir',
+          LoopMode.all => 'Repetir la lista',
+          LoopMode.one => 'Repetir esta',
+        },
+        style: TextStyle(
+          fontSize: 12,
+          color: activa ? Tema.acento : Colors.white38,
+        ),
+      ),
+    );
+  }
 }

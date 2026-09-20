@@ -174,6 +174,8 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
               itemCount: visibles.length,
               itemBuilder: (BuildContext context, int i) => _Fila(
                 elemento: visibles[i],
+                enCola: visibles,
+                posicion: i,
                 enLista: _enLista ? _filtro : null,
                 alEliminar: () => _eliminar(visibles[i]),
                 alOrganizar: () => _elegirLista(visibles[i]),
@@ -258,6 +260,8 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
 class _Fila extends StatelessWidget {
   const _Fila({
     required this.elemento,
+    required this.enCola,
+    required this.posicion,
     required this.enLista,
     required this.alEliminar,
     required this.alOrganizar,
@@ -265,6 +269,11 @@ class _Fila extends StatelessWidget {
   });
 
   final Elemento elemento;
+
+  /// Lo que se ve en pantalla pasa a ser la cola: al tocar una pista, las
+  /// siguientes suenan detras sin tener que volver a la lista.
+  final List<Elemento> enCola;
+  final int posicion;
   final String? enLista;
   final VoidCallback alEliminar;
   final VoidCallback alOrganizar;
@@ -285,7 +294,12 @@ class _Fila extends StatelessWidget {
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               onTap: () {
-                if (elemento.audio) estado.reproducirElemento(elemento);
+                if (elemento.audio) {
+                  estado.reproducirLista(
+                    enCola.where((Elemento e) => e.audio).toList(),
+                    enCola.where((Elemento e) => e.audio).toList().indexOf(elemento),
+                  );
+                }
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => Reproductor(elemento: elemento)),
                 );

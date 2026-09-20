@@ -6,6 +6,7 @@ import 'package:descargador_movil/nucleo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Respuestas del canal nativo. Las pruebas no arrancan Python ni tocan la red.
@@ -289,6 +290,28 @@ void main() {
     expect(listas.contiene('Prueba', 'content://audio/1'), isFalse);
     await listas.borrar('Prueba');
     expect(listas.nombres, isNot(contains('Prueba')));
+  });
+
+  test('la repeticion cicla entre las tres opciones', () async {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    expect(estado.repeticion, LoopMode.off);
+
+    await estado.alternarRepeticion();
+    expect(estado.repeticion, LoopMode.all);
+
+    await estado.alternarRepeticion();
+    expect(estado.repeticion, LoopMode.one);
+
+    // Y vuelve al principio, para poder apagarla sin reiniciar la app.
+    await estado.alternarRepeticion();
+    expect(estado.repeticion, LoopMode.off);
+  });
+
+  test('sin cola no hay siguiente ni anterior', () {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    expect(estado.cola, isEmpty);
+    expect(estado.haySiguiente, isFalse);
+    expect(estado.hayAnterior, isFalse);
   });
 
   test('los ajustes viajan al nucleo con los nombres que espera Kotlin', () {

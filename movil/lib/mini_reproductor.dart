@@ -66,16 +66,30 @@ class _Barra extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                       ),
                     ),
+                    // Iconos justos y sin relleno: caben cuatro controles sin
+                    // comerse el titulo.
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: estado.hayAnterior ? estado.anterior : null,
+                      icon: const Icon(Icons.skip_previous_rounded, size: 22),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: estado.alternar,
                       icon: Icon(
                         estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        size: 30,
+                        size: 28,
                       ),
                     ),
                     IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: estado.haySiguiente ? estado.siguiente : null,
+                      icon: const Icon(Icons.skip_next_rounded, size: 22),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
                       onPressed: estado.cerrar,
-                      icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white54),
+                      icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white54),
                     ),
                   ],
                 ),
