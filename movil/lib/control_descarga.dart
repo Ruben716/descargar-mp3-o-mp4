@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'catalogo.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 
@@ -113,20 +114,39 @@ class ControlDescarga extends ChangeNotifier {
 
     int correctas = 0;
     int fallidas = 0;
+    int reutilizadas = 0;
     String ultimoError = '';
     // Los URI de biblioteca de lo que se va guardando, para recrear la lista.
     final List<String> guardados = <String>[];
     final List<String> pendientes = List<String>.from(urls);
     final bool esLote = urls.length > 1;
+    // Lo que el catalogo dice que ya tenemos vale solo si sigue en el
+    // telefono: si se borro por fuera, hay que volver a bajarlo.
+    final Set<String> enBiblioteca = await _urisDeBiblioteca();
 
     Future<void> trabajador() async {
       while (!_cancelado && pendientes.isNotEmpty) {
         final String url = pendientes.removeAt(0);
         try {
-          // En un lote no avisa cada pista: al final se manda uno solo.
-          guardados.addAll(
-            await Nucleo.descargar(ajustes.copiar(url: url), avisar: !esLote),
+          final String? ya = await Catalogo.instancia.buscar(
+            url,
+            audio: ajustes.soloAudio,
           );
+          if (ya != null && enBiblioteca.contains(ya)) {
+            // Ya esta bajada: se aprovecha y solo entra en la lista.
+            guardados.add(ya);
+            reutilizadas++;
+            _indice++;
+            notifyListeners();
+            continue;
+          }
+          // En un lote no avisa cada pista: al final se manda uno solo.
+          final List<String> nuevos =
+              await Nucleo.descargar(ajustes.copiar(url: url), avisar: !esLote);
+          guardados.addAll(nuevos);
+          for (final String uri in nuevos) {
+            await Catalogo.instancia.registrar(url, audio: ajustes.soloAudio, uri: uri);
+          }
           correctas++;
           alTerminar?.call();
         } on ErrorNucleo catch (error) {
@@ -148,7 +168,7 @@ class ControlDescarga extends ChangeNotifier {
       if (esLote && correctas > 0) {
         await Nucleo.avisarLote(correctas, audio: ajustes.soloAudio);
       }
-      _resumen(correctas, fallidas, ultimoError);
+      _resumen(correctas, fallidas, reutilizadas, ultimoError);
     } finally {
       _reloj?.cancel();
       _activa = false;
@@ -187,19 +207,36 @@ class ControlDescarga extends ChangeNotifier {
   /// Nombre de la lista recien creada, para poder mencionarla al terminar.
   String get listaCreada => _listaCreada;
 
-  void _resumen(int correctas, int fallidas, String ultimoError) {
+  /// Los URI que hay ahora mismo en la biblioteca del telefono.
+  Future<Set<String>> _urisDeBiblioteca() async {
+    try {
+      final List<Elemento> elementos = await Nucleo.biblioteca();
+      return elementos.map((Elemento e) => e.uri).toSet();
+    } catch (_) {
+      // Sin la biblioteca se descarga todo, que es el comportamiento seguro.
+      return <String>{};
+    }
+  }
+
+  void _resumen(int correctas, int fallidas, int reutilizadas, String ultimoError) {
     if (_total == 1) {
       _fallo = fallidas > 0;
+      if (reutilizadas > 0) {
+        _mensaje = 'Ya la tenias en tu biblioteca.';
+        return;
+      }
       _mensaje = _fallo ? ultimoError : 'Guardado en tu biblioteca.';
       return;
     }
     final String corte = _cancelado ? ' (cancelado)' : '';
     final String creada =
         _listaCreada.isEmpty ? '' : ' Se creo la lista "$_listaCreada".';
-    _fallo = correctas == 0;
+    final String repetidas =
+        reutilizadas == 0 ? '' : ' $reutilizadas ya las tenias.';
+    _fallo = correctas == 0 && reutilizadas == 0;
     _mensaje = fallidas == 0
-        ? '$correctas guardadas en tu biblioteca$corte.$creada'
-        : '$correctas guardadas, $fallidas con error$corte.$creada'
+        ? '$correctas guardadas en tu biblioteca$corte.$repetidas$creada'
+        : '$correctas guardadas, $fallidas con error$corte.$repetidas$creada'
             '\n\nUltimo error: $ultimoError';
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'listas.dart';
@@ -97,6 +98,9 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
       await Nucleo.eliminar(elemento.uri);
       await EstadoReproductor.instancia.olvidarSiEs(elemento.uri);
       await _listas.olvidar(elemento.uri);
+      // Sin esto el catalogo seguiria creyendo que la tenemos y no se
+      // volveria a descargar nunca.
+      await Catalogo.instancia.olvidar(elemento.uri);
       await recargar();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

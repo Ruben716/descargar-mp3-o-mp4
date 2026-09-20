@@ -1,4 +1,5 @@
 import 'package:descargador_movil/main.dart';
+import 'package:descargador_movil/catalogo.dart';
 import 'package:descargador_movil/control_descarga.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/listas.dart';
@@ -6,6 +7,7 @@ import 'package:descargador_movil/nucleo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -13,29 +15,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 const MethodChannel _canal = MethodChannel('com.ruben.descargador/nucleo');
 
 const String _busqueda = '{"ok":true,"resultados":['
-    '{"titulo":"Cancion uno","autor":"Autor","duracion":254,"url":"https://y/1","miniatura":""},'
-    '{"titulo":"Cancion dos","autor":"Otro","duracion":100,"url":"https://y/2","miniatura":""}]}';
+    '{"titulo":"Cancion uno","autor":"Autor","duracion":254,"url":"https://www.youtube.com/watch?v=uno","miniatura":""},'
+    '{"titulo":"Cancion dos","autor":"Otro","duracion":100,"url":"https://www.youtube.com/watch?v=dos","miniatura":""}]}';
 
 void main() {
   // El almacenamiento del telefono tampoco existe en las pruebas.
   TestWidgetsFlutterBinding.ensureInitialized();
+  // SQLite tampoco: se usa la version de escritorio, en memoria.
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
 
   final List<MethodCall> llamadas = <MethodCall>[];
+  // Lo que el telefono dice tener; alguna prueba necesita que no este vacio.
+  String biblioteca = '{"ok":true,"elementos":[]}';
 
-  setUp(() {
+  setUp(() async {
     llamadas.clear();
+    biblioteca = '{"ok":true,"elementos":[]}';
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // El reproductor y la descarga son unicos para toda la app: sin esto
     // una prueba heredaria lo que dejo la anterior.
     EstadoReproductor.instancia.reiniciar();
     ControlDescarga.instancia.reiniciar();
     Listas.instancia.reiniciar();
+    await Catalogo.instancia.usarEnMemoria();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
       llamadas.add(llamada);
       return switch (llamada.method) {
         'urlCompartida' => null,
-        'biblioteca' => '{"ok":true,"elementos":[]}',
+        'biblioteca' => biblioteca,
         'buscar' => _busqueda,
         'importarLista' =>
           '{"ok":true,"titulo":"Mis temas","resultados":'
@@ -113,7 +122,11 @@ void main() {
     expect(find.text('Cancion uno'), findsOneWidget);
   });
 
-  testWidgets('una lista traida ofrece descargarla entera',
+
+
+
+
+  testWidgets('una lista traida dice cuantas trae y ofrece bajarla entera',
       (WidgetTester tester) async {
     await abrir(tester);
     await tester.enterText(
@@ -126,35 +139,13 @@ void main() {
 
     expect(find.text('2 pistas · Mis temas'), findsOneWidget);
     expect(find.text('Todo en video'), findsOneWidget);
-
-    await tester.tap(find.text('Todo en video'));
-    await tester.pumpAndSettle();
-
-    // Una descarga por pista, ninguna avisa por su cuenta y hay un solo aviso
-    // al final con el total: si no, una lista larga soltaria cientos.
-    final List<MethodCall> descargas =
-        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
-    expect(descargas.length, 2);
-    for (final MethodCall c in descargas) {
-      expect((c.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
-    }
-    final List<MethodCall> avisos =
-        llamadas.where((MethodCall c) => c.method == 'avisarLote').toList();
-    expect(avisos.length, 1);
-    expect((avisos.single.arguments as Map<dynamic, dynamic>)['cantidad'], 2);
-
-    // Y queda una lista en la app con lo descargado.
-    expect(Listas.instancia.nombres, contains('Mis temas'));
-    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
   });
 
-  testWidgets('la lista tambien se crea bajando en MP3', (WidgetTester tester) async {
+  testWidgets('en modo musica el boton del lote ofrece MP3',
+      (WidgetTester tester) async {
     await abrir(tester);
-
-    // Se cambia a musica antes de traer la lista.
     await tester.tap(find.text('Musica'));
     await tester.pumpAndSettle();
-
     await tester.enterText(
       find.byType(TextField),
       'https://music.youtube.com/playlist?list=PLabc',
@@ -164,15 +155,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Todo en MP3'), findsOneWidget);
-    await tester.tap(find.text('Todo en MP3'));
-    await tester.pumpAndSettle();
-
-    // Crear la lista no depende del formato: aqui igual que en video.
-    expect(Listas.instancia.nombres, contains('Mis temas'));
-    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
-    final List<MethodCall> descargas =
-        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
-    expect((descargas.first.arguments as Map<dynamic, dynamic>)['soloAudio'], isTrue);
   });
 
   testWidgets('los resultados de una busqueda no ofrecen descargar todo',
@@ -297,6 +279,116 @@ void main() {
     expect(listas.contiene('Prueba', 'content://audio/1'), isFalse);
     await listas.borrar('Prueba');
     expect(listas.nombres, isNot(contains('Prueba')));
+  });
+
+  test('el catalogo reconoce la misma pista aunque cambie la URL', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+    // La misma cancion llega distinta segun de donde se comparta.
+    expect(Catalogo.identificador('https://www.youtube.com/watch?v=abc123'), 'abc123');
+    expect(Catalogo.identificador('https://music.youtube.com/watch?v=abc123&list=X'), 'abc123');
+    expect(Catalogo.identificador('https://youtu.be/abc123'), 'abc123');
+
+    await catalogo.registrar(
+      'https://www.youtube.com/watch?v=abc123',
+      audio: true,
+      uri: 'content://audio/7',
+    );
+    final String? hallado = await catalogo.buscar(
+      'https://music.youtube.com/watch?v=abc123&list=X',
+      audio: true,
+    );
+    expect(hallado, 'content://audio/7');
+  });
+
+  test('tener el MP3 no es tener el video', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+    await catalogo.registrar('https://y/watch?v=zzz', audio: true, uri: 'content://audio/1');
+
+    expect(await catalogo.buscar('https://y/watch?v=zzz', audio: true), 'content://audio/1');
+    expect(await catalogo.buscar('https://y/watch?v=zzz', audio: false), isNull);
+  });
+
+  test('al borrar una descarga el catalogo la olvida', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+    await catalogo.registrar('https://y/watch?v=kkk', audio: true, uri: 'content://audio/9');
+    expect(await catalogo.cuantas(), 1);
+
+    await catalogo.olvidar('content://audio/9');
+    expect(await catalogo.cuantas(), 0);
+    // Y vuelve a considerarse descargable.
+    expect(await catalogo.buscar('https://y/watch?v=kkk', audio: true), isNull);
+  });
+
+  /// Estas van como pruebas normales y no con testWidgets: alli el reloj es
+  /// simulado y las operaciones de SQLite, que corren en otro isolate, nunca
+  /// llegarian a terminar.
+  Future<void> bajarLote({required bool audio}) async {
+    ControlDescarga.instancia.reiniciar();
+    ControlDescarga.instancia.cambiarAjustes(Ajustes(url: '', soloAudio: audio));
+    await ControlDescarga.instancia.iniciarVarios(
+      <String>[
+        'https://www.youtube.com/watch?v=uno',
+        'https://www.youtube.com/watch?v=dos',
+      ],
+      nombreLista: 'Mis temas',
+    );
+  }
+
+  test('el lote deja la lista creada con lo descargado', () async {
+    await bajarLote(audio: false);
+
+    expect(Listas.instancia.nombres, contains('Mis temas'));
+    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
+  });
+
+  test('en un lote ninguna pista avisa: hay un solo aviso al final', () async {
+    await bajarLote(audio: true);
+
+    final List<MethodCall> descargas =
+        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
+    expect(descargas.length, 2);
+    for (final MethodCall c in descargas) {
+      expect((c.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
+    }
+    final List<MethodCall> avisos =
+        llamadas.where((MethodCall c) => c.method == 'avisarLote').toList();
+    expect(avisos.length, 1);
+    expect((avisos.single.arguments as Map<dynamic, dynamic>)['cantidad'], 2);
+  });
+
+  test('lo ya descargado no se baja otra vez, solo entra en la lista', () async {
+    await Catalogo.instancia.registrar(
+      'https://www.youtube.com/watch?v=uno',
+      audio: true,
+      uri: 'content://audio/ya',
+    );
+    biblioteca = '{"ok":true,"elementos":[{"nombre":"Ya.mp3",'
+        '"uri":"content://audio/ya","duracion":10,"tamano":1,"audio":true}]}';
+
+    await bajarLote(audio: true);
+
+    final List<MethodCall> descargas =
+        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
+    expect(descargas.length, 1);
+    expect((descargas.single.arguments as Map<dynamic, dynamic>)['url'],
+        'https://www.youtube.com/watch?v=dos');
+
+    // La lista queda completa igual: la que ya estaba y la nueva.
+    expect(Listas.instancia.contiene('Mis temas', 'content://audio/ya'), isTrue);
+    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
+  });
+
+  test('si el archivo ya no esta en el telefono se vuelve a bajar', () async {
+    // En el catalogo pero borrada por fuera: la biblioteca va vacia.
+    await Catalogo.instancia.registrar(
+      'https://www.youtube.com/watch?v=uno',
+      audio: true,
+      uri: 'content://audio/fantasma',
+    );
+
+    await bajarLote(audio: true);
+
+    expect(llamadas.where((MethodCall c) => c.method == 'descargar').length, 2);
   });
 
   test('una descarga suelta si avisa por si misma', () async {
