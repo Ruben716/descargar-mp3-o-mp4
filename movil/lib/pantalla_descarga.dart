@@ -39,7 +39,19 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    EstadoReproductor.instancia.addListener(_vigilarReproductor);
     _recogerCompartido();
+  }
+
+  /// Si falla escuchar una vista previa hay que decirlo: antes se quedaba
+  /// callado y parecia que el boton no hacia nada.
+  void _vigilarReproductor() {
+    final String? fallo = EstadoReproductor.instancia.consumirError();
+    if (fallo == null || !mounted) return;
+    setState(() {
+      _mensaje = 'No se pudo reproducir la vista previa.\n\n$fallo';
+      _fallo = true;
+    });
   }
 
   @override
@@ -193,6 +205,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    EstadoReproductor.instancia.removeListener(_vigilarReproductor);
     _reloj?.cancel();
     _entrada.dispose();
     super.dispose();

@@ -173,6 +173,8 @@ class YtDlpDownloader:
             "format": self._seleccion_directa(request.options),
             "js_runtimes": _runtimes_js(),
         }
+        if self._registro is not None:
+            opciones |= {"logger": self._registro, "verbose": True}
         try:
             with YoutubeDL(opciones) as engine:
                 info = engine.extract_info(request.url, download=False)

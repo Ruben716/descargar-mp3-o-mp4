@@ -44,6 +44,14 @@ class EstadoReproductor extends ChangeNotifier {
   String? _error;
   String? get error => _error;
 
+  /// Devuelve el error una sola vez, para que la pantalla lo muestre y no se
+  /// repita en cada reconstruccion. Un fallo silencioso es peor que ninguno.
+  String? consumirError() {
+    final String? mensaje = _error;
+    _error = null;
+    return mensaje;
+  }
+
   bool get sonando => motor.playing;
 
   bool esActual(String uri) => _actual?.elemento?.uri == uri;
@@ -83,6 +91,12 @@ class EstadoReproductor extends ChangeNotifier {
         ),
         directa: pista.url,
       );
+    } on ErrorNucleo catch (error) {
+      final String detalle = error.registro.isEmpty
+          ? ''
+          : '\n\n--- registro del motor ---\n${error.registro.join('\n')}';
+      _error = '${error.mensaje}$detalle';
+      _actual = null;
     } catch (error) {
       _error = '$error';
       _actual = null;
@@ -97,7 +111,12 @@ class EstadoReproductor extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      await motor.setUrl(directa ?? pista.fuente, headers: pista.cabeceras);
+      // Con cabeceras, just_audio sirve el audio por un proxy local; sin
+      // ellas va directo. Para un archivo del telefono ese rodeo sobra.
+      await motor.setUrl(
+        directa ?? pista.fuente,
+        headers: pista.cabeceras.isEmpty ? null : pista.cabeceras,
+      );
       await motor.play();
     } catch (error) {
       _error = '$error';

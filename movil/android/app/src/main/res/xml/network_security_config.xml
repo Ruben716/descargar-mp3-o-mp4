@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  just_audio no puede pasar cabeceras HTTP al reproductor directamente: levanta
+  un proxy local en 127.0.0.1 y le sirve el audio desde ahi. Ese salto es HTTP
+  plano, y Android lo bloquea por defecto, asi que no sonaba nada.
+
+  Se permite solo el bucle local. El trafico a internet sigue exigiendo HTTPS.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

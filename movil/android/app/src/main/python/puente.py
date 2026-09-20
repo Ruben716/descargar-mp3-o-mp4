@@ -176,8 +176,10 @@ def buscar(texto: str, limite: int) -> str:
 
 def previsualizar(url: str, solo_audio: bool) -> str:
     """Pista reproducible al vuelo, para oir antes de decidir si se descarga."""
+    registro = _Registro()
     try:
-        pista = StreamVideo(YtDlpDownloader()).execute(url, audio_only=bool(solo_audio))
+        motor = YtDlpDownloader(registro=registro)
+        pista = StreamVideo(motor).execute(url, audio_only=bool(solo_audio))
         return _respuesta({
             "ok": True,
             "url": pista.url,
@@ -185,6 +187,10 @@ def previsualizar(url: str, solo_audio: bool) -> str:
             "cabeceras": dict(pista.headers),
         })
     except DownloadError as exc:
-        return _respuesta({"ok": False, "error": str(exc)})
+        return _respuesta({"ok": False, "error": str(exc), "registro": registro.lineas})
     except Exception as exc:
-        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        return _respuesta({
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "registro": registro.lineas,
+        })
