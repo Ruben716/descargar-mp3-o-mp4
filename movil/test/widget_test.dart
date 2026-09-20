@@ -16,6 +16,7 @@ import 'package:descargador_movil/orden_aleatorio.dart';
 import 'package:descargador_movil/dialogo_etiquetas.dart';
 import 'package:descargador_movil/pantalla_artista.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
+import 'package:descargador_movil/pantalla_descarga.dart';
 import 'package:descargador_movil/portadas.dart';
 import 'package:descargador_movil/reproductor.dart';
 import 'package:flutter/material.dart';
@@ -1400,6 +1401,50 @@ void main() {
     await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
     await tester.pumpAndSettle();
     expect(find.text('Editar etiquetas'), findsNothing);
+  });
+
+  // --- El detalle del motor -----------------------------------------------
+
+  testWidgets('sin detalle no se ofrece nada', (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: DetalleMotor(lineas: <String>[])),
+    ));
+
+    expect(find.text('Ver detalle tecnico'), findsNothing);
+  });
+
+  testWidgets('el detalle se ofrece plegado y se abre al tocarlo',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: DetalleMotor(lineas: <String>['primera linea', 'segunda linea']),
+      ),
+    ));
+
+    expect(find.text('Ver detalle tecnico'), findsOneWidget);
+    expect(find.textContaining('segunda linea'), findsNothing);
+
+    await tester.tap(find.text('Ver detalle tecnico'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('segunda linea'), findsOneWidget);
+  });
+
+  testWidgets('de un registro largo se ensenia solo el final',
+      (WidgetTester tester) async {
+    // Las primeras lineas son el arranque del motor; lo que explica el fallo
+    // esta siempre al final.
+    final List<String> muchas = <String>[
+      for (int i = 0; i < 200; i++) 'linea $i',
+    ];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: DetalleMotor(lineas: muchas)),
+    ));
+    await tester.tap(find.text('Ver detalle tecnico'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('linea 199'), findsOneWidget);
+    expect(find.textContaining('linea 0\n'), findsNothing);
   });
 }
 

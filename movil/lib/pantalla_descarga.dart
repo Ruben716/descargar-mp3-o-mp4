@@ -358,7 +358,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     final String mensaje = _aviso.isNotEmpty ? _aviso : _control.mensaje;
     final bool fallo = _aviso.isNotEmpty ? _fallo : _control.fallo;
     if (mensaje.isNotEmpty && _resultados.isEmpty) {
-      return _Aviso(mensaje: mensaje, fallo: fallo);
+      return _Aviso(
+        mensaje: mensaje,
+        fallo: fallo,
+        detalle: _aviso.isNotEmpty ? const <String>[] : _control.detalle,
+      );
     }
     if (_resultados.isEmpty) {
       return _Vacio(buscando: _buscando);
@@ -577,11 +581,24 @@ class _TarjetaProgreso extends StatelessWidget {
   }
 }
 
-class _Aviso extends StatelessWidget {
-  const _Aviso({required this.mensaje, required this.fallo});
+class _Aviso extends StatefulWidget {
+  const _Aviso({
+    required this.mensaje,
+    required this.fallo,
+    this.detalle = const <String>[],
+  });
 
   final String mensaje;
   final bool fallo;
+
+  /// Lo que apunto el motor, para cuando el mensaje no basta.
+  final List<String> detalle;
+
+  @override
+  State<_Aviso> createState() => _AvisoState();
+}
+
+class _AvisoState extends State<_Aviso> {
 
   @override
   Widget build(BuildContext context) {
@@ -591,7 +608,7 @@ class _Aviso extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: fallo ? const Color(0x33FF6B81) : const Color(0x3357D9A3),
+          color: widget.fallo ? const Color(0x33FF6B81) : const Color(0x3357D9A3),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
@@ -599,16 +616,19 @@ class _Aviso extends StatelessWidget {
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(fallo ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded),
+                Icon(widget.fallo
+                    ? Icons.error_outline_rounded
+                    : Icons.check_circle_outline_rounded),
                 const SizedBox(width: 10),
                 Text(
-                  fallo ? 'Algo fallo' : 'Listo',
+                  widget.fallo ? 'Algo fallo' : 'Listo',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
             const SizedBox(height: 10),
-            SelectableText(mensaje, style: const TextStyle(fontSize: 12, height: 1.4)),
+            SelectableText(widget.mensaje, style: const TextStyle(fontSize: 12, height: 1.4)),
+            DetalleMotor(lineas: widget.detalle),
           ],
         ),
       ),
@@ -645,6 +665,78 @@ class _Vacio extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Lo que apunto el motor, plegado hasta que se pide.
+///
+/// Hace falta que se vea en pantalla y no solo en el registro del sistema:
+/// hay telefonos (los MIUI, por ejemplo) que filtran lo que escriben las apps,
+/// y entonces no hay forma de saber que respondio la web.
+class DetalleMotor extends StatefulWidget {
+  const DetalleMotor({required this.lineas, super.key});
+
+  /// Cuantas lineas del final se ensenian. Las de antes son el arranque del
+  /// motor y solo estorban.
+  static const int ultimas = 40;
+
+  final List<String> lineas;
+
+  @override
+  State<DetalleMotor> createState() => _DetalleMotorState();
+}
+
+class _DetalleMotorState extends State<DetalleMotor> {
+  bool _abierto = false;
+
+  String get _texto {
+    final List<String> lineas = widget.lineas;
+    final List<String> ultimas = lineas.length > DetalleMotor.ultimas
+        ? lineas.sublist(lineas.length - DetalleMotor.ultimas)
+        : lineas;
+    return ultimas.join(String.fromCharCode(10));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.lineas.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: 6),
+        GestureDetector(
+          onTap: () => setState(() => _abierto = !_abierto),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                _abierto ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                size: 18,
+                color: Colors.white54,
+              ),
+              const Text(
+                'Ver detalle tecnico',
+                style: TextStyle(fontSize: 11, color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
+        if (_abierto)
+          Container(
+            margin: const EdgeInsets.only(top: 8),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black26,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectableText(
+              _texto,
+              style: const TextStyle(fontSize: 9, height: 1.3, color: Colors.white60),
+            ),
+          ),
+      ],
     );
   }
 }

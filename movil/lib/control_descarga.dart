@@ -33,6 +33,14 @@ class ControlDescarga extends ChangeNotifier {
   bool _fallo = false;
   bool get fallo => _fallo;
 
+  /// Lo que apunto el motor del ultimo fallo.
+  ///
+  /// El mensaje suelto no basta para saber que paso: el detalle dice que
+  /// respondio la web. En este telefono logcat no sirve, porque el sistema
+  /// filtra lo que escriben las apps, asi que tiene que verse en pantalla.
+  List<String> _detalle = const <String>[];
+  List<String> get detalle => _detalle;
+
   Timer? _reloj;
 
   int _indice = 0;
@@ -66,6 +74,7 @@ class ControlDescarga extends ChangeNotifier {
     if (_mensaje.isEmpty) return;
     _mensaje = '';
     _fallo = false;
+    _detalle = const <String>[];
     notifyListeners();
   }
 
@@ -78,6 +87,7 @@ class ControlDescarga extends ChangeNotifier {
     _estado = '';
     _mensaje = '';
     _fallo = false;
+    _detalle = const <String>[];
     _indice = 0;
     _total = 0;
     _cancelado = false;
@@ -109,6 +119,7 @@ class ControlDescarga extends ChangeNotifier {
     _estado = 'Preparando...';
     _mensaje = '';
     _fallo = false;
+    _detalle = const <String>[];
     notifyListeners();
     _vigilar();
 
@@ -152,9 +163,11 @@ class ControlDescarga extends ChangeNotifier {
         } on ErrorNucleo catch (error) {
           fallidas++;
           ultimoError = error.mensaje;
+          _detalle = error.registro;
         } catch (error) {
           fallidas++;
           ultimoError = '$error';
+          _detalle = const <String>[];
         }
         _indice++;
         notifyListeners();
