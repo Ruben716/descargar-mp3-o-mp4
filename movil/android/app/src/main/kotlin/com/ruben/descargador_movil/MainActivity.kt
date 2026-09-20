@@ -58,6 +58,9 @@ class MainActivity : AudioServiceActivity() {
         super.onCreate(savedInstanceState)
         recogerEnlace(intent)
         pedirPermisoNotificaciones()
+        // En segundo plano: consulta a MediaStore, y el arranque no puede
+        // esperarla. Cuando ya no quede nada que mudar no cuesta nada.
+        thread { mudarVideosADcim() }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -522,6 +525,45 @@ class MainActivity : AudioServiceActivity() {
         return destino
     }
 
+    /**
+     * Lleva a DCIM los videos que se guardaron en Movies.
+     *
+     * Los de antes seguirian sin verse en la galeria, y mudarlos es la unica
+     * forma de que salgan. Solo alcanza a los que inserto esta app, que son
+     * los suyos; si alguno se resiste se queda donde esta y no pasa nada,
+     * porque la biblioteca sigue leyendo las carpetas viejas igualmente.
+     */
+    private fun mudarVideosADcim() {
+        val coleccion = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val viejas = CARPETAS_VIDEO.drop(1)
+        val condicion = viejas.joinToString(" OR ") {
+            "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        }
+        try {
+            contentResolver.query(
+                coleccion,
+                arrayOf(MediaStore.MediaColumns._ID),
+                condicion,
+                viejas.map { "$it/%" }.toTypedArray(),
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val destino = ContentUris.withAppendedId(coleccion, cursor.getLong(0))
+                    try {
+                        val valores = ContentValues().apply {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, CARPETAS_VIDEO.first())
+                        }
+                        contentResolver.update(destino, valores, null, null)
+                    } catch (error: Throwable) {
+                        // De otra app, abierto o con el nombre ya ocupado.
+                    }
+                }
+            }
+        } catch (error: Throwable) {
+            // Sin permiso o con MediaStore ocupado: se reintenta al abrir otra vez.
+        }
+    }
+
     private fun enlazar(origen: File, enlace: File) {
         try {
             // Ojo: exists() sigue el enlace, asi que devuelve false cuando esta
@@ -544,6 +586,16 @@ class MainActivity : AudioServiceActivity() {
          * desaparezca de la biblioteca de un dia para otro.
          */
         val CARPETAS_AUDIO = listOf("Music/Tumbao", "Music/Descargador")
-        val CARPETAS_VIDEO = listOf("Movies/Tumbao", "Movies/Descargador")
+
+        /**
+         * El video va a DCIM y no a Movies, que seria su sitio natural.
+         *
+         * Movies queda escondido: Google Fotos y la galeria del telefono
+         * enseniaan por defecto lo que hay en DCIM y en Pictures, y lo demas lo
+         * dejan enterrado en «carpetas del dispositivo». Guardado en DCIM sale
+         * como un album mas, que es donde la gente lo busca. Con la musica no
+         * pasa porque Music si es la carpeta que miran los reproductores.
+         */
+        val CARPETAS_VIDEO = listOf("DCIM/Tumbao", "Movies/Tumbao", "Movies/Descargador")
     }
 }
