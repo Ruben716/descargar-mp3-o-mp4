@@ -1446,6 +1446,43 @@ void main() {
     expect(find.textContaining('linea 199'), findsOneWidget);
     expect(find.textContaining('linea 0\n'), findsNothing);
   });
+
+  test('el volcado de parametros no cuenta como detalle', () {
+    // Es una sola linea de miles de caracteres: si se deja, llena la pantalla
+    // y empuja fuera de la vista el error, que es lo unico que se venia a leer.
+    final List<String> crudo = <String>[
+      '[debug] Encodings: locale utf-8, fs utf-8',
+      '[debug] yt-dlp version stable@2026.08.19',
+      "[debug] params: {'paths': {'home': '/algo'}, 'format': 'bv*'}",
+      '[TikTok] 768: Downloading webpage',
+      'ERROR: [TikTok] 768: Unexpected response from webpage request',
+    ];
+
+    final List<String> limpio = DetalleMotor.limpiar(crudo);
+
+    expect(limpio, <String>[
+      '[debug] yt-dlp version stable@2026.08.19',
+      '[TikTok] 768: Downloading webpage',
+      'ERROR: [TikTok] 768: Unexpected response from webpage request',
+    ]);
+  });
+
+  testWidgets('tras filtrar el ruido, el error queda a la vista',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: DetalleMotor(lineas: <String>[
+          "[debug] params: {'mucho': 'texto'}",
+          'ERROR: lo que de verdad paso',
+        ]),
+      ),
+    ));
+    await tester.tap(find.text('Ver detalle tecnico'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('lo que de verdad paso'), findsOneWidget);
+    expect(find.textContaining('mucho'), findsNothing);
+  });
 }
 
 /// Las mismas tres canciones de _conCanciones, ya como objetos.

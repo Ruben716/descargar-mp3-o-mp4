@@ -682,6 +682,28 @@ class DetalleMotor extends StatefulWidget {
   /// motor y solo estorban.
   static const int ultimas = 40;
 
+  /// Arranques del motor que no dicen nada de por que fallo.
+  ///
+  /// El volcado de parametros es una sola linea de miles de caracteres: si se
+  /// deja, llena la pantalla entera y empuja el error fuera de la vista, que
+  /// es justo lo unico que se venia a leer.
+  static const List<String> _ruido = <String>[
+    '[debug] params:',
+    '[debug] Encodings:',
+    '[debug] Python',
+    '[debug] exe versions:',
+    '[debug] Optional libraries:',
+    '[debug] Proxy map:',
+    '[debug] Request Handlers:',
+    '[debug] Loaded ',
+    '[debug] Plugin directories:',
+  ];
+
+  @visibleForTesting
+  static List<String> limpiar(List<String> lineas) => lineas
+      .where((String l) => !_ruido.any(l.trimLeft().startsWith))
+      .toList();
+
   final List<String> lineas;
 
   @override
@@ -692,10 +714,10 @@ class _DetalleMotorState extends State<DetalleMotor> {
   bool _abierto = false;
 
   String get _texto {
-    final List<String> lineas = widget.lineas;
-    final List<String> ultimas = lineas.length > DetalleMotor.ultimas
-        ? lineas.sublist(lineas.length - DetalleMotor.ultimas)
-        : lineas;
+    final List<String> utiles = DetalleMotor.limpiar(widget.lineas);
+    final List<String> ultimas = utiles.length > DetalleMotor.ultimas
+        ? utiles.sublist(utiles.length - DetalleMotor.ultimas)
+        : utiles;
     return ultimas.join(String.fromCharCode(10));
   }
 
