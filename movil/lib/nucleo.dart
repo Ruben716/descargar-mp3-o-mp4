@@ -67,6 +67,14 @@ class Nucleo {
   static Future<void> avisarLote(int cantidad, {required bool audio}) =>
       _pedir('avisarLote', <String, dynamic>{'cantidad': cantidad, 'audio': audio});
 
+  /// Manda un archivo de la biblioteca a otra app.
+  static Future<void> compartirArchivo(String uri, {required bool audio}) =>
+      _pedir('compartirArchivo', <String, dynamic>{'uri': uri, 'audio': audio});
+
+  /// Comparte el enlace de algo que aun no esta descargado.
+  static Future<void> compartirEnlace(String url, {String titulo = ''}) =>
+      _pedir('compartirEnlace', <String, dynamic>{'url': url, 'titulo': titulo});
+
   static Future<Avance> progreso() async => Avance.desdeJson(await _pedir('progreso'));
 
   static Future<List<Elemento>> biblioteca() async {

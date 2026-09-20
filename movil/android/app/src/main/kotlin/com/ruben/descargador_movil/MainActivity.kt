@@ -130,6 +130,20 @@ class MainActivity : AudioServiceActivity() {
                         ServicioDescarga.avisarLote(this, cantidad, esAudio)
                         respuesta.success("{\"ok\": true}")
                     }
+                    // Compartir abre el selector del sistema, asi que va en el
+                    // hilo principal y no en uno aparte.
+                    "compartirArchivo" -> respuesta.success(
+                        compartirArchivo(
+                            llamada.argument<String>("uri").orEmpty(),
+                            llamada.argument<Boolean>("audio") ?: true,
+                        ),
+                    )
+                    "compartirEnlace" -> respuesta.success(
+                        compartirEnlace(
+                            llamada.argument<String>("url").orEmpty(),
+                            llamada.argument<String>("titulo").orEmpty(),
+                        ),
+                    )
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
@@ -234,6 +248,48 @@ class MainActivity : AudioServiceActivity() {
         // Flutter necesita saberlo para dejar solo el video en pantalla.
         canalFlutter?.invokeMethod("ventanaFlotante", enVentana)
     }
+
+    /**
+     * Manda el archivo a otra app.
+     *
+     * Hace falta conceder permiso de lectura sobre el URI: quien lo reciba no
+     * tiene acceso a nuestra biblioteca por su cuenta.
+     */
+    private fun compartirArchivo(uri: String, esAudio: Boolean): String {
+        if (uri.isEmpty()) return fallo("No hay nada que compartir.")
+        return try {
+            val envio = Intent(Intent.ACTION_SEND).apply {
+                type = if (esAudio) "audio/*" else "video/*"
+                putExtra(Intent.EXTRA_STREAM, Uri.parse(uri))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(envio, "Compartir"))
+            JSONObject().put("ok", true).toString()
+        } catch (error: Throwable) {
+            fallo("${error.message}")
+        }
+    }
+
+    /** Comparte el enlace de algo que todavia no esta descargado. */
+    private fun compartirEnlace(url: String, titulo: String): String {
+        if (url.isEmpty()) return fallo("No hay enlace que compartir.")
+        return try {
+            val envio = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    if (titulo.isEmpty()) url else "$titulo\n$url",
+                )
+            }
+            startActivity(Intent.createChooser(envio, "Compartir"))
+            JSONObject().put("ok", true).toString()
+        } catch (error: Throwable) {
+            fallo("${error.message}")
+        }
+    }
+
+    private fun fallo(mensaje: String): String =
+        JSONObject().put("ok", false).put("error", mensaje).toString()
 
     /** Lo descargado, leido de la biblioteca del telefono. */
     private fun biblioteca(): String {

@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
 import 'estado_reproductor.dart';
-import 'formato.dart';
+import 'fila_pista.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'pantalla_lista.dart';
 import 'portadas.dart';
-import 'reproductor.dart';
 import 'tema.dart';
 
-/// Lo descargado, leido de la biblioteca del telefono.
+/// Lo descargado, repartido en canciones, videos y listas.
+///
+/// Las listas tienen su propia pestania y no fichas sueltas: en cuanto pasan
+/// de unas pocas, amontonarlas arriba deja la pantalla inservible.
 class PantallaBiblioteca extends StatefulWidget {
   const PantallaBiblioteca({super.key});
 
@@ -17,15 +20,14 @@ class PantallaBiblioteca extends StatefulWidget {
   State<PantallaBiblioteca> createState() => PantallaBibliotecaState();
 }
 
-class PantallaBibliotecaState extends State<PantallaBiblioteca> {
+class PantallaBibliotecaState extends State<PantallaBiblioteca>
+    with SingleTickerProviderStateMixin {
   final Listas _listas = Listas.instancia;
+  late final TabController _pestanas = TabController(length: 3, vsync: this);
 
   List<Elemento> _elementos = <Elemento>[];
   bool _cargando = true;
   String? _error;
-
-  /// 'todo', 'musica', 'videos' o el nombre de una lista.
-  String _filtro = 'todo';
 
   @override
   void initState() {
@@ -38,6 +40,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
   @override
   void dispose() {
     _listas.removeListener(_refrescar);
+    _pestanas.dispose();
     super.dispose();
   }
 
@@ -64,19 +67,14 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     }
   }
 
-  List<Elemento> get _visibles => switch (_filtro) {
-        'todo' => _elementos,
-        'musica' => _elementos.where((Elemento e) => e.audio).toList(),
-        'videos' => _elementos.where((Elemento e) => !e.audio).toList(),
-        _ => _elementos.where((Elemento e) => _listas.contiene(_filtro, e.uri)).toList(),
-      };
-
-  bool get _enLista => !<String>['todo', 'musica', 'videos'].contains(_filtro);
+  List<Elemento> get _canciones => _elementos.where((Elemento e) => e.audio).toList();
+  List<Elemento> get _videos => _elementos.where((Elemento e) => !e.audio).toList();
 
   Future<void> _eliminar(Elemento elemento) async {
     final bool confirmado = await showDialog<bool>(
           context: context,
           builder: (BuildContext contexto) => AlertDialog(
+            backgroundColor: Tema.superficieAlta,
             title: const Text('Eliminar descarga'),
             content: Text('Se borrara "${elemento.nombre}" del telefono.'),
             actions: <Widget>[
@@ -135,267 +133,219 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     if (creada != null) await _listas.crear(creada);
   }
 
-  Future<void> _borrarLista(String nombre) async {
-    await _listas.borrar(nombre);
-    if (mounted) setState(() => _filtro = 'todo');
-  }
+  List<AccionPista> _accionesDe(Elemento elemento) => <AccionPista>[
+    AccionPista(
+      icono: Icons.playlist_add_rounded,
+      texto: 'Anadir a lista',
+      alElegir: () => _elegirLista(elemento),
+    ),
+    AccionPista(
+      icono: Icons.delete_outline_rounded,
+      texto: 'Eliminar descarga',
+      alElegir: () => _eliminar(elemento),
+      destacada: true,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
     if (_cargando) return const Center(child: CircularProgressIndicator());
     if (_error != null) return Center(child: Text('Error: $_error'));
 
-    final int musica = _elementos.where((Elemento e) => e.audio).length;
-    final List<Elemento> visibles = _visibles;
-
-    return RefreshIndicator(
-      onRefresh: recargar,
-      child: CustomScrollView(
-        slivers: <Widget>[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('Biblioteca', style: Theme.of(context).textTheme.displaySmall),
-                  const SizedBox(height: 4),
-                  Text(
-                    '$musica pistas  ·  ${_elementos.length - musica} videos',
-                    style: const TextStyle(color: Colors.white54),
-                  ),
-                  const SizedBox(height: 16),
-                  _filtros(),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-          ),
-          if (visibles.isEmpty)
-            SliverFillRemaining(hasScrollBody: false, child: _vacio())
-          else
-            SliverList.builder(
-              itemCount: visibles.length,
-              itemBuilder: (BuildContext context, int i) => _Fila(
-                elemento: visibles[i],
-                enCola: visibles,
-                posicion: i,
-                enLista: _enLista ? _filtro : null,
-                alEliminar: () => _eliminar(visibles[i]),
-                alOrganizar: () => _elegirLista(visibles[i]),
-                alQuitarDeLista: _enLista
-                    ? () => _listas.alternar(_filtro, visibles[i].uri)
-                    : null,
-              ),
-            ),
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
-        ],
-      ),
-    );
-  }
-
-  Widget _filtros() {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      crossAxisAlignment: WrapCrossAlignment.center,
+    return Column(
       children: <Widget>[
-        for (final (String clave, String etiqueta) in <(String, String)>[
-          ('todo', 'Todo'),
-          ('musica', 'Musica'),
-          ('videos', 'Videos'),
-        ])
-          ChoiceChip(
-            label: Text(etiqueta),
-            selected: _filtro == clave,
-            onSelected: (_) => setState(() => _filtro = clave),
-            selectedColor: Tema.acento.withValues(alpha: 0.28),
-            backgroundColor: Tema.superficie,
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+          child: TabBar(
+            controller: _pestanas,
+            dividerColor: Colors.transparent,
+            indicatorSize: TabBarIndicatorSize.tab,
+            indicator: BoxDecoration(
+              color: Tema.acento.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            labelColor: Tema.acento,
+            unselectedLabelColor: Colors.white54,
+            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            tabs: <Widget>[
+              Tab(text: 'Canciones (${_canciones.length})'),
+              Tab(text: 'Videos (${_videos.length})'),
+              Tab(text: 'Listas (${_listas.nombres.length})'),
+            ],
           ),
-        for (final String nombre in _listas.nombres)
-          InputChip(
-            avatar: const Icon(Icons.queue_music_rounded, size: 17),
-            label: Text(nombre),
-            selected: _filtro == nombre,
-            onSelected: (_) => setState(() => _filtro = nombre),
-            // Solo se puede borrar la lista que se esta viendo, para no
-            // cargarse otra por un toque descuidado.
-            onDeleted: _filtro == nombre ? () => _borrarLista(nombre) : null,
-            deleteIcon: const Icon(Icons.close_rounded, size: 16),
-            selectedColor: Tema.acento.withValues(alpha: 0.28),
-            backgroundColor: Tema.superficie,
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: TabBarView(
+            controller: _pestanas,
+            children: <Widget>[
+              _pistas(_canciones, 'Aqui apareceran las canciones que descargues.'),
+              _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
+              _seccionListas(),
+            ],
           ),
-        ActionChip(
-          avatar: const Icon(Icons.add_rounded, size: 17),
-          label: const Text('Lista'),
-          onPressed: _crearLista,
-          backgroundColor: Tema.superficieAlta,
         ),
       ],
     );
   }
 
-  Widget _vacio() {
-    final bool enLista = _enLista;
+  Widget _pistas(List<Elemento> elementos, String vacio) {
+    if (elementos.isEmpty) {
+      return _Vacio(texto: vacio, icono: Icons.library_music_outlined);
+    }
+    return RefreshIndicator(
+      onRefresh: recargar,
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 20),
+        itemCount: elementos.length,
+        itemBuilder: (BuildContext context, int i) => FilaPista(
+          elemento: elementos[i],
+          enCola: elementos,
+          acciones: _accionesDe(elementos[i]),
+        ),
+      ),
+    );
+  }
+
+  Widget _seccionListas() {
+    final List<String> nombres = _listas.nombres;
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _crearLista,
+              icon: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Nueva lista'),
+            ),
+          ),
+        ),
+        Expanded(
+          child: nombres.isEmpty
+              ? const _Vacio(
+                  texto: 'Todavia no tienes listas.\n'
+                      'Crea una, o baja una entera desde un enlace.',
+                  icono: Icons.queue_music_rounded,
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  itemCount: nombres.length,
+                  itemBuilder: (BuildContext context, int i) => _FilaLista(
+                    nombre: nombres[i],
+                    biblioteca: _elementos,
+                    alBorrar: () => _listas.borrar(nombres[i]),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Una lista en el listado: portada de su primera pista y cuantas tiene.
+class _FilaLista extends StatelessWidget {
+  const _FilaLista({
+    required this.nombre,
+    required this.biblioteca,
+    required this.alBorrar,
+  });
+
+  final String nombre;
+  final List<Elemento> biblioteca;
+  final VoidCallback alBorrar;
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> uris = Listas.instancia.contenido(nombre);
+    final List<Elemento> pistas =
+        biblioteca.where((Elemento e) => uris.contains(e.uri)).toList();
     return Padding(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: <Widget>[
-          Icon(
-            enLista ? Icons.queue_music_rounded : Icons.library_music_outlined,
-            size: 56,
-            color: Colors.white24,
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
+      child: Material(
+        color: Tema.superficie,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PantallaLista(nombre: nombre, biblioteca: biblioteca),
+            ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            enLista
-                ? 'Esta lista esta vacia.\nUsa el menu de cada pista para anadirla.'
-                : 'Aqui no hay nada todavia.\nBaja algo desde la otra pestania.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white54, height: 1.5),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: <Widget>[
+                if (pistas.isEmpty)
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: Tema.degradado,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.queue_music_rounded, color: Colors.black38),
+                  )
+                else
+                  PortadaLocal(elemento: pistas.first, lado: 52, radio: 14),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        nombre,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${pistas.length} pistas',
+                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: alBorrar,
+                  tooltip: 'Borrar la lista',
+                  icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _Fila extends StatelessWidget {
-  const _Fila({
-    required this.elemento,
-    required this.enCola,
-    required this.posicion,
-    required this.enLista,
-    required this.alEliminar,
-    required this.alOrganizar,
-    required this.alQuitarDeLista,
-  });
+class _Vacio extends StatelessWidget {
+  const _Vacio({required this.texto, required this.icono});
 
-  final Elemento elemento;
-
-  /// Lo que se ve en pantalla pasa a ser la cola: al tocar una pista, las
-  /// siguientes suenan detras sin tener que volver a la lista.
-  final List<Elemento> enCola;
-  final int posicion;
-  final String? enLista;
-  final VoidCallback alEliminar;
-  final VoidCallback alOrganizar;
-  final VoidCallback? alQuitarDeLista;
+  final String texto;
+  final IconData icono;
 
   @override
-  Widget build(BuildContext context) {
-    final EstadoReproductor estado = EstadoReproductor.instancia;
-    return ListenableBuilder(
-      listenable: estado,
-      builder: (BuildContext context, _) {
-        final bool activo = estado.esActual(elemento.uri);
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          child: Material(
-            color: activo ? Tema.acento.withValues(alpha: 0.14) : Tema.superficie,
-            borderRadius: BorderRadius.circular(20),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () {
-                if (elemento.audio) {
-                  estado.reproducirLista(
-                    enCola.where((Elemento e) => e.audio).toList(),
-                    enCola.where((Elemento e) => e.audio).toList().indexOf(elemento),
-                  );
-                }
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => Reproductor(elemento: elemento)),
-                );
-              },
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
-                child: Row(
-                  children: <Widget>[
-                    Hero(
-                      tag: elemento.uri,
-                      child: PortadaLocal(elemento: elemento, lado: 58, radio: 16),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            elemento.nombre,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14),
-                          ),
-                          const SizedBox(height: 5),
-                          Row(
-                            children: <Widget>[
-                              Icon(
-                                elemento.audio ? Icons.graphic_eq : Icons.movie_outlined,
-                                size: 13,
-                                color: Colors.white38,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                '${formatoTiempo(elemento.duracion)}  ·  '
-                                '${formatoTamano(elemento.tamano)}',
-                                style: const TextStyle(color: Colors.white54, fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (activo && estado.sonando)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 4),
-                        child: Icon(Icons.equalizer_rounded, color: Tema.acento, size: 22),
-                      ),
-                    PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_vert_rounded, color: Colors.white54),
-                      color: Tema.superficieAlta,
-                      onSelected: (String opcion) => switch (opcion) {
-                        'listas' => alOrganizar(),
-                        'quitar' => alQuitarDeLista?.call(),
-                        _ => alEliminar(),
-                      },
-                      itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                        const PopupMenuItem<String>(
-                          value: 'listas',
-                          child: ListTile(
-                            leading: Icon(Icons.playlist_add_rounded),
-                            title: Text('Anadir a lista'),
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                        ),
-                        if (enLista != null)
-                          PopupMenuItem<String>(
-                            value: 'quitar',
-                            child: ListTile(
-                              leading: const Icon(Icons.playlist_remove_rounded),
-                              title: Text('Quitar de $enLista'),
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                          ),
-                        const PopupMenuItem<String>(
-                          value: 'eliminar',
-                          child: ListTile(
-                            leading: Icon(Icons.delete_outline_rounded, color: Tema.acentoCalido),
-                            title: Text('Eliminar descarga'),
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(40),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: <Widget>[
+          Icon(icono, size: 52, color: Colors.white24),
+          const SizedBox(height: 14),
+          Text(
+            texto,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54, height: 1.5),
           ),
-        );
-      },
-    );
-  }
+        ],
+      ),
+    ),
+  );
 }
 
 /// Elige en que listas esta una pista.
@@ -432,7 +382,8 @@ class _HojaListasState extends State<_HojaListas> {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
               child: Text(
-                'Todavia no has creado ninguna lista.\nCierra esto y pulsa "+ Lista".',
+                'Todavia no has creado ninguna lista.\n'
+                    'Cierra esto y crea una en la pestania Listas.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54, height: 1.5),
               ),
@@ -455,13 +406,11 @@ class _HojaListasState extends State<_HojaListas> {
   }
 }
 
-
 /// Dialogo para crear una lista.
 ///
 /// Es un widget propio a proposito: el controlador del campo tiene que vivir y
-/// morir con el. Crearlo en el metodo y liberarlo tras el await lo destruia
-/// mientras el dialogo seguia cerrandose con su animacion, y Flutter aborta si
-/// un campo de texto sigue usando un controlador ya liberado.
+/// morir con el. Crearlo fuera y liberarlo tras el await lo destruia mientras
+/// el dialogo seguia cerrandose, y Flutter aborta por ello.
 class _DialogoNuevaLista extends StatefulWidget {
   const _DialogoNuevaLista();
 

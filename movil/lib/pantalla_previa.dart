@@ -130,6 +130,14 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
           style: TextStyle(fontSize: 11, letterSpacing: 1.4, fontWeight: FontWeight.w800),
         ),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Compartir el enlace',
+            onPressed: () => Nucleo.compartirEnlace(
+              widget.resultado.url,
+              titulo: widget.resultado.titulo,
+            ),
+            icon: const Icon(Icons.share_rounded, size: 20),
+          ),
           if (_motor != null)
             IconButton(
               tooltip: 'Ventana flotante',

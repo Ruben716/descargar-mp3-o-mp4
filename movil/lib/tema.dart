@@ -48,7 +48,7 @@ class Tema {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: superficie,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(26),
           borderSide: BorderSide.none,

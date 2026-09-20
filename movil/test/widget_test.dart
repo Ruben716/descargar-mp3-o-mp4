@@ -54,6 +54,8 @@ void main() {
           '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
         'eliminar' => '{"ok":true}',
         'avisarLote' => '{"ok":true}',
+        'compartirArchivo' => '{"ok":true}',
+        'compartirEnlace' => '{"ok":true}',
         'descargar' => '{"ok":true,"archivos":["content://audio/99"]}',
         _ => '{"ok":true}',
       };
@@ -196,14 +198,15 @@ void main() {
     expect(find.text('Quitar patrocinios'), findsOneWidget);
   });
 
-  testWidgets('la biblioteca vacia lo dice en vez de quedarse en blanco',
+  testWidgets('la biblioteca separa canciones, videos y listas',
       (WidgetTester tester) async {
     await abrir(tester);
 
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Aqui no hay nada todavia'), findsOneWidget);
+    expect(find.textContaining('Canciones (0)'), findsOneWidget);
+    expect(find.textContaining('Listas (0)'), findsOneWidget);
   });
 
   testWidgets('escuchar un resultado abre su vista previa',
@@ -238,22 +241,26 @@ void main() {
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Lista'));
+    await tester.tap(find.textContaining('Listas ('));
     await tester.pumpAndSettle();
-    expect(find.text('Nueva lista'), findsOneWidget);
+    await tester.tap(find.text('Nueva lista'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AlertDialog, 'Nueva lista'), findsOneWidget);
 
     await tester.tap(find.text('Cancelar'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Nueva lista'), findsNothing);
+    expect(find.widgetWithText(AlertDialog, 'Nueva lista'), findsNothing);
   });
 
   testWidgets('no se puede crear una lista sin nombre', (WidgetTester tester) async {
     await abrir(tester);
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Lista'));
+    await tester.tap(find.textContaining('Listas ('));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nueva lista'));
     await tester.pumpAndSettle();
 
     final Finder crear = find.widgetWithText(FilledButton, 'Crear');

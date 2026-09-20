@@ -52,6 +52,14 @@ class _ReproductorState extends State<Reproductor> {
               elemento.audio ? 'Reproduciendo' : 'Video',
               style: const TextStyle(fontSize: 14, color: Colors.white70),
             ),
+            actions: <Widget>[
+              IconButton(
+                tooltip: 'Compartir',
+                onPressed: () =>
+                    Nucleo.compartirArchivo(elemento.uri, audio: elemento.audio),
+                icon: const Icon(Icons.share_rounded, size: 20),
+              ),
+            ],
           ),
           body: _Fondo(elemento: elemento, hijo: contenido),
         );

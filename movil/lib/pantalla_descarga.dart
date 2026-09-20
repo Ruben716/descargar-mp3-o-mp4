@@ -234,16 +234,14 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text('Descargar', style: Theme.of(context).textTheme.displaySmall),
-              const SizedBox(height: 16),
               _buscador(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               _controles(),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
               if (_control.activa)
                 _TarjetaProgreso(
                   porcentaje: _control.porcentaje,
@@ -266,7 +264,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
             ],
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 12),
         Expanded(child: _cuerpo()),
       ],
     );
@@ -319,11 +317,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         Expanded(
           child: SegmentedButton<bool>(
             showSelectedIcon: false,
-            style: ButtonStyle(
-              shape: WidgetStateProperty.all(
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-              ),
-            ),
+            style: const ButtonStyle(visualDensity: VisualDensity.compact),
             segments: const <ButtonSegment<bool>>[
               ButtonSegment<bool>(
                 value: false,
