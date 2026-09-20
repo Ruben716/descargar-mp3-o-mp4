@@ -20,16 +20,16 @@ Future<void> main() async {
     androidStopForegroundOnPause: true,
   );
   Nucleo.escucharVentanaFlotante();
-  runApp(const AplicacionDescargador());
+  runApp(const AplicacionTumbao());
 }
 
-class AplicacionDescargador extends StatelessWidget {
-  const AplicacionDescargador({super.key});
+class AplicacionTumbao extends StatelessWidget {
+  const AplicacionTumbao({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Descargador',
+      title: 'Tumbao',
       debugShowCheckedModeBanner: false,
       theme: Tema.construir(),
       home: const Inicio(),

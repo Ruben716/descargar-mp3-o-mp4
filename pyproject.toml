@@ -27,6 +27,6 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 python_version = "3.10"
-files = ["descargador", "tests"]
+files = ["descargador", "tests", "movil/herramientas"]
 ignore_missing_imports = true
 warn_unused_ignores = false

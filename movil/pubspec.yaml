@@ -1,5 +1,5 @@
 name: descargador_movil
-description: "A new Flutter project."
+description: "Tumbao: descarga y escucha musica y video sin depender de la red."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -51,6 +51,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
   sqflite_common_ffi: ^2.4.3
 
 # For information on the generic Dart part of this file, see the
@@ -94,3 +95,14 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "assets/icono.png"
+  adaptive_icon_background: "assets/icono_fondo.png"
+  adaptive_icon_foreground: "assets/icono_primer_plano.png"
+  # El margen de la zona segura ya lo deja generar_icono.py, asi que el
+  # plugin no debe anadir el suyo: si no, la figura sale diminuta.
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: "assets/icono_primer_plano.png"

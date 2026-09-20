@@ -108,7 +108,7 @@ class EstadoReproductor extends ChangeNotifier {
     tag: MediaItem(
       id: elemento.uri,
       title: nombreLimpio(elemento.nombre),
-      album: 'Descargador',
+      album: 'Tumbao',
       artUri: arte,
     ),
   );
@@ -183,7 +183,7 @@ class EstadoReproductor extends ChangeNotifier {
           tag: MediaItem(
             id: pista.fuente,
             title: nombreLimpio(pista.titulo),
-            album: 'Descargador',
+            album: 'Tumbao',
             artUri: await Nucleo.caratulaArchivo(pista.fuente),
           ),
         ),

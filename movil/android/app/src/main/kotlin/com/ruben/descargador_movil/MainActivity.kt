@@ -296,11 +296,11 @@ class MainActivity : AudioServiceActivity() {
         val salida = JSONArray()
         listar(
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-            "Music/Descargador/", true, salida,
+            CARPETAS_AUDIO, true, salida,
         )
         listar(
             MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-            "Movies/Descargador/", false, salida,
+            CARPETAS_VIDEO, false, salida,
         )
         return JSONObject().put("ok", true).put("elementos", salida).toString()
     }
@@ -344,19 +344,29 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    private fun listar(coleccion: Uri, carpeta: String, esAudio: Boolean, salida: JSONArray) {
+    private fun listar(
+        coleccion: Uri,
+        carpetas: List<String>,
+        esAudio: Boolean,
+        salida: JSONArray,
+    ) {
         val columnas = arrayOf(
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DURATION,
         )
+        // Las carpetas van en una sola consulta y no en varias: asi el orden por
+        // fecha sale mezclado de verdad y lo antiguo no se amontona al final.
+        val condicion = carpetas.joinToString(" OR ") {
+            "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+        }
         try {
             contentResolver.query(
                 coleccion,
                 columnas,
-                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
-                arrayOf("$carpeta%"),
+                condicion,
+                carpetas.map { "$it/%" }.toTypedArray(),
                 "${MediaStore.MediaColumns.DATE_ADDED} DESC",
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
@@ -388,7 +398,7 @@ class MainActivity : AudioServiceActivity() {
             } else {
                 MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
             }
-            val carpeta = if (esAudio) "Music/Descargador" else "Movies/Descargador"
+            val carpeta = if (esAudio) CARPETAS_AUDIO.first() else CARPETAS_VIDEO.first()
             val valores = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, archivo.name)
                 put(MediaStore.MediaColumns.MIME_TYPE, if (esAudio) "audio/mpeg" else "video/mp4")
@@ -517,5 +527,17 @@ class MainActivity : AudioServiceActivity() {
             // Sin enlace simbolico se seguira pudiendo descargar: yt-dlp acepta
             // la ruta directa al ejecutable, solo se pierde ffprobe.
         }
+    }
+
+    private companion object {
+        /**
+         * Carpetas de la biblioteca del telefono, de la actual a la mas vieja.
+         *
+         * Lo nuevo se guarda siempre en la primera; las demas se siguen leyendo
+         * para que lo descargado antes de que la app se llamase Tumbao no
+         * desaparezca de la biblioteca de un dia para otro.
+         */
+        val CARPETAS_AUDIO = listOf("Music/Tumbao", "Music/Descargador")
+        val CARPETAS_VIDEO = listOf("Movies/Tumbao", "Movies/Descargador")
     }
 }

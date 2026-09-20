@@ -69,7 +69,7 @@ void main() {
 
   /// Abre la app y salta a Descargar, que ya no es la primera pestania.
   Future<void> abrir(WidgetTester tester) async {
-    await tester.pumpWidget(const AplicacionDescargador());
+    await tester.pumpWidget(const AplicacionTumbao());
     await tester.pumpAndSettle();
     await tester.tap(find.text('Descargar').last);
     await tester.pumpAndSettle();
@@ -77,7 +77,7 @@ void main() {
 
   /// Abre la app y se queda en Inicio.
   Future<void> abrirInicio(WidgetTester tester) async {
-    await tester.pumpWidget(const AplicacionDescargador());
+    await tester.pumpWidget(const AplicacionTumbao());
     await tester.pumpAndSettle();
   }
 

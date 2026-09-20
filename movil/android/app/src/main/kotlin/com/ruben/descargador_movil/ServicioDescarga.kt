@@ -69,7 +69,7 @@ class ServicioDescarga : Service() {
 
     private fun construirNotificacion(texto: String, porcentaje: Int): Notification =
         NotificationCompat.Builder(this, CANAL)
-            .setContentTitle("Descargador")
+            .setContentTitle("Tumbao")
             .setContentText(texto)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
