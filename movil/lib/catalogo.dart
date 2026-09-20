@@ -14,9 +14,10 @@ class Catalogo {
 
   static const String _tabla = 'descargas';
   static const String _tablaLetras = 'letras';
+  static const String _tablaEscuchas = 'escuchas';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 2;
+  static const int _version = 3;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -42,15 +43,29 @@ class Catalogo {
     )
   ''';
 
+  /// Cuantas veces se ha oido cada pista, para lo mas escuchado.
+  ///
+  /// Solo el recuento y la ultima vez: no se guarda un historial con hora a
+  /// hora, que no se usaria para nada y crece sin freno.
+  static const String _esquemaEscuchas = '''
+    CREATE TABLE escuchas (
+      uri TEXT PRIMARY KEY,
+      veces INTEGER NOT NULL,
+      ultima INTEGER NOT NULL
+    )
+  ''';
+
   static Future<void> _crear(Database bd) async {
     await bd.execute(_esquema);
     await bd.execute(_esquemaLetras);
+    await bd.execute(_esquemaEscuchas);
   }
 
   static Future<void> _migrar(Database bd, int desde, int hasta) async {
-    // De la 1 a la 2 solo se anade la tabla de letras; lo descargado se queda
-    // donde estaba, que es justo lo que no se puede perder.
+    // Cada paso solo anade una tabla; lo descargado se queda donde estaba,
+    // que es justo lo que no se puede perder.
     if (desde < 2) await bd.execute(_esquemaLetras);
+    if (desde < 3) await bd.execute(_esquemaEscuchas);
   }
 
   /// Se guarda la apertura, no la base ya abierta.
@@ -124,8 +139,14 @@ class Catalogo {
   }
 
   /// Al borrar una descarga hay que olvidarla, o creeriamos tenerla todavia.
+  ///
+  /// Se va tambien lo que colgaba de ella: si no, una pista borrada seguiria
+  /// encabezando lo mas escuchado sin que se pueda abrir.
   Future<void> olvidar(String uri) async {
-    await (await _abierta).delete(_tabla, where: 'uri = ?', whereArgs: <Object>[uri]);
+    final Database bd = await _abierta;
+    await bd.delete(_tabla, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaLetras, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaEscuchas, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
   Future<int> cuantas() async {
@@ -169,6 +190,46 @@ class Catalogo {
     );
   }
 
+  // --- Escuchas -----------------------------------------------------------
+
+  /// Suma una escucha a esa pista.
+  Future<void> anotarEscucha(String uri) async {
+    if (uri.isEmpty) return;
+    await (await _abierta).rawInsert(
+      'INSERT INTO $_tablaEscuchas (uri, veces, ultima) VALUES (?, 1, ?) '
+      'ON CONFLICT(uri) DO UPDATE SET veces = veces + 1, ultima = ?',
+      <Object>[uri, DateTime.now().millisecondsSinceEpoch,
+        DateTime.now().millisecondsSinceEpoch],
+    );
+  }
+
+  /// Los URI mas escuchados, del que mas al que menos.
+  Future<List<({String uri, int veces})>> masEscuchadas({int limite = 10}) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaEscuchas,
+      columns: <String>['uri', 'veces'],
+      orderBy: 'veces DESC, ultima DESC',
+      limit: limite,
+    );
+    return filas
+        .map((Map<String, Object?> f) => (
+              uri: f['uri'] as String? ?? '',
+              veces: f['veces'] as int? ?? 0,
+            ))
+        .toList();
+  }
+
+  Future<int> vecesEscuchada(String uri) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaEscuchas,
+      columns: <String>['veces'],
+      where: 'uri = ?',
+      whereArgs: <Object>[uri],
+      limit: 1,
+    );
+    return filas.isEmpty ? 0 : (filas.first['veces'] as int? ?? 0);
+  }
+
   /// Solo para las pruebas: base en memoria y sin filas.
   ///
   /// Se abre una sola vez y luego se vacia. Cerrarla entre prueba y prueba
@@ -177,5 +238,6 @@ class Catalogo {
     _apertura ??= abrirEn(inMemoryDatabasePath);
     await (await _abierta).delete(_tabla);
     await (await _abierta).delete(_tablaLetras);
+    await (await _abierta).delete(_tablaEscuchas);
   }
 }

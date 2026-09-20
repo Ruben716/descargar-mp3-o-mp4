@@ -120,7 +120,7 @@ class _Registro:
 def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
               formato_audio: str, bitrate: str = "192", subtitulos: str = "",
               fragmento: str = "", sin_patrocinios: bool = False,
-              normalizar: bool = False) -> str:
+              normalizar: bool = False, etiquetas_limpias: bool = True) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -137,6 +137,7 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             # Igualar el volumen obliga a reconvertir, asi que solo se pide
             # cuando se baja audio; en video el dominio lo rechazaria.
             normalize=bool(normalizar) and bool(solo_audio),
+            clean_tags=bool(etiquetas_limpias),
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )

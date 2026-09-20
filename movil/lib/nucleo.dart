@@ -273,6 +273,7 @@ class Ajustes {
     this.fragmento = '',
     this.sinPatrocinios = false,
     this.normalizar = false,
+    this.etiquetasLimpias = true,
   });
 
   final String url;
@@ -287,6 +288,9 @@ class Ajustes {
   /// Iguala el volumen del MP3 al descargarlo.
   final bool normalizar;
 
+  /// Separa artista y tema del titulo de YouTube y le quita las coletillas.
+  final bool etiquetasLimpias;
+
   Ajustes copiar({
     String? url,
     bool? soloAudio,
@@ -297,6 +301,7 @@ class Ajustes {
     String? fragmento,
     bool? sinPatrocinios,
     bool? normalizar,
+    bool? etiquetasLimpias,
   }) =>
       Ajustes(
         url: url ?? this.url,
@@ -308,6 +313,7 @@ class Ajustes {
         fragmento: fragmento ?? this.fragmento,
         sinPatrocinios: sinPatrocinios ?? this.sinPatrocinios,
         normalizar: normalizar ?? this.normalizar,
+        etiquetasLimpias: etiquetasLimpias ?? this.etiquetasLimpias,
       );
 
   Map<String, dynamic> aMapa() => <String, dynamic>{
@@ -324,5 +330,6 @@ class Ajustes {
         // audio y con un formato que no se pueda copiar tal cual. En otro caso
         // el nucleo rechazaria la descarga entera.
         'normalizar': soloAudio && normalizar && !formatosSinNormalizar.contains(formatoAudio),
+        'etiquetasLimpias': etiquetasLimpias,
       };
 }

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'listas.dart';
@@ -33,6 +36,9 @@ class PantallaInicioState extends State<PantallaInicio> {
   final EstadoReproductor _reproductor = EstadoReproductor.instancia;
 
   List<Elemento> _elementos = <Elemento>[];
+
+  /// Lo mas oido, de la pista mas escuchada a la que menos.
+  List<Elemento> _masOidas = <Elemento>[];
   bool _cargando = true;
 
   @override
@@ -63,8 +69,37 @@ class PantallaInicioState extends State<PantallaInicio> {
         _elementos = elementos;
         _cargando = false;
       });
+      // El recuento va aparte y sin esperarlo: la pantalla no puede quedarse
+      // en blanco por una consulta que solo sirve para un carrusel.
+      unawaited(_cargarMasOidas(elementos));
     } catch (_) {
       if (mounted) setState(() => _cargando = false);
+    }
+  }
+
+  Future<void> _cargarMasOidas(List<Elemento> biblioteca) async {
+    final List<Elemento> masOidas = await _ordenarPorEscuchas(biblioteca);
+    if (mounted) setState(() => _masOidas = masOidas);
+  }
+
+  /// Cruza el recuento de escuchas con lo que sigue en el telefono.
+  ///
+  /// Puede quedar corto o vacio: se cuentan las pistas que se han oido de
+  /// verdad, y las que se borraron ya no estan en la biblioteca.
+  static Future<List<Elemento>> _ordenarPorEscuchas(List<Elemento> biblioteca) async {
+    try {
+      final List<({String uri, int veces})> recuento =
+          await Catalogo.instancia.masEscuchadas();
+      final Map<String, Elemento> porUri = <String, Elemento>{
+        for (final Elemento e in biblioteca) e.uri: e,
+      };
+      return <Elemento>[
+        for (final ({String uri, int veces}) fila in recuento)
+          if (porUri[fila.uri] != null) porUri[fila.uri]!,
+      ];
+    } catch (_) {
+      // Quedarse sin estadisticas no puede dejar la pantalla en blanco.
+      return <Elemento>[];
     }
   }
 
@@ -101,6 +136,7 @@ class PantallaInicioState extends State<PantallaInicio> {
             _primerosPasos(context)
           else ...<Widget>[
             if (_continuar != null) _continuarEscuchando(context, _continuar!),
+            if (_masOidas.length >= 3) _carruselMasOidas(context),
             _carruselPistas(context),
             if (listas.isNotEmpty) _carruselListas(context, listas),
           ],
@@ -279,6 +315,38 @@ class PantallaInicioState extends State<PantallaInicio> {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => Reproductor(elemento: recientes[i]),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 26),
+      ],
+    );
+  }
+
+  /// Lo mas escuchado. Solo sale cuando ya hay unas cuantas, porque con una
+  /// o dos no dice nada y ocupa lo mismo.
+  Widget _carruselMasOidas(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _tituloSeccion(context, 'Lo que mas oyes', widget.alIrABiblioteca),
+        SizedBox(
+          height: 186,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            itemCount: _masOidas.length,
+            itemBuilder: (BuildContext context, int i) => _Tarjeta(
+              elemento: _masOidas[i],
+              subtitulo: formatoTiempo(_masOidas[i].duracion),
+              alPulsar: () {
+                _reproductor.reproducirLista(_masOidas, i);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Reproductor(elemento: _masOidas[i]),
                   ),
                 );
               },

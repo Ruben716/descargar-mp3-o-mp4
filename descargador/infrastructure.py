@@ -32,6 +32,44 @@ INTENTOS_TRANSITORIOS = 3
 #: suena al mismo nivel que el resto de lo que escucha el teléfono.
 NIVEL_SONORIDAD = "I=-14:TP=-1.5:LRA=11"
 
+#: Coletillas de videoclip que sobran en el nombre de una canción.
+#:
+#: Se buscan solo dentro de paréntesis o corchetes: «Live» suelto puede ser
+#: parte del título de verdad, pero «(Live)» al final nunca lo es.
+#: El «(?i)» va dentro del patrón porque yt-dlp lo compila sin banderas.
+RUIDO_TITULO = (
+    r"(?i)\s*[\(\[][^)\]]*\b(?:official|oficial|video|videoclip|lyrics?|letra|"
+    r"audio|hd|hq|4k|8k|mv|remaster(?:ed)?|visualizer|visualiser|"
+    r"en\s+vivo|live)\b[^)\]]*[\)\]]"
+)
+
+#: Recorte al cuadrado centrado, del lado del menor de los dos.
+#:
+#: La miniatura de YouTube es 16:9, y de carátula de disco queda fatal en
+#: cualquier reproductor: sale el fotograma estirado o con franjas.
+RECORTE_CUADRADO = "crop='min(iw,ih)':'min(iw,ih)'"
+
+#: Cómo se reparte «Artista - Tema» dentro del título.
+PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
+
+
+def acciones_etiquetas() -> tuple:
+    """Acciones de MetadataParser para dejar el título en artista y tema.
+
+    Primero se quitan las coletillas y después se parte: al revés, el ruido se
+    quedaría pegado al nombre del tema. Las constantes se importan aquí y no
+    arriba por lo mismo que el motor: sin yt-dlp, el error debe ser el nuestro.
+    """
+    try:
+        from yt_dlp.postprocessor.metadataparser import MetadataParserPP
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+    acciones = MetadataParserPP.Actions
+    return (
+        (acciones.REPLACE, "title", RUIDO_TITULO, ""),
+        (acciones.INTERPRET, "title", PLANTILLA_ETIQUETAS),
+    )
+
 
 def _es_transitorio(error: Exception) -> bool:
     mensaje = str(error).lower()
@@ -434,19 +472,33 @@ class YtDlpDownloader:
         copian el flujo (metadatos, carátula), y ffmpeg aborta al mezclar un
         filtro con «-c copy». Comprobado contra el resolutor de yt-dlp.
         """
-        if not opts.normalize:
-            return {}
-        return {"extractaudio+ffmpeg": ["-af", f"loudnorm={NIVEL_SONORIDAD}"]}
+        argumentos: dict[str, list[str]] = {}
+        if opts.normalize:
+            argumentos["extractaudio+ffmpeg"] = ["-af", f"loudnorm={NIVEL_SONORIDAD}"]
+        if opts.audio_only:
+            argumentos["thumbnailsconvertor+ffmpeg"] = ["-vf", RECORTE_CUADRADO]
+        return argumentos
 
     @staticmethod
     def _postprocesadores(opts: DownloadOptions, caratula: bool = True) -> list[dict]:
         pps: list[dict] = []
+        if opts.clean_tags:
+            # En `pre_process`, así que el archivo también sale con el
+            # nombre limpio y no solo la etiqueta de dentro.
+            pps.append({"key": "MetadataParser", "actions": acciones_etiquetas(),
+                        "when": "pre_process"})
         if opts.audio_only:
             pps.append({
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": opts.audio_format,
                 "preferredquality": opts.audio_bitrate,
             })
+        if opts.audio_only and caratula:
+            # Convierte la miniatura antes de incrustarla, que es cuando se le
+            # puede aplicar el recorte: al incrustarla ya va con «-c copy».
+            # A PNG y no a JPG a propósito: si el destino coincide con el
+            # origen, yt-dlp se salta la conversión y no habría recorte.
+            pps.append({"key": "FFmpegThumbnailsConvertor", "format": "png"})
         if opts.skip_sponsors:
             pps.append({"key": "SponsorBlock", "categories": list(SPONSOR_CATEGORIES),
                         "when": "after_filter"})

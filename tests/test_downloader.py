@@ -160,9 +160,9 @@ class AdapterTests(unittest.TestCase):
         opciones = DownloadOptions(audio_only=True, normalize=True)
         argumentos = YtDlpDownloader._argumentos_postproceso(opciones)
 
-        self.assertEqual(list(argumentos), ["extractaudio+ffmpeg"])
+        conLoudnorm = [k for k, v in argumentos.items() if any("loudnorm" in a for a in v)]
+        self.assertEqual(conLoudnorm, ["extractaudio+ffmpeg"])
         self.assertEqual(argumentos["extractaudio+ffmpeg"][0], "-af")
-        self.assertIn("loudnorm", argumentos["extractaudio+ffmpeg"][1])
 
     def test_yt_dlp_entrega_el_filtro_donde_lo_esperamos(self):
         """Comprueba el acuerdo con yt-dlp, no nuestro diccionario.
@@ -183,6 +183,97 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class EtiquetasTests(unittest.TestCase):
+    """Cómo queda el título al limpiarlo.
+
+    Se ejecutan las acciones de verdad contra el postprocesador de yt-dlp, no
+    solo el diccionario: lo que importa es el resultado sobre un título real.
+    """
+
+    @staticmethod
+    def _limpiar(titulo: str) -> dict:
+        from yt_dlp import YoutubeDL
+        from yt_dlp.postprocessor.metadataparser import MetadataParserPP
+
+        from descargador.infrastructure import acciones_etiquetas
+
+        info = {"title": titulo}
+        with YoutubeDL({"quiet": True, "no_warnings": True}) as motor:
+            MetadataParserPP(motor, acciones_etiquetas()).run(info)
+        return info
+
+    def test_separa_artista_y_tema_quitando_las_coletillas(self):
+        casos = {
+            "Bad Bunny - Titi Me Pregunto (Video Oficial)": ("Bad Bunny", "Titi Me Pregunto"),
+            "Soda Stereo - De Musica Ligera (Official Video) [4K]": (
+                "Soda Stereo", "De Musica Ligera"),
+            "Grupo 5 - Motor y Motivo (Video Lyric Oficial)": ("Grupo 5", "Motor y Motivo"),
+            "Shakira - Hips Dont Lie [Official Music Video] (HD)": ("Shakira", "Hips Dont Lie"),
+        }
+        for titulo, (artista, tema) in casos.items():
+            with self.subTest(titulo=titulo):
+                info = self._limpiar(titulo)
+                self.assertEqual(info.get("artist"), artista)
+                self.assertEqual(info.get("track"), tema)
+
+    def test_la_coletilla_se_quita_sin_importar_las_mayusculas(self):
+        # El patrón lleva «(?i)» dentro porque yt-dlp lo compila sin banderas;
+        # sin eso, «(Video Oficial)» no casaba con la alternativa en minúsculas.
+        for variante in ("(VIDEO OFICIAL)", "(Video Oficial)", "(video oficial)"):
+            with self.subTest(variante=variante):
+                info = self._limpiar(f"Artista - Tema {variante}")
+                self.assertEqual(info.get("track"), "Tema")
+
+    def test_una_palabra_suelta_no_se_confunde_con_una_coletilla(self):
+        # Solo se mira dentro de paréntesis o corchetes: «Live» en mitad de un
+        # título es parte del nombre, no una etiqueta del videoclip.
+        info = self._limpiar("Coldplay - Live in Buenos Aires")
+        self.assertEqual(info.get("track"), "Live in Buenos Aires")
+
+    def test_un_titulo_sin_guion_se_deja_como_esta(self):
+        info = self._limpiar("Un tema sin artista")
+        self.assertIsNone(info.get("artist"))
+        self.assertEqual(info["title"], "Un tema sin artista")
+
+    def test_sin_la_opcion_no_se_toca_el_titulo(self):
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions())]
+        self.assertNotIn("MetadataParser", claves)
+
+    def test_limpiar_corre_antes_de_descargar_para_que_el_archivo_salga_igual(self):
+        pps = YtDlpDownloader._postprocesadores(DownloadOptions(clean_tags=True))
+        parser = next(p for p in pps if p["key"] == "MetadataParser")
+        self.assertEqual(parser["when"], "pre_process")
+
+    def test_el_menu_ofrece_limpiar_las_etiquetas(self):
+        for audio in (True, False):
+            with self.subTest(audio=audio):
+                nombres = [nombre for nombre, _ in acciones_ajustes(audio=audio)]
+                self.assertIn("Etiquetas", nombres)
+
+
+class CaratulaCuadradaTests(unittest.TestCase):
+    def test_en_audio_se_recorta_la_miniatura_antes_de_incrustarla(self):
+        # La de YouTube es 16:9 y como carátula de disco queda fatal.
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(
+            DownloadOptions(audio_only=True), caratula=True)]
+        self.assertLess(claves.index("FFmpegThumbnailsConvertor"), claves.index("EmbedThumbnail"))
+
+        argumentos = YtDlpDownloader._argumentos_postproceso(DownloadOptions(audio_only=True))
+        self.assertIn("crop", argumentos["thumbnailsconvertor+ffmpeg"][1])
+
+    def test_en_video_la_miniatura_se_deja_como_viene(self):
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(
+            DownloadOptions(), caratula=True)]
+        self.assertNotIn("FFmpegThumbnailsConvertor", claves)
+        self.assertNotIn("thumbnailsconvertor+ffmpeg",
+                         YtDlpDownloader._argumentos_postproceso(DownloadOptions()))
+
+    def test_sin_caratula_no_se_convierte_nada(self):
+        claves = [p["key"] for p in YtDlpDownloader._postprocesadores(
+            DownloadOptions(audio_only=True), caratula=False)]
+        self.assertNotIn("FFmpegThumbnailsConvertor", claves)
 
 
 class NormalizarTests(unittest.TestCase):

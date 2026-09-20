@@ -69,6 +69,9 @@ class DownloadOptions:
     #: Iguala el volumen de lo descargado, para que una canción no reviente
     #: después de otra. Exige reconvertir, así que no vale con cualquier códec.
     normalize: bool = False
+    #: Separa artista y tema del título de YouTube y los escribe en la etiqueta,
+    #: en vez de dejar «Artista - Tema (Official Video) [4K]» como título.
+    clean_tags: bool = False
 
     def __post_init__(self):
         if self.quality is not None and self.quality <= 0:

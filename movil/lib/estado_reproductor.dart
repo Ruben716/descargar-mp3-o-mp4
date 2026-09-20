@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
+import 'catalogo.dart';
 import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
@@ -29,10 +30,12 @@ class Pista {
 class EstadoReproductor extends ChangeNotifier {
   EstadoReproductor._() {
     motor.playerStateStream.listen((_) => notifyListeners());
+    motor.positionStream.listen(_anotarSiYaCuenta);
     // Al saltar de pista dentro de la cola hay que actualizar lo que se ve.
     motor.currentIndexStream.listen((int? indice) {
       if (indice == null || indice >= _cola.length) return;
       final Elemento actual = _cola[indice];
+      if (actual.uri != _anotada) _anotada = null;
       _actual = Pista(titulo: actual.nombre, fuente: actual.uri, elemento: actual);
       notifyListeners();
     });
@@ -56,6 +59,23 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   static final EstadoReproductor instancia = EstadoReproductor._();
+
+  /// Cuanto hay que oir de una pista para que cuente como escuchada.
+  ///
+  /// Sin este minimo, pasar veinte canciones buscando una las dejaria a todas
+  /// como escuchadas y «lo mas oido» no diria nada.
+  static const Duration minimoParaContar = Duration(seconds: 20);
+
+  /// La pista que ya se anoto, para no sumarla otra vez mientras siga sonando.
+  String? _anotada;
+
+  void _anotarSiYaCuenta(Duration instante) {
+    final String? uri = _actual?.elemento?.uri;
+    if (uri == null || uri == _anotada) return;
+    if (instante < minimoParaContar) return;
+    _anotada = uri;
+    unawaited(Catalogo.instancia.anotarEscucha(uri));
+  }
 
   /// Recupera el ecualizador guardado en cuanto el aparato diga sus bandas.
   ///
@@ -413,6 +433,7 @@ class EstadoReproductor extends ChangeNotifier {
   /// las pruebas para no depender del orden en que se ejecutan.
   void reiniciar() {
     _actual = null;
+    _anotada = null;
     _error = null;
     _preparando = false;
     _cola = <Elemento>[];

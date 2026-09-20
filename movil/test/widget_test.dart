@@ -754,12 +754,15 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 2);
+      // Salta dos versiones de una vez, que es lo que le pasa a quien no
+      // actualizo la app en un tiempo.
+      expect(await nueva.getVersion(), 3);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
-      // Y la tabla nueva ya esta, lista para usarse.
+      // Y las tablas nuevas ya estan, listas para usarse.
       expect(await nueva.query('letras'), isEmpty);
+      expect(await nueva.query('escuchas'), isEmpty);
     } finally {
       await nueva.close();
       await temporal.delete(recursive: true);
@@ -824,6 +827,85 @@ void main() {
     ).aMapa();
 
     expect(mapa['normalizar'], isFalse);
+  });
+
+  // --- Lo mas escuchado ---------------------------------------------------
+
+  test('las escuchas se suman y salen de la mas oida a la menos', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+
+    await catalogo.anotarEscucha('content://audio/1');
+    await catalogo.anotarEscucha('content://audio/2');
+    await catalogo.anotarEscucha('content://audio/2');
+    await catalogo.anotarEscucha('content://audio/2');
+    await catalogo.anotarEscucha('content://audio/3');
+    await catalogo.anotarEscucha('content://audio/3');
+
+    final List<({String uri, int veces})> ranking = await catalogo.masEscuchadas();
+
+    expect(ranking.map((({String uri, int veces}) f) => f.uri).toList(),
+        <String>['content://audio/2', 'content://audio/3', 'content://audio/1']);
+    expect(ranking.first.veces, 3);
+  });
+
+  test('borrar una descarga se lleva sus escuchas y su letra', () async {
+    // Si no, una pista borrada seguiria encabezando lo mas oido sin poder abrirse.
+    final Catalogo catalogo = Catalogo.instancia;
+    await catalogo.registrar('https://www.youtube.com/watch?v=abc',
+        audio: true, uri: 'content://audio/9');
+    await catalogo.anotarEscucha('content://audio/9');
+    await catalogo.guardarLetra('content://audio/9', lrc: '[00:01.00] Algo', texto: 'Algo');
+
+    await catalogo.olvidar('content://audio/9');
+
+    expect(await catalogo.vecesEscuchada('content://audio/9'), 0);
+    expect(await catalogo.letraDe('content://audio/9'), isNull);
+    expect(await catalogo.buscar('https://www.youtube.com/watch?v=abc', audio: true), isNull);
+  });
+
+  test('pasar canciones de largo no las cuenta como escuchadas', () async {
+    // El minimo existe para que buscar una cancion saltando veinte no deje a
+    // las veinte como oidas.
+    expect(EstadoReproductor.minimoParaContar, greaterThanOrEqualTo(
+        const Duration(seconds: 15)));
+  });
+
+  test('el catalogo de la v2 tambien se actualiza sin perder nada', () async {
+    final Directory temporal = await Directory.systemTemp.createTemp('tumbao');
+    final String ruta = '${temporal.path}/catalogo.db';
+
+    final Database vieja = await openDatabase(
+      ruta,
+      version: 2,
+      onCreate: (Database bd, int _) async {
+        await bd.execute(
+          'CREATE TABLE descargas (id TEXT NOT NULL, audio INTEGER NOT NULL, '
+          'uri TEXT NOT NULL, fecha INTEGER NOT NULL, PRIMARY KEY (id, audio))',
+        );
+        await bd.execute(
+          'CREATE TABLE letras (uri TEXT PRIMARY KEY, lrc TEXT NOT NULL, '
+          'texto TEXT NOT NULL, fecha INTEGER NOT NULL)',
+        );
+      },
+    );
+    await vieja.insert('descargas', <String, Object>{
+      'id': 'xyz', 'audio': 1, 'uri': 'content://audio/5', 'fecha': 0,
+    });
+    await vieja.insert('letras', <String, Object>{
+      'uri': 'content://audio/5', 'lrc': '[00:01.00] Hola', 'texto': 'Hola', 'fecha': 0,
+    });
+    await vieja.close();
+
+    final Database nueva = await Catalogo.abrirEn(ruta);
+    try {
+      expect(await nueva.getVersion(), 3);
+      expect((await nueva.query('descargas')).length, 1);
+      expect((await nueva.query('letras')).length, 1, reason: 'la letra guardada sigue');
+      expect(await nueva.query('escuchas'), isEmpty);
+    } finally {
+      await nueva.close();
+      await temporal.delete(recursive: true);
+    }
   });
 }
 

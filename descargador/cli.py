@@ -116,6 +116,8 @@ def describir_ajustes(opciones: DownloadOptions, destino: Path, audio: bool) -> 
         lineas.append("  Fragmento:    completo")
     lineas.append(f"  Carpeta:      {destino}")
     lineas.append(f"  Repetidos:    {'se omiten' if opciones.use_archive else 'se vuelven a descargar'}")
+    etiquetas = "artista y tema aparte" if opciones.clean_tags else "el título tal cual"
+    lineas.append(f"  Etiquetas:    {etiquetas}")
     lineas.append(f"  Carátula:     {'se incrusta' if incrusta_caratula(audio) else 'no (falta ffprobe)'}")
     return lineas
 
@@ -183,6 +185,10 @@ def _alternar_normalizar(opciones: DownloadOptions, destino: Path):
     return replace(opciones, normalize=not opciones.normalize), destino
 
 
+def _alternar_etiquetas(opciones: DownloadOptions, destino: Path):
+    return replace(opciones, clean_tags=not opciones.clean_tags), destino
+
+
 def _alternar_registro(opciones: DownloadOptions, destino: Path):
     return replace(opciones, use_archive=not opciones.use_archive), destino
 
@@ -197,7 +203,7 @@ def acciones_ajustes(audio: bool) -> list[tuple[str, Ajuste]]:
         comunes = [("Calidad", _cambiar_calidad), ("Subtítulos", _cambiar_subtitulos),
                    ("Patrocinios", _alternar_patrocinios)]
     return [*comunes, ("Fragmento", _cambiar_fragmento), ("Carpeta", _cambiar_carpeta),
-            ("Repetidos", _alternar_registro)]
+            ("Repetidos", _alternar_registro), ("Etiquetas", _alternar_etiquetas)]
 
 
 def menu_ajustes(opciones: DownloadOptions, destino: Path,
@@ -246,6 +252,7 @@ def construir_opciones(args) -> DownloadOptions:
         section=parse_section(args.seccion) if args.seccion else None,
         skip_sponsors=args.sin_patrocinios,
         normalize=args.normalizar,
+        clean_tags=args.etiquetas_limpias,
         use_archive=args.registro,
     )
 
@@ -266,6 +273,8 @@ def crear_parser() -> argparse.ArgumentParser:
                         help="Descargar e incrustar subtítulos (predeterminado: es,en)")
     parser.add_argument("--seccion", metavar="INICIO-FIN",
                         help="Descargar solo un fragmento, por ejemplo 00:30-02:15")
+    parser.add_argument("--etiquetas-limpias", action="store_true",
+                        help="separa artista y tema del título y le quita las coletillas")
     parser.add_argument("--normalizar", action="store_true",
                         help="iguala el volumen del audio descargado (exige reconvertir)")
     parser.add_argument("--sin-patrocinios", action="store_true",
