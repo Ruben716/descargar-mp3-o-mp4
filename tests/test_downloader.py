@@ -115,6 +115,14 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
         self.assertIn("height<=720", YtDlpDownloader._seleccion_formato(DownloadOptions(quality=720)))
 
+    def test_mp4_preference_asks_for_h264_first(self):
+        """En el movil el contenedor y el codec deciden si el video se reproduce."""
+        seleccion = YtDlpDownloader._seleccion_formato(DownloadOptions(prefer_mp4=True, quality=720))
+        self.assertTrue(seleccion.startswith("bv*[vcodec^=avc1][height<=720]"))
+        # Debe conservar alternativas: si no hay H.264, algo se descarga igual.
+        self.assertIn("/bv*+ba/b" if "/bv*+ba/b" in seleccion else "/b", seleccion)
+        self.assertEqual(seleccion.count("height<=720"), 5)
+
     def test_audio_extracted_before_embedding_thumbnail(self):
         claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(audio_only=True))]
         self.assertLess(claves.index("FFmpegExtractAudio"), claves.index("EmbedThumbnail"))

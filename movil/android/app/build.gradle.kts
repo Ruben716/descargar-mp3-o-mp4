@@ -18,7 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.ruben.descargador_movil"
-        minSdk = 24
+        // Android 10: es la version donde MediaStore permite escribir en
+        // Musica y Peliculas sin permisos de almacenamiento heredados.
+        minSdk = 29
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -36,6 +38,20 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    packaging {
+        jniLibs {
+            // Android moderno no extrae las librerias del APK, las carga en
+            // sitio. Pero libffmpeg.zip.so no es una libreria: es un ZIP que
+            // tenemos que abrir como archivo, y el ejecutable de FFmpeg solo
+            // puede correr desde esta carpeta. Con el empaquetado clasico el
+            // instalador las deja en disco.
+            useLegacyPackaging = true
+            // Ese mismo ZIP no es un objeto ELF, asi que llvm-strip falla al
+            // intentar limpiarlo. Se excluye del proceso.
+            keepDebugSymbols += "**/libffmpeg.zip.so"
+        }
+    }
 }
 
 // El plugin de Flutter anade las tres arquitecturas despues de nuestro bloque
@@ -46,6 +62,15 @@ androidComponents {
         dsl.defaultConfig.ndk.abiFilters.clear()
         dsl.defaultConfig.ndk.abiFilters.add("arm64-v8a")
     }
+}
+
+dependencies {
+    // Trae el ejecutable ffmpeg y ffprobe compilados para Android, mas sus
+    // librerias comprimidas en libffmpeg.zip.so. abiFilters recorta el resto
+    // de arquitecturas, asi que solo pesa lo de arm64.
+    implementation("com.github.yausername.youtubedl-android:ffmpeg:0.14.0")
+    // NotificationCompat para la notificacion del servicio de descarga.
+    implementation("androidx.core:core-ktx:1.15.0")
 }
 
 chaquopy {

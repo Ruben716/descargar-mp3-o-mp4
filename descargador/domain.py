@@ -56,6 +56,9 @@ class DownloadOptions:
     section: tuple[float, float] | None = None
     skip_sponsors: bool = False
     use_archive: bool = False
+    #: Prefiere MP4 aunque exista algo mejor en otro contenedor. En el móvil es
+    #: casi obligatorio: el reproductor de Android no traga MKV ni VP9.
+    prefer_mp4: bool = False
 
     def __post_init__(self):
         if self.quality is not None and self.quality <= 0:

@@ -2,6 +2,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // FFmpeg compilado para Android (proyecto youtubedl-android) se publica aqui.
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

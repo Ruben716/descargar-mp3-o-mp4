@@ -1,11 +1,27 @@
 package com.ruben.descargador_movil
 
+import android.Manifest
+import android.content.ContentValues
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.provider.MediaStore
+import android.system.Os
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
+import java.io.FileInputStream
+import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Puente Flutter -> Kotlin -> Python.
@@ -16,6 +32,24 @@ import kotlin.concurrent.thread
 class MainActivity : FlutterActivity() {
 
     private val canal = "com.ruben.descargador/nucleo"
+
+    @Volatile
+    private var ffmpegListo = false
+
+    /** Enlace llegado por Compartir, a la espera de que Flutter lo recoja. */
+    @Volatile
+    private var urlCompartida: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        recogerEnlace(intent)
+        pedirPermisoNotificaciones()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        recogerEnlace(intent)
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,6 +62,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { llamada, respuesta ->
                 when (llamada.method) {
                     "diagnostico" -> enHilo(respuesta) { puente ->
+                        asegurarFfmpeg(puente)
                         puente.callAttr("diagnostico").toString()
                     }
                     "informacion" -> {
@@ -36,9 +71,101 @@ class MainActivity : FlutterActivity() {
                             puente.callAttr("informacion", url).toString()
                         }
                     }
+                    "descargar" -> {
+                        val url = llamada.argument<String>("url").orEmpty()
+                        val soloAudio = llamada.argument<Boolean>("soloAudio") ?: false
+                        val calidad = llamada.argument<Int>("calidad") ?: 0
+                        val formatoAudio = llamada.argument<String>("formatoAudio") ?: "mp3"
+                        enHilo(respuesta) { puente ->
+                            descargar(puente, url, soloAudio, calidad, formatoAudio)
+                        }
+                    }
+                    // Consulta ligera: Flutter la repite mientras dura la descarga.
+                    "progreso" -> enHilo(respuesta) { puente ->
+                        puente.callAttr("progreso").toString()
+                    }
+                    // Flutter la consulta al abrir y al volver del segundo plano.
+                    "urlCompartida" -> {
+                        val pendiente = urlCompartida
+                        urlCompartida = null
+                        respuesta.success(pendiente)
+                    }
                     else -> respuesta.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Descarga con el proceso protegido y deja el resultado en la biblioteca
+     * del movil, para que aparezca en la galeria o el reproductor de musica.
+     */
+    private fun descargar(
+        puente: PyObject,
+        url: String,
+        soloAudio: Boolean,
+        calidad: Int,
+        formatoAudio: String,
+    ): String {
+        asegurarFfmpeg(puente)
+        ServicioDescarga.arrancar(this)
+        try {
+            val crudo = puente.callAttr(
+                "descargar",
+                url,
+                carpetaTrabajo().absolutePath,
+                soloAudio,
+                calidad,
+                formatoAudio,
+            ).toString()
+
+            val datos = JSONObject(crudo)
+            if (!datos.optBoolean("ok")) return crudo
+
+            val origen = datos.optJSONArray("archivos") ?: JSONArray()
+            val guardados = JSONArray()
+            for (i in 0 until origen.length()) {
+                val archivo = File(origen.getString(i))
+                guardados.put(exportarABiblioteca(archivo, soloAudio) ?: archivo.absolutePath)
+            }
+            return JSONObject().put("ok", true).put("archivos", guardados).toString()
+        } finally {
+            ServicioDescarga.detener(this)
+        }
+    }
+
+    /**
+     * Copia el archivo a Musica/ o Peliculas/ mediante MediaStore y borra el
+     * temporal. Asi lo ven el resto de apps del telefono.
+     */
+    private fun exportarABiblioteca(archivo: File, esAudio: Boolean): String? {
+        if (!archivo.isFile) return null
+        return try {
+            val coleccion = if (esAudio) {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            } else {
+                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            }
+            val carpeta = if (esAudio) "Music/Descargador" else "Movies/Descargador"
+            val valores = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, archivo.name)
+                put(MediaStore.MediaColumns.MIME_TYPE, if (esAudio) "audio/mpeg" else "video/mp4")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, carpeta)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val destino = contentResolver.insert(coleccion, valores) ?: return null
+            contentResolver.openOutputStream(destino)?.use { salida ->
+                archivo.inputStream().use { it.copyTo(salida) }
+            } ?: return null
+
+            valores.clear()
+            valores.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            contentResolver.update(destino, valores, null, null)
+            archivo.delete()
+            "$carpeta/${archivo.name}"
+        } catch (error: Throwable) {
+            // Si la biblioteca falla, el archivo sigue en la carpeta de la app.
+            null
+        }
     }
 
     /**
@@ -47,7 +174,7 @@ class MainActivity : FlutterActivity() {
      */
     private fun enHilo(
         respuesta: MethodChannel.Result,
-        trabajo: (com.chaquo.python.PyObject) -> String,
+        trabajo: (PyObject) -> String,
     ) {
         thread {
             val salida = try {
@@ -56,6 +183,83 @@ class MainActivity : FlutterActivity() {
                 """{"ok": false, "error": "Kotlin: ${error.message}"}"""
             }
             runOnUiThread { respuesta.success(salida) }
+        }
+    }
+
+    private fun recogerEnlace(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND) return
+        val texto = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
+        // Lo compartido suele traer titulo y enlace juntos; se queda el enlace.
+        urlCompartida = texto.split(Regex("\\s+")).firstOrNull { it.startsWith("http") } ?: texto
+    }
+
+    private fun pedirPermisoNotificaciones() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val concedido = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+        if (concedido != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
+    }
+
+    private fun carpetaTrabajo(): File =
+        (getExternalFilesDir(null) ?: filesDir).resolve("descargas").apply { mkdirs() }
+
+    /**
+     * Deja FFmpeg utilizable y se lo comunica a Python. Solo la primera vez.
+     */
+    @Synchronized
+    private fun asegurarFfmpeg(puente: PyObject) {
+        if (ffmpegListo) return
+        val nativos = applicationInfo.nativeLibraryDir
+        val librerias = extraerLibreriasFfmpeg(nativos)
+
+        // Android solo ejecuta binarios desde la carpeta de librerias nativas,
+        // donde llegan con nombre libffmpeg.so. yt-dlp busca ficheros llamados
+        // "ffmpeg" y "ffprobe", asi que se enlazan con esos nombres.
+        val bin = File(filesDir, "bin").apply { mkdirs() }
+        enlazar(File(nativos, "libffmpeg.so"), File(bin, "ffmpeg"))
+        enlazar(File(nativos, "libffprobe.so"), File(bin, "ffprobe"))
+
+        puente.callAttr("preparar", bin.absolutePath, librerias.absolutePath)
+        ffmpegListo = true
+    }
+
+    /**
+     * libffmpeg.zip.so es un ZIP con libavcodec y demas. Se descomprime una vez
+     * en el almacenamiento de la app; de ahi las carga el ejecutable.
+     */
+    private fun extraerLibreriasFfmpeg(nativos: String): File {
+        val raiz = File(filesDir, "ffmpeg")
+        val destino = File(raiz, "usr/lib")
+        val marca = File(raiz, ".completo")
+        if (marca.exists()) return destino
+
+        raiz.deleteRecursively()
+        raiz.mkdirs()
+        ZipInputStream(FileInputStream(File(nativos, "libffmpeg.zip.so"))).use { zip ->
+            var entrada = zip.nextEntry
+            while (entrada != null) {
+                val salida = File(raiz, entrada.name)
+                if (entrada.isDirectory) {
+                    salida.mkdirs()
+                } else {
+                    salida.parentFile?.mkdirs()
+                    salida.outputStream().use { zip.copyTo(it) }
+                }
+                entrada = zip.nextEntry
+            }
+        }
+        marca.createNewFile()
+        return destino
+    }
+
+    private fun enlazar(origen: File, enlace: File) {
+        try {
+            if (enlace.exists()) enlace.delete()
+            Os.symlink(origen.absolutePath, enlace.absolutePath)
+        } catch (error: Throwable) {
+            // Sin enlace simbolico se seguira pudiendo descargar: yt-dlp acepta
+            // la ruta directa al ejecutable, solo se pierde ffprobe.
         }
     }
 }

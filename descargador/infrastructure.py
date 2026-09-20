@@ -47,7 +47,22 @@ def _runtimes_js() -> dict:
     return {nombre: {} for nombre in ("deno", "node") if shutil.which(nombre)}
 
 
-def _preparar_ffmpeg(get_ffmpeg_exe) -> str:
+def configurar_entorno(binarios: str, librerias: str = "") -> None:
+    """Registra binarios propios (FFmpeg, ffprobe) para esta plataforma.
+
+    En Android no existe imageio-ffmpeg: los ejecutables llegan dentro del APK.
+    Basta con ponerlos en el PATH para que el resto del adaptador los encuentre
+    como si fueran los del sistema, sin ninguna rama especial por plataforma.
+    """
+    rutas = os.environ.get("PATH", "").split(os.pathsep)
+    if binarios and binarios not in rutas:
+        os.environ["PATH"] = binarios + os.pathsep + os.environ.get("PATH", "")
+    if librerias:
+        # El ejecutable de FFmpeg carga libavcodec y compania desde aqui.
+        os.environ["LD_LIBRARY_PATH"] = librerias
+
+
+def _preparar_ffmpeg() -> str:
     """Devuelve la ruta de FFmpeg y se asegura de que también esté en el PATH.
 
     Para el recorte de fragmentos, yt-dlp comprueba la disponibilidad de FFmpeg
@@ -58,7 +73,7 @@ def _preparar_ffmpeg(get_ffmpeg_exe) -> str:
     encontrado = shutil.which("ffmpeg")
     if encontrado:
         return encontrado
-    original = Path(get_ffmpeg_exe())
+    original = Path(_cargar_ffmpeg()())
     alias = original.with_name("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
     if not alias.exists():
         try:
@@ -129,7 +144,6 @@ class YtDlpDownloader:
     # -- descarga ---------------------------------------------------------
     def download(self, request: DownloadRequest) -> DownloadResult:
         YoutubeDL, YoutubeDLError, download_range_func = _cargar_motor()
-        get_ffmpeg_exe = _cargar_ffmpeg()
         opts = request.options
         archivos: list[Path] = []
 
@@ -142,7 +156,7 @@ class YtDlpDownloader:
             if opts.audio_only:
                 destino = destino / "audio"
             destino.mkdir(parents=True, exist_ok=True)
-            ffmpeg = _preparar_ffmpeg(get_ffmpeg_exe)
+            ffmpeg = _preparar_ffmpeg()
             caratula = incrusta_caratula(opts.audio_only)
             options = {
                 "paths": {"home": str(destino)},
@@ -150,7 +164,7 @@ class YtDlpDownloader:
                 "windowsfilenames": True,
                 "format": self._seleccion_formato(opts),
                 "ffmpeg_location": ffmpeg,
-                "merge_output_format": "mp4/mkv",
+                "merge_output_format": "mp4" if opts.prefer_mp4 else "mp4/mkv",
                 "noplaylist": True,
                 "match_filter": self._single_video,
                 "continuedl": True,
@@ -199,9 +213,16 @@ class YtDlpDownloader:
     def _seleccion_formato(opts: DownloadOptions) -> str:
         if opts.audio_only:
             return "ba/b"
-        if opts.quality:
-            return f"bv*[height<={opts.quality}]+ba/b[height<={opts.quality}]"
-        return "bv*+ba/b"
+        alto = f"[height<={opts.quality}]" if opts.quality else ""
+        general = f"bv*{alto}+ba/b{alto}" if alto else "bv*+ba/b"
+        if not opts.prefer_mp4:
+            return general
+        # H.264 primero: es el unico codec que decodifica por hardware
+        # cualquier movil. Un MP4 con AV1 o VP9 se reproduce a tirones o no se
+        # reproduce. Si no lo hay, se baja a cualquier MP4 y luego a lo general.
+        return (f"bv*[vcodec^=avc1]{alto}+ba[ext=m4a]/"
+                f"bv*[ext=mp4]{alto}+ba[ext=m4a]/"
+                f"b[ext=mp4]{alto}/{general}")
 
     @staticmethod
     def _postprocesadores(opts: DownloadOptions, caratula: bool = True) -> list[dict]:

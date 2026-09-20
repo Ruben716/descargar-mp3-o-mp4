@@ -4,16 +4,46 @@ Kotlin no entiende los objetos del dominio, asi que cada funcion devuelve un
 JSON. Del lado de Flutter basta con un jsonDecode.
 """
 import json
+import shutil
 import sys
 from pathlib import Path
 
-from descargador.application import InspectVideo
-from descargador.domain import DownloadError
-from descargador.infrastructure import YtDlpDownloader
+from descargador.application import DownloadVideo, InspectVideo
+from descargador.domain import DownloadError, DownloadOptions, DownloadProgress
+from descargador.infrastructure import YtDlpDownloader, configurar_entorno
+
+#: Ultimo avance publicado por el motor. Kotlin lo consulta mientras descarga.
+_AVANCE: dict = {"status": "inactivo"}
 
 
 def _respuesta(datos: dict) -> str:
     return json.dumps(datos, ensure_ascii=False)
+
+
+def _anotar(avance: DownloadProgress) -> None:
+    _AVANCE.update({
+        "status": avance.status,
+        "archivo": avance.filename,
+        "descargado": avance.downloaded,
+        "total": avance.total or 0,
+        "porcentaje": round(avance.percent, 1) if avance.percent is not None else -1,
+        "velocidad": int(avance.speed) if avance.speed else 0,
+        "restante": avance.eta or 0,
+    })
+
+
+def progreso() -> str:
+    """Estado actual de la descarga; Kotlin la consulta cada poco."""
+    return _respuesta(_AVANCE)
+
+
+def preparar(binarios: str, librerias: str) -> str:
+    """Registra los binarios de FFmpeg que Kotlin extrajo del APK."""
+    configurar_entorno(binarios, librerias)
+    return _respuesta({
+        "ffmpeg": shutil.which("ffmpeg") or "",
+        "ffprobe": shutil.which("ffprobe") or "",
+    })
 
 
 def diagnostico() -> str:
@@ -21,6 +51,8 @@ def diagnostico() -> str:
     datos: dict = {
         "python": sys.version.split()[0],
         "plataforma": sys.platform,
+        "ffmpeg": shutil.which("ffmpeg") or "no encontrado",
+        "ffprobe": shutil.which("ffprobe") or "no encontrado",
     }
     try:
         import yt_dlp
@@ -28,17 +60,11 @@ def diagnostico() -> str:
         datos["yt_dlp"] = yt_dlp.version.__version__
     except ImportError as exc:
         datos["yt_dlp"] = f"no disponible ({exc})"
-    try:
-        from yt_dlp.globals import supported_js_runtimes
-
-        datos["runtimes_js"] = list(supported_js_runtimes.value.keys())
-    except ImportError:
-        datos["runtimes_js"] = []
     return _respuesta(datos)
 
 
 def informacion(url: str) -> str:
-    """Consulta un video sin descargarlo. Es la prueba de la fase 0."""
+    """Consulta un video sin descargarlo."""
     try:
         info = InspectVideo(YtDlpDownloader()).execute(url, Path("."))
         return _respuesta({
@@ -53,4 +79,27 @@ def informacion(url: str) -> str:
     except Exception as exc:
         # Frontera con Kotlin: una excepcion sin capturar cruzaria a Java y
         # tumbaria la app. Aqui se convierte en un error que Flutter puede pintar.
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_audio: str) -> str:
+    """Descarga de verdad. Devuelve las rutas obtenidas."""
+    _AVANCE.clear()
+    _AVANCE["status"] = "preparando"
+    try:
+        opciones = DownloadOptions(
+            audio_only=bool(solo_audio),
+            quality=int(calidad) or None,
+            audio_format=formato_audio or "mp3",
+            # En el movil el contenedor importa: MKV o VP9 no se reproducen.
+            prefer_mp4=True,
+        )
+        resultado = DownloadVideo(YtDlpDownloader(_anotar)).execute(url, Path(carpeta), opciones)
+        _AVANCE["status"] = "listo"
+        return _respuesta({"ok": True, "archivos": [str(r) for r in resultado.files]})
+    except DownloadError as exc:
+        _AVANCE["status"] = "error"
+        return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        _AVANCE["status"] = "error"
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})

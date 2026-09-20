@@ -1,30 +1,23 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:descargador_movil/main.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:descargador_movil/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('la pantalla ofrece descargar video o audio', (WidgetTester tester) async {
+    await tester.pumpWidget(const AplicacionDescargador());
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.text('Descargar'), findsOneWidget);
+    expect(find.text('Video MP4'), findsOneWidget);
+    expect(find.text('Audio MP3'), findsOneWidget);
+    // En modo video se elige calidad; en audio esa opcion no aplica.
+    expect(find.text('Calidad maxima'), findsOneWidget);
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  testWidgets('al elegir audio desaparece el selector de calidad', (WidgetTester tester) async {
+    await tester.pumpWidget(const AplicacionDescargador());
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.tap(find.text('Audio MP3'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Calidad maxima'), findsNothing);
   });
 }
