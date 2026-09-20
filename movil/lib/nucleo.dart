@@ -50,8 +50,11 @@ class Nucleo {
         .toList();
   }
 
-  static Future<List<String>> descargar(Ajustes ajustes) async {
-    final Map<String, dynamic> datos = await _pedir('descargar', ajustes.aMapa());
+  static Future<List<String>> descargar(Ajustes ajustes, {bool avisar = true}) async {
+    final Map<String, dynamic> datos = await _pedir('descargar', <String, dynamic>{
+      ...ajustes.aMapa(),
+      'avisar': avisar,
+    });
     return ((datos['archivos'] as List<dynamic>?) ?? <dynamic>[])
         .map((dynamic a) => a.toString())
         .toList();

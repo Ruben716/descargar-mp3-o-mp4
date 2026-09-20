@@ -33,6 +33,25 @@ class ControlDescarga extends ChangeNotifier {
 
   Timer? _reloj;
 
+  int _indice = 0;
+  int _total = 0;
+  bool _cancelado = false;
+
+  /// "3 de 183" mientras dura un lote; vacio si es una sola pista.
+  String get progresoLote => _total > 1 ? '$_indice de $_total' : '';
+
+  bool get enLote => _total > 1;
+
+  bool get cancelando => _cancelado;
+
+  /// Corta el lote. No interrumpe la pista en curso: esa termina y para ahi,
+  /// que es mas limpio que dejar un archivo a medias.
+  void cancelar() {
+    if (!_activa) return;
+    _cancelado = true;
+    notifyListeners();
+  }
+
   /// Avisa a la biblioteca de que hay algo nuevo que mostrar.
   VoidCallback? alTerminar;
 
@@ -57,13 +76,24 @@ class ControlDescarga extends ChangeNotifier {
     _estado = '';
     _mensaje = '';
     _fallo = false;
+    _indice = 0;
+    _total = 0;
+    _cancelado = false;
     ajustes = const Ajustes(url: '');
     notifyListeners();
   }
 
-  Future<void> iniciar(String url) async {
-    if (_activa) return;
+  Future<void> iniciar(String url) => iniciarVarios(<String>[url]);
+
+  /// Descarga una lista entera, una detras de otra.
+  ///
+  /// Un fallo suelto no detiene el resto: al final se dice cuantas salieron.
+  Future<void> iniciarVarios(List<String> urls) async {
+    if (_activa || urls.isEmpty) return;
     _activa = true;
+    _cancelado = false;
+    _indice = 0;
+    _total = urls.length;
     _porcentaje = null;
     _estado = 'Preparando...';
     _mensaje = '';
@@ -71,27 +101,59 @@ class ControlDescarga extends ChangeNotifier {
     notifyListeners();
     _vigilar();
 
+    int correctas = 0;
+    int fallidas = 0;
+    String ultimoError = '';
+
     try {
-      await Nucleo.descargar(ajustes.copiar(url: url));
-      _mensaje = 'Guardado en tu biblioteca.';
-      _fallo = false;
-      alTerminar?.call();
-    } on ErrorNucleo catch (error) {
-      final String detalle = error.registro.isEmpty
-          ? ''
-          : '\n\n--- registro del motor ---\n${error.registro.join('\n')}';
-      _mensaje = '${error.mensaje}$detalle';
-      _fallo = true;
-    } catch (error) {
-      _mensaje = '$error';
-      _fallo = true;
+      for (int i = 0; i < urls.length; i++) {
+        if (_cancelado) break;
+        _indice = i + 1;
+        notifyListeners();
+        try {
+          // Solo avisa la ultima: con una lista larga saldrian cientos.
+          await Nucleo.descargar(
+            ajustes.copiar(url: urls[i]),
+            avisar: i == urls.length - 1,
+          );
+          correctas++;
+          alTerminar?.call();
+        } on ErrorNucleo catch (error) {
+          fallidas++;
+          ultimoError = error.registro.isEmpty
+              ? error.mensaje
+              : '${error.mensaje}\n\n--- registro del motor ---\n'
+                  '${error.registro.join('\n')}';
+        } catch (error) {
+          fallidas++;
+          ultimoError = '$error';
+        }
+      }
+      _resumen(correctas, fallidas, ultimoError);
     } finally {
       _reloj?.cancel();
       _activa = false;
+      _cancelado = false;
+      _indice = 0;
+      _total = 0;
       _estado = '';
       _porcentaje = null;
       notifyListeners();
     }
+  }
+
+  void _resumen(int correctas, int fallidas, String ultimoError) {
+    if (_total == 1) {
+      _fallo = fallidas > 0;
+      _mensaje = _fallo ? ultimoError : 'Guardado en tu biblioteca.';
+      return;
+    }
+    final String corte = _cancelado ? ' (cancelado)' : '';
+    _fallo = correctas == 0;
+    _mensaje = fallidas == 0
+        ? '$correctas guardadas en tu biblioteca$corte.'
+        : '$correctas guardadas, $fallidas con error$corte.'
+            '\n\nUltimo error: $ultimoError';
   }
 
   /// Python publica el avance y aqui se consulta mientras dure la descarga.

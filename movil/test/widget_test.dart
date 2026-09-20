@@ -108,6 +108,42 @@ void main() {
     expect(find.text('Cancion uno'), findsOneWidget);
   });
 
+  testWidgets('una lista traida ofrece descargarla entera',
+      (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(
+      find.byType(TextField),
+      'https://music.youtube.com/playlist?list=PLabc',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Traer la lista'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 pistas en la lista'), findsOneWidget);
+    expect(find.text('Todo en video'), findsOneWidget);
+
+    await tester.tap(find.text('Todo en video'));
+    await tester.pumpAndSettle();
+
+    // Una descarga por pista, y solo la ultima avisa.
+    final List<MethodCall> descargas =
+        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
+    expect(descargas.length, 2);
+    expect((descargas.first.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
+    expect((descargas.last.arguments as Map<dynamic, dynamic>)['avisar'], isTrue);
+  });
+
+  testWidgets('los resultados de una busqueda no ofrecen descargar todo',
+      (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancion uno'), findsOneWidget);
+    expect(find.textContaining('pistas en la lista'), findsNothing);
+  });
+
   testWidgets('buscar con un enlace pegado no busca, lo resuelve',
       (WidgetTester tester) async {
     await abrir(tester);

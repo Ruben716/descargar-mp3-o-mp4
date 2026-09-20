@@ -28,6 +28,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   List<Resultado> _resultados = <Resultado>[];
   Resultado? _elegido;
   bool _buscandoAhora = false;
+  bool _importada = false;
   String _aviso = '';
   bool _fallo = false;
 
@@ -99,6 +100,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       if (!mounted) return;
       setState(() {
         _resultados = encontrados;
+        _importada = false;
         if (encontrados.isEmpty) {
           _aviso = 'Sin resultados.';
           _fallo = true;
@@ -182,6 +184,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   bool get _esLista =>
       _esEnlace && (_texto.contains('list=') || _texto.contains('/playlist'));
 
+  Future<void> _descargarTodo() async {
+    final List<String> urls = _resultados.map((Resultado r) => r.url).toList();
+    await _control.iniciarVarios(urls);
+  }
+
   /// Lo que hace el boton grande segun lo que haya escrito.
   Future<void> _accionPrincipal() => _esLista ? _importarLista() : _descargar();
 
@@ -199,6 +206,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       if (!mounted) return;
       setState(() {
         _resultados = pistas;
+        _importada = pistas.isNotEmpty;
         if (pistas.isEmpty) {
           _aviso = 'Esa lista esta vacia.';
           _fallo = true;
@@ -233,7 +241,14 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
               _controles(),
               const SizedBox(height: 14),
               if (_control.activa)
-                _TarjetaProgreso(porcentaje: _control.porcentaje, estado: _control.estado)
+                _TarjetaProgreso(
+                  porcentaje: _control.porcentaje,
+                  estado: _control.estado,
+                  lote: _control.progresoLote,
+                  alCancelar: _control.enLote && !_control.cancelando
+                      ? _control.cancelar
+                      : null,
+                )
               else
                 BotonDegradado(
                   texto: _esLista
@@ -343,6 +358,39 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     if (_resultados.isEmpty) {
       return _Vacio(buscando: _buscando);
     }
+    return Column(
+      children: <Widget>[
+        if (_importada) _barraLista(),
+        Expanded(child: _lista()),
+      ],
+    );
+  }
+
+  /// Con una lista traida, lo normal es querer bajarla entera.
+  Widget _barraLista() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              '${_resultados.length} pistas en la lista',
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: _ocupado ? null : _descargarTodo,
+            icon: const Icon(Icons.download_for_offline_rounded, size: 18),
+            label: Text(
+              _control.ajustes.soloAudio ? 'Todo en MP3' : 'Todo en video',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _lista() {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: _resultados.length,
@@ -463,10 +511,17 @@ class _TarjetaResultado extends StatelessWidget {
 }
 
 class _TarjetaProgreso extends StatelessWidget {
-  const _TarjetaProgreso({required this.porcentaje, required this.estado});
+  const _TarjetaProgreso({
+    required this.porcentaje,
+    required this.estado,
+    this.lote = '',
+    this.alCancelar,
+  });
 
   final double? porcentaje;
   final String estado;
+  final String lote;
+  final VoidCallback? alCancelar;
 
   @override
   Widget build(BuildContext context) {
@@ -500,12 +555,17 @@ class _TarjetaProgreso extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                const Text('Descargando', style: TextStyle(fontWeight: FontWeight.w800)),
+                Text(
+                  lote.isEmpty ? 'Descargando' : 'Descargando $lote',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
                 const SizedBox(height: 3),
                 Text(estado, style: const TextStyle(color: Colors.white54, fontSize: 12)),
               ],
             ),
           ),
+          if (alCancelar != null)
+            TextButton(onPressed: alCancelar, child: const Text('Parar')),
         ],
       ),
     );

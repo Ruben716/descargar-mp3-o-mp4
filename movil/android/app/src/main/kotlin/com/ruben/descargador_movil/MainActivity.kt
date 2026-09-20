@@ -95,6 +95,7 @@ class MainActivity : AudioServiceActivity() {
                             subtitulos = llamada.argument<String>("subtitulos").orEmpty(),
                             fragmento = llamada.argument<String>("fragmento").orEmpty(),
                             sinPatrocinios = llamada.argument<Boolean>("sinPatrocinios") ?: false,
+                            avisar = llamada.argument<Boolean>("avisar") ?: true,
                         )
                         enHilo(respuesta) { puente -> descargar(puente, ajustes) }
                     }
@@ -157,6 +158,8 @@ class MainActivity : AudioServiceActivity() {
         val subtitulos: String,
         val fragmento: String,
         val sinPatrocinios: Boolean,
+        /** En un lote solo avisa la ultima, o saldrian cientos de avisos. */
+        val avisar: Boolean,
     )
 
     /**
@@ -188,7 +191,9 @@ class MainActivity : AudioServiceActivity() {
             for (i in 0 until origen.length()) {
                 val archivo = File(origen.getString(i))
                 guardados.put(exportarABiblioteca(archivo, ajustes.soloAudio) ?: archivo.absolutePath)
-                ServicioDescarga.avisarCompletada(this, archivo.name, ajustes.soloAudio)
+                if (ajustes.avisar) {
+                    ServicioDescarga.avisarCompletada(this, archivo.name, ajustes.soloAudio)
+                }
             }
             return JSONObject().put("ok", true).put("archivos", guardados).toString()
         } finally {
