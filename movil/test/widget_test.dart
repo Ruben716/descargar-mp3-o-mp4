@@ -13,6 +13,7 @@ import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
+import 'package:descargador_movil/reproductor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1009,6 +1010,81 @@ void main() {
     await catalogo.guardarDesfase('content://audio/4', 1500);
 
     expect((await catalogo.letraDe('content://audio/4'))!.desfase, 1500);
+  });
+
+  // --- El video vertical tiene que caber -----------------------------------
+
+  /// Un movil en vertical, que es donde se vio el fallo.
+  Future<void> enPantallaDeMovil(WidgetTester tester, Widget hijo) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: hijo)));
+  }
+
+  testWidgets('un video vertical no empuja los controles fuera de la pantalla',
+      (WidgetTester tester) async {
+    await enPantallaDeMovil(
+      tester,
+      const MarcoVideo(
+        // 9:16, un reel. Con la altura libre se estiraba a 1,78 veces el ancho.
+        proporcion: 9 / 16,
+        video: ColoredBox(color: Colors.black),
+        controles: SizedBox(height: 200, key: ValueKey<String>('controles')),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    // Y los controles se ven enteros, no solo "sin excepcion".
+    final double abajo = tester.getBottomLeft(find.byKey(const ValueKey<String>('controles'))).dy;
+    expect(abajo, lessThanOrEqualTo(tester.view.physicalSize.height / tester.view.devicePixelRatio));
+  });
+
+  testWidgets('el hueco libre era lo que desbordaba', (WidgetTester tester) async {
+    // Demuestra la causa: el mismo contenido con Spacer, como estaba antes.
+    await enPantallaDeMovil(
+      tester,
+      const Column(
+        children: <Widget>[
+          Spacer(),
+          AspectRatio(aspectRatio: 9 / 16, child: ColoredBox(color: Colors.black)),
+          Spacer(),
+          SizedBox(height: 200),
+        ],
+      ),
+    );
+
+    expect(tester.takeException(), isNotNull);
+  });
+
+  testWidgets('un video apaisado se sigue viendo igual', (WidgetTester tester) async {
+    await enPantallaDeMovil(
+      tester,
+      const MarcoVideo(
+        proporcion: 16 / 9,
+        video: ColoredBox(color: Colors.black, key: ValueKey<String>('video')),
+        controles: SizedBox(height: 200),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    final Size medida = tester.getSize(find.byKey(const ValueKey<String>('video')));
+    // Cabe de sobra, asi que manda el ancho y conserva su proporcion.
+    expect(medida.width / medida.height, closeTo(16 / 9, 0.01));
+  });
+
+  testWidgets('un video que aun no se ha medido no rompe nada',
+      (WidgetTester tester) async {
+    await enPantallaDeMovil(
+      tester,
+      const MarcoVideo(
+        proporcion: 0,
+        video: ColoredBox(color: Colors.black),
+        controles: SizedBox(height: 200),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
   });
 }
 

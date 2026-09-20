@@ -422,21 +422,13 @@ class _VideoState extends State<_Video> {
       );
 
   Widget _completo(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        const Spacer(),
-        GestureDetector(
-          onTap: () => setState(() => _motor.value.isPlaying ? _motor.pause() : _motor.play()),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: AspectRatio(
-              aspectRatio: _motor.value.aspectRatio,
-              child: VideoPlayer(_motor),
-            ),
-          ),
-        ),
-        const Spacer(),
-        Padding(
+    return MarcoVideo(
+      proporcion: _motor.value.aspectRatio,
+      video: GestureDetector(
+        onTap: () => setState(() => _motor.value.isPlaying ? _motor.pause() : _motor.play()),
+        child: VideoPlayer(_motor),
+      ),
+      controles: Padding(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
           child: ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: _motor,
@@ -503,7 +495,46 @@ class _VideoState extends State<_Video> {
               ],
             ),
           ),
+      ),
+    );
+  }
+}
+
+/// Coloca el video y sus controles sin que nada se salga de la pantalla.
+///
+/// El video va en un Expanded y no entre Spacer. Con Spacer, el AspectRatio
+/// recibe la altura que quiera: en apaisado sale bajito y cabe, pero uno
+/// vertical se estira hasta 1,78 veces el ancho y empuja los controles fuera.
+/// Dentro de un Expanded la altura viene acotada y el video se encoge solo.
+class MarcoVideo extends StatelessWidget {
+  const MarcoVideo({
+    required this.proporcion,
+    required this.video,
+    required this.controles,
+    super.key,
+  });
+
+  /// Ancho partido por alto. Un video sin medir aun llega como cero.
+  final double proporcion;
+  final Widget video;
+  final Widget controles;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Expanded(
+          child: Center(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: AspectRatio(
+                aspectRatio: proporcion > 0 ? proporcion : 16 / 9,
+                child: video,
+              ),
+            ),
+          ),
         ),
+        controles,
       ],
     );
   }
