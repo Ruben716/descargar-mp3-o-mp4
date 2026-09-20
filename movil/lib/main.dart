@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'mini_reproductor.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
+import 'tema.dart';
 
 void main() => runApp(const AplicacionDescargador());
 
@@ -12,11 +14,8 @@ class AplicacionDescargador extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Descargador',
-      theme: ThemeData(
-        colorSchemeSeed: Colors.indigo,
-        brightness: Brightness.dark,
-        useMaterial3: true,
-      ),
+      debugShowCheckedModeBanner: false,
+      theme: Tema.construir(),
       home: const Inicio(),
     );
   }
@@ -36,24 +35,41 @@ class _InicioState extends State<Inicio> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_pestana == 0 ? 'Descargar' : 'Biblioteca')),
-      body: IndexedStack(
-        index: _pestana,
-        children: <Widget>[
-          // Al terminar una descarga la biblioteca se refresca sola.
-          PantallaDescarga(alDescargar: () => _biblioteca.currentState?.recargar()),
-          PantallaBiblioteca(key: _biblioteca),
-        ],
+      body: SafeArea(
+        bottom: false,
+        child: IndexedStack(
+          index: _pestana,
+          children: <Widget>[
+            // Al terminar una descarga la biblioteca se refresca sola.
+            PantallaDescarga(alDescargar: () => _biblioteca.currentState?.recargar()),
+            PantallaBiblioteca(key: _biblioteca),
+          ],
+        ),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _pestana,
-        onDestinationSelected: (int i) {
-          setState(() => _pestana = i);
-          if (i == 1) _biblioteca.currentState?.recargar();
-        },
-        destinations: const <NavigationDestination>[
-          NavigationDestination(icon: Icon(Icons.download), label: 'Descargar'),
-          NavigationDestination(icon: Icon(Icons.library_music), label: 'Biblioteca'),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          // Lo que suena acompania siempre, se mire la pestania que se mire.
+          const MiniReproductor(),
+          NavigationBar(
+            selectedIndex: _pestana,
+            onDestinationSelected: (int i) {
+              setState(() => _pestana = i);
+              if (i == 1) _biblioteca.currentState?.recargar();
+            },
+            destinations: const <NavigationDestination>[
+              NavigationDestination(
+                icon: Icon(Icons.download_outlined),
+                selectedIcon: Icon(Icons.download_rounded),
+                label: 'Descargar',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.library_music_outlined),
+                selectedIcon: Icon(Icons.library_music_rounded),
+                label: 'Biblioteca',
+              ),
+            ],
+          ),
         ],
       ),
     );

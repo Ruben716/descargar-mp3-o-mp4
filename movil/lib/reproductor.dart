@@ -1,14 +1,17 @@
+import 'dart:typed_data';
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'nucleo.dart';
+import 'portadas.dart';
+import 'tema.dart';
 
-/// Reproduce un elemento de la biblioteca.
-///
-/// Audio y video usan motores distintos a proposito: just_audio da un control
-/// de reproduccion comodo para musica, y video_player pinta imagen.
+/// Reproduce un elemento de la biblioteca a pantalla completa.
 class Reproductor extends StatelessWidget {
   const Reproductor({required this.elemento, super.key});
 
@@ -17,8 +20,59 @@ class Reproductor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(elemento.nombre, maxLines: 1, overflow: TextOverflow.ellipsis)),
-      body: elemento.audio ? _Audio(elemento: elemento) : _Video(elemento: elemento),
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          elemento.audio ? 'Reproduciendo' : 'Video',
+          style: const TextStyle(fontSize: 14, color: Colors.white70),
+        ),
+      ),
+      body: _Fondo(
+        elemento: elemento,
+        hijo: elemento.audio ? _Audio(elemento: elemento) : _Video(elemento: elemento),
+      ),
+    );
+  }
+}
+
+/// La propia caratula, difuminada, hace de fondo. Da color sin inventarlo.
+class _Fondo extends StatelessWidget {
+  const _Fondo({required this.elemento, required this.hijo});
+
+  final Elemento elemento;
+  final Widget hijo;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: <Widget>[
+        FutureBuilder<Uint8List?>(
+          future: Nucleo.caratula(elemento.uri),
+          builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) {
+            if (imagen.data == null) {
+              return const ColoredBox(color: Tema.fondo);
+            }
+            return ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 48, sigmaY: 48),
+              child: Image.memory(imagen.data!, fit: BoxFit.cover),
+            );
+          },
+        ),
+        // Velo oscuro: sin el, el texto sobre la caratula no se lee.
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: <Color>[Color(0xCC08070C), Color(0xF208070C), Tema.fondo],
+            ),
+          ),
+        ),
+        SafeArea(child: hijo),
+      ],
     );
   }
 }
@@ -33,82 +87,153 @@ class _Audio extends StatefulWidget {
 }
 
 class _AudioState extends State<_Audio> {
-  final AudioPlayer _motor = AudioPlayer();
-  String? _error;
+  final EstadoReproductor _estado = EstadoReproductor.instancia;
 
   @override
   void initState() {
     super.initState();
-    _cargar();
-  }
-
-  Future<void> _cargar() async {
-    try {
-      await _motor.setUrl(widget.elemento.uri);
-      await _motor.play();
-    } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+    if (_estado.actual?.uri != widget.elemento.uri) {
+      _estado.reproducir(widget.elemento);
     }
   }
 
   @override
-  void dispose() {
-    _motor.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_error != null) return _Fallo(mensaje: _error!);
+    final AudioPlayer motor = _estado.motor;
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.fromLTRB(28, 16, 28, 28),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(Icons.music_note, size: 96, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: 24),
-          Text(
-            widget.elemento.nombre,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
+          const Spacer(),
+          Hero(
+            tag: widget.elemento.uri,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: <BoxShadow>[
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    blurRadius: 48,
+                    offset: const Offset(0, 20),
+                  ),
+                ],
+              ),
+              child: PortadaLocal(
+                elemento: widget.elemento,
+                lado: MediaQuery.of(context).size.width - 96,
+                radio: 28,
+              ),
+            ),
           ),
-          const SizedBox(height: 32),
+          const Spacer(),
+          Text(
+            _sinExtension(widget.elemento.nombre),
+            maxLines: 2,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            formatoTamano(widget.elemento.tamano),
+            style: const TextStyle(color: Colors.white54),
+          ),
+          const SizedBox(height: 28),
           StreamBuilder<Duration>(
-            stream: _motor.positionStream,
+            stream: motor.positionStream,
             builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
-              final Duration total = _motor.duration ?? Duration.zero;
+              final Duration total = motor.duration ?? Duration.zero;
               final Duration actual = instante.data ?? Duration.zero;
+              final double maximo = total.inMilliseconds.toDouble();
               return Column(
                 children: <Widget>[
                   Slider(
-                    value: actual.inMilliseconds.clamp(0, total.inMilliseconds).toDouble(),
-                    max: total.inMilliseconds.toDouble().clamp(1, double.infinity),
-                    onChanged: (double v) => _motor.seek(Duration(milliseconds: v.round())),
+                    value: actual.inMilliseconds.clamp(0, maximo.toInt()).toDouble(),
+                    max: maximo <= 0 ? 1 : maximo,
+                    onChanged: (double v) => motor.seek(Duration(milliseconds: v.round())),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: <Widget>[
-                      Text(formatoTiempo(actual.inSeconds)),
-                      Text(formatoTiempo(total.inSeconds)),
-                    ],
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: <Widget>[
+                        Text(formatoTiempo(actual.inSeconds),
+                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                        Text(formatoTiempo(total.inSeconds),
+                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                      ],
+                    ),
                   ),
                 ],
               );
             },
           ),
           const SizedBox(height: 16),
-          StreamBuilder<PlayerState>(
-            stream: _motor.playerStateStream,
-            builder: (BuildContext context, AsyncSnapshot<PlayerState> estado) {
-              final bool sonando = estado.data?.playing ?? false;
-              return IconButton.filled(
-                iconSize: 48,
-                onPressed: () => sonando ? _motor.pause() : _motor.play(),
-                icon: Icon(sonando ? Icons.pause : Icons.play_arrow),
-              );
-            },
+          ListenableBuilder(
+            listenable: _estado,
+            builder: (BuildContext context, _) => Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                IconButton(
+                  iconSize: 34,
+                  color: Colors.white70,
+                  onPressed: () => _estado.saltar(const Duration(seconds: -10)),
+                  icon: const Icon(Icons.replay_10),
+                ),
+                const SizedBox(width: 20),
+                _BotonGrande(
+                  sonando: _estado.sonando,
+                  alPulsar: _estado.alternar,
+                ),
+                const SizedBox(width: 20),
+                IconButton(
+                  iconSize: 34,
+                  color: Colors.white70,
+                  onPressed: () => _estado.saltar(const Duration(seconds: 10)),
+                  icon: const Icon(Icons.forward_10),
+                ),
+              ],
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _BotonGrande extends StatelessWidget {
+  const _BotonGrande({required this.sonando, required this.alPulsar});
+
+  final bool sonando;
+  final VoidCallback alPulsar;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: alPulsar,
+      child: Container(
+        width: 76,
+        height: 76,
+        decoration: BoxDecoration(
+          gradient: Tema.degradado,
+          shape: BoxShape.circle,
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Tema.acento.withValues(alpha: 0.45),
+              blurRadius: 28,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: Icon(
+            sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            key: ValueKey<bool>(sonando),
+            size: 40,
+            color: Colors.black87,
+          ),
+        ),
       ),
     );
   }
@@ -131,7 +256,7 @@ class _VideoState extends State<_Video> {
   @override
   void initState() {
     super.initState();
-    // contentUri: lo descargado vive en MediaStore, no en una ruta de archivo.
+    // Los archivos viven en MediaStore, no en una ruta que se pueda abrir.
     _motor = VideoPlayerController.contentUri(Uri.parse(widget.elemento.uri));
     _motor.initialize().then((_) {
       if (!mounted) return;
@@ -150,30 +275,94 @@ class _VideoState extends State<_Video> {
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null) return _Fallo(mensaje: _error!);
-    if (!_listo) return const Center(child: CircularProgressIndicator());
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        AspectRatio(
-          aspectRatio: _motor.value.aspectRatio,
-          child: VideoPlayer(_motor),
-        ),
-        VideoProgressIndicator(_motor, allowScrubbing: true),
-        const SizedBox(height: 12),
-        ValueListenableBuilder<VideoPlayerValue>(
-          valueListenable: _motor,
-          builder: (BuildContext context, VideoPlayerValue valor, _) => Column(
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              Text('${formatoTiempo(valor.position.inSeconds)} / '
-                  '${formatoTiempo(valor.duration.inSeconds)}'),
+              const Icon(Icons.error_outline, size: 48, color: Colors.white54),
+              const SizedBox(height: 12),
+              const Text('No se pudo reproducir este video.'),
               const SizedBox(height: 8),
-              IconButton.filled(
-                iconSize: 48,
-                onPressed: () => valor.isPlaying ? _motor.pause() : _motor.play(),
-                icon: Icon(valor.isPlaying ? Icons.pause : Icons.play_arrow),
-              ),
+              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11)),
             ],
+          ),
+        ),
+      );
+    }
+    if (!_listo) return const Center(child: CircularProgressIndicator());
+
+    return Column(
+      children: <Widget>[
+        const Spacer(),
+        GestureDetector(
+          onTap: () => setState(() => _motor.value.isPlaying ? _motor.pause() : _motor.play()),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: AspectRatio(
+              aspectRatio: _motor.value.aspectRatio,
+              child: VideoPlayer(_motor),
+            ),
+          ),
+        ),
+        const Spacer(),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+          child: ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: _motor,
+            builder: (BuildContext context, VideoPlayerValue valor, _) => Column(
+              children: <Widget>[
+                Text(
+                  _sinExtension(widget.elemento.nombre),
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 14),
+                VideoProgressIndicator(
+                  _motor,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(playedColor: Tema.acento),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    Text(formatoTiempo(valor.position.inSeconds),
+                        style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                    Text(formatoTiempo(valor.duration.inSeconds),
+                        style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    IconButton(
+                      iconSize: 34,
+                      color: Colors.white70,
+                      onPressed: () => _motor.seekTo(valor.position - const Duration(seconds: 10)),
+                      icon: const Icon(Icons.replay_10),
+                    ),
+                    const SizedBox(width: 20),
+                    _BotonGrande(
+                      sonando: valor.isPlaying,
+                      alPulsar: () => valor.isPlaying ? _motor.pause() : _motor.play(),
+                    ),
+                    const SizedBox(width: 20),
+                    IconButton(
+                      iconSize: 34,
+                      color: Colors.white70,
+                      onPressed: () => _motor.seekTo(valor.position + const Duration(seconds: 10)),
+                      icon: const Icon(Icons.forward_10),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -181,23 +370,8 @@ class _VideoState extends State<_Video> {
   }
 }
 
-class _Fallo extends StatelessWidget {
-  const _Fallo({required this.mensaje});
-
-  final String mensaje;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Icon(Icons.error_outline, size: 48),
-            const SizedBox(height: 12),
-            const Text('No se pudo reproducir este archivo.'),
-            const SizedBox(height: 8),
-            Text(mensaje, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
-          ],
-        ),
-      );
+/// Los archivos llevan la extension y el id en el nombre; en pantalla estorban.
+String _sinExtension(String nombre) {
+  final String sinExt = nombre.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,4}$'), '');
+  return sinExt.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*$'), '').trim();
 }

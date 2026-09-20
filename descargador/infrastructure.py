@@ -188,7 +188,17 @@ class YtDlpDownloader:
             uploader=datos.get("uploader") or datos.get("channel"),
             duration=datos.get("duration"),
             url=datos.get("url") or f"https://www.youtube.com/watch?v={identificador}",
+            thumbnail=YtDlpDownloader._miniatura(datos),
         )
+
+    @staticmethod
+    def _miniatura(datos: dict) -> str:
+        """La miniatura mas grande que ofrezca la entrada."""
+        candidatas = [m for m in (datos.get("thumbnails") or []) if m.get("url")]
+        if candidatas:
+            mejor = max(candidatas, key=lambda m: (m.get("width") or 0) * (m.get("height") or 0))
+            return str(mejor["url"])
+        return str(datos.get("thumbnail") or "")
 
     @staticmethod
     def _formato(datos: dict) -> MediaFormat:

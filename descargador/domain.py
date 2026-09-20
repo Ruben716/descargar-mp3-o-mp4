@@ -128,6 +128,8 @@ class VideoInfo:
     formats: tuple[MediaFormat, ...] = ()
     #: Solo lo rellenan los resultados de búsqueda, para poder descargarlos.
     url: str = ""
+    #: Miniatura del video. Sin ella una lista de resultados es ilegible.
+    thumbnail: str = ""
 
 
 @dataclass(frozen=True)

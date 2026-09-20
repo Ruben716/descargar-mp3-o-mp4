@@ -55,6 +55,25 @@ class Nucleo {
   }
 
   static Future<String?> urlCompartida() => _canal.invokeMethod<String>('urlCompartida');
+
+  static final Map<String, Uint8List?> _caratulas = <String, Uint8List?>{};
+
+  /// Caratula del archivo, ya decodificada. Se recuerda porque cruzar el
+  /// canal y decodificar base64 por cada pintado seria un derroche.
+  static Future<Uint8List?> caratula(String uri) async {
+    if (_caratulas.containsKey(uri)) return _caratulas[uri];
+    try {
+      final Map<String, dynamic> datos =
+          await _pedir('caratula', <String, dynamic>{'uri': uri});
+      final String crudo = datos['imagen']?.toString() ?? '';
+      final Uint8List? imagen = crudo.isEmpty ? null : base64Decode(crudo);
+      _caratulas[uri] = imagen;
+      return imagen;
+    } catch (_) {
+      _caratulas[uri] = null;
+      return null;
+    }
+  }
 }
 
 /// Error del nucleo, con el registro del motor cuando lo hay.
@@ -69,19 +88,27 @@ class ErrorNucleo implements Exception {
 }
 
 class Resultado {
-  const Resultado({required this.titulo, required this.autor, required this.duracion, required this.url});
+  const Resultado({
+    required this.titulo,
+    required this.autor,
+    required this.duracion,
+    required this.url,
+    this.miniatura = '',
+  });
 
   factory Resultado.desdeJson(Map<String, dynamic> j) => Resultado(
         titulo: j['titulo']?.toString() ?? '',
         autor: j['autor']?.toString() ?? '',
         duracion: (j['duracion'] as num?)?.toDouble() ?? 0,
         url: j['url']?.toString() ?? '',
+        miniatura: j['miniatura']?.toString() ?? '',
       );
 
   final String titulo;
   final String autor;
   final double duracion;
   final String url;
+  final String miniatura;
 }
 
 class Elemento {

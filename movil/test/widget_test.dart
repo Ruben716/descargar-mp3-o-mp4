@@ -8,8 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 const MethodChannel _canal = MethodChannel('com.ruben.descargador/nucleo');
 
 const String _busqueda = '{"ok":true,"resultados":['
-    '{"titulo":"Cancion uno","autor":"Autor","duracion":254,"url":"https://y/1"},'
-    '{"titulo":"Cancion dos","autor":"Otro","duracion":100,"url":"https://y/2"}]}';
+    '{"titulo":"Cancion uno","autor":"Autor","duracion":254,"url":"https://y/1","miniatura":""},'
+    '{"titulo":"Cancion dos","autor":"Otro","duracion":100,"url":"https://y/2","miniatura":""}]}';
 
 void main() {
   final List<MethodCall> llamadas = <MethodCall>[];
@@ -23,6 +23,7 @@ void main() {
         'urlCompartida' => null,
         'biblioteca' => '{"ok":true,"elementos":[]}',
         'buscar' => _busqueda,
+        'caratula' => '{"ok":true,"imagen":""}',
         'descargar' => '{"ok":true,"archivos":["Music/Descargador/x.mp3"]}',
         _ => '{"ok":true}',
       };
@@ -34,22 +35,26 @@ void main() {
         .setMockMethodCallHandler(_canal, null);
   });
 
-  testWidgets('arranca en la pestana de descarga, en modo busqueda', (WidgetTester tester) async {
+  Future<void> abrir(WidgetTester tester) async {
     await tester.pumpWidget(const AplicacionDescargador());
     await tester.pumpAndSettle();
+  }
 
-    expect(find.text('Buscar'), findsOneWidget);
-    expect(find.text('URL'), findsOneWidget);
-    expect(find.text('MP4'), findsOneWidget);
-    expect(find.text('MP3'), findsOneWidget);
+  testWidgets('arranca en el buscador, con video y musica a elegir', (WidgetTester tester) async {
+    await abrir(tester);
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
+    expect(find.text('Musica'), findsOneWidget);
+    // El titulo, el boton y la pestania comparten la palabra.
+    expect(find.text('Descargar'), findsWidgets);
   });
 
   testWidgets('una busqueda pinta los resultados', (WidgetTester tester) async {
-    await tester.pumpWidget(const AplicacionDescargador());
-    await tester.pumpAndSettle();
+    await abrir(tester);
 
-    await tester.enterText(find.byType(TextField).first, 'cancion');
-    await tester.tap(find.byIcon(Icons.search).last);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
     expect(find.text('Cancion uno'), findsOneWidget);
@@ -57,15 +62,38 @@ void main() {
     expect(llamadas.any((MethodCall c) => c.method == 'buscar'), isTrue);
   });
 
+  testWidgets('elegir un resultado cambia el boton de descarga', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Descargar seleccion'), findsOneWidget);
+  });
+
+  testWidgets('el panel de opciones se abre y ofrece lo del nucleo',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.tap(find.byIcon(Icons.tune_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Opciones'), findsOneWidget);
+    expect(find.text('SUBTITULOS'), findsOneWidget);
+    expect(find.text('Quitar patrocinios'), findsOneWidget);
+  });
+
   testWidgets('la biblioteca vacia lo dice en vez de quedarse en blanco',
       (WidgetTester tester) async {
-    await tester.pumpWidget(const AplicacionDescargador());
-    await tester.pumpAndSettle();
+    await abrir(tester);
 
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Aun no hay nada descargado'), findsOneWidget);
+    expect(find.textContaining('Aqui no hay nada todavia'), findsOneWidget);
   });
 
   test('los ajustes viajan al nucleo con los nombres que espera Kotlin', () {

@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'formato.dart';
+import 'hoja_ajustes.dart';
 import 'nucleo.dart';
+import 'portadas.dart';
+import 'tema.dart';
 
 /// Pantalla principal: buscar o pegar una URL, ajustar y descargar.
 class PantallaDescarga extends StatefulWidget {
@@ -28,6 +31,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   String _estado = '';
   double? _porcentaje;
   String _mensaje = '';
+  bool _fallo = false;
   Timer? _reloj;
 
   @override
@@ -53,16 +57,21 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Enlace recibido desde otra app')),
+      const SnackBar(
+        content: Text('Enlace recibido desde otra app'),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
   Future<void> _buscar() async {
     final String texto = _entrada.text.trim();
     if (texto.isEmpty) return;
+    FocusScope.of(context).unfocus();
     setState(() {
       _ocupado = true;
       _mensaje = '';
+      _fallo = false;
       _resultados = <Resultado>[];
     });
     try {
@@ -70,10 +79,18 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       if (!mounted) return;
       setState(() {
         _resultados = encontrados;
-        _mensaje = encontrados.isEmpty ? 'Sin resultados.' : '';
+        if (encontrados.isEmpty) {
+          _mensaje = 'Sin resultados.';
+          _fallo = true;
+        }
       });
     } catch (error) {
-      if (mounted) setState(() => _mensaje = 'Error: $error');
+      if (mounted) {
+        setState(() {
+          _mensaje = '$error';
+          _fallo = true;
+        });
+      }
     } finally {
       if (mounted) setState(() => _ocupado = false);
     }
@@ -82,30 +99,46 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   Future<void> _descargar() async {
     final String url = _elegido?.url ?? _entrada.text.trim();
     if (url.isEmpty) {
-      setState(() => _mensaje = 'Elige un resultado o pega una URL.');
+      setState(() {
+        _mensaje = 'Elige un resultado o pega una URL.';
+        _fallo = true;
+      });
       return;
     }
+    FocusScope.of(context).unfocus();
     setState(() {
       _ocupado = true;
       _porcentaje = null;
       _estado = 'Preparando...';
       _mensaje = '';
+      _fallo = false;
     });
     _vigilar();
 
     try {
-      final List<String> archivos = await Nucleo.descargar(_ajustes.copiar(url: url));
+      await Nucleo.descargar(_ajustes.copiar(url: url));
       if (!mounted) return;
-      setState(() => _mensaje = 'Guardado en:\n${archivos.join('\n')}');
+      setState(() {
+        _mensaje = 'Guardado en tu biblioteca.';
+        _fallo = false;
+      });
       widget.alDescargar();
     } on ErrorNucleo catch (error) {
       if (!mounted) return;
       final String detalle = error.registro.isEmpty
           ? ''
           : '\n\n--- registro del motor ---\n${error.registro.join('\n')}';
-      setState(() => _mensaje = 'Error: ${error.mensaje}$detalle');
+      setState(() {
+        _mensaje = '${error.mensaje}$detalle';
+        _fallo = true;
+      });
     } catch (error) {
-      if (mounted) setState(() => _mensaje = 'Error: $error');
+      if (mounted) {
+        setState(() {
+          _mensaje = '$error';
+          _fallo = true;
+        });
+      }
     } finally {
       _reloj?.cancel();
       if (mounted) {
@@ -132,10 +165,9 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         setState(() {
           _porcentaje = avance.porcentaje >= 0 ? avance.porcentaje / 100 : null;
           _estado = switch (avance.estado) {
-            'downloading' =>
-              '${avance.porcentaje.toStringAsFixed(1)}%  ${formatoTamano(avance.velocidad)}/s',
+            'downloading' => '${formatoTamano(avance.velocidad)}/s',
             'finished' => 'Uniendo con FFmpeg...',
-            _ => 'Trabajando...',
+            _ => 'Preparando...',
           };
         });
       } catch (_) {
@@ -148,7 +180,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     final Ajustes? nuevos = await showModalBottomSheet<Ajustes>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _HojaAjustes(inicial: _ajustes),
+      backgroundColor: Tema.superficie,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (_) => HojaAjustes(inicial: _ajustes),
     );
     if (nuevos != null) setState(() => _ajustes = nuevos);
   }
@@ -163,221 +199,345 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          SegmentedButton<bool>(
-            segments: const <ButtonSegment<bool>>[
-              ButtonSegment<bool>(value: true, label: Text('Buscar'), icon: Icon(Icons.search)),
-              ButtonSegment<bool>(value: false, label: Text('URL'), icon: Icon(Icons.link)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text('Descargar', style: Theme.of(context).textTheme.displaySmall),
+              const SizedBox(height: 16),
+              _buscador(),
+              const SizedBox(height: 14),
+              _controles(),
+              const SizedBox(height: 14),
+              if (_ocupado && _estado.isNotEmpty)
+                _TarjetaProgreso(porcentaje: _porcentaje, estado: _estado)
+              else
+                BotonDegradado(
+                  texto: _elegido == null ? 'Descargar' : 'Descargar seleccion',
+                  icono: Icons.arrow_downward_rounded,
+                  alPulsar: _ocupado ? null : _descargar,
+                ),
             ],
-            selected: <bool>{_buscando},
-            onSelectionChanged: _ocupado
-                ? null
-                : (Set<bool> e) => setState(() {
-                      _buscando = e.first;
-                      _elegido = null;
-                      _resultados = <Resultado>[];
-                    }),
           ),
-          const SizedBox(height: 12),
-          TextField(
+        ),
+        const SizedBox(height: 18),
+        Expanded(child: _cuerpo()),
+      ],
+    );
+  }
+
+  Widget _buscador() {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: TextField(
             controller: _entrada,
             textInputAction: _buscando ? TextInputAction.search : TextInputAction.done,
             onSubmitted: _ocupado ? null : (_) => _buscando ? _buscar() : _descargar(),
             decoration: InputDecoration(
-              labelText: _buscando ? 'Que quieres buscar' : 'URL del video',
-              border: const OutlineInputBorder(),
-              suffixIcon: _buscando
-                  ? IconButton(onPressed: _ocupado ? null : _buscar, icon: const Icon(Icons.search))
-                  : null,
+              hintText: _buscando ? 'Busca una cancion o video' : 'Pega la URL',
+              prefixIcon: Icon(_buscando ? Icons.search_rounded : Icons.link_rounded),
+              suffixIcon: _entrada.text.isEmpty
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => setState(_entrada.clear),
+                    ),
             ),
+            onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: SegmentedButton<bool>(
-                  segments: const <ButtonSegment<bool>>[
-                    ButtonSegment<bool>(value: false, label: Text('MP4')),
-                    ButtonSegment<bool>(value: true, label: Text('MP3')),
-                  ],
-                  selected: <bool>{_ajustes.soloAudio},
-                  onSelectionChanged: _ocupado
-                      ? null
-                      : (Set<bool> e) =>
-                          setState(() => _ajustes = _ajustes.copiar(soloAudio: e.first)),
-                ),
+        ),
+        const SizedBox(width: 10),
+        // Alternar entre buscar por nombre y pegar un enlace.
+        IconButton.filledTonal(
+          onPressed: _ocupado
+              ? null
+              : () => setState(() {
+                    _buscando = !_buscando;
+                    _elegido = null;
+                    _resultados = <Resultado>[];
+                  }),
+          tooltip: _buscando ? 'Usar una URL' : 'Buscar por nombre',
+          icon: Icon(_buscando ? Icons.link_rounded : Icons.search_rounded),
+        ),
+      ],
+    );
+  }
+
+  Widget _controles() {
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: SegmentedButton<bool>(
+            showSelectedIcon: false,
+            style: ButtonStyle(
+              shape: WidgetStateProperty.all(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               ),
-              IconButton(
-                onPressed: _ocupado ? null : _abrirAjustes,
-                icon: const Icon(Icons.tune),
-                tooltip: 'Mas opciones',
+            ),
+            segments: const <ButtonSegment<bool>>[
+              ButtonSegment<bool>(
+                value: false,
+                label: Text('Video'),
+                icon: Icon(Icons.movie_outlined, size: 18),
+              ),
+              ButtonSegment<bool>(
+                value: true,
+                label: Text('Musica'),
+                icon: Icon(Icons.music_note_outlined, size: 18),
               ),
             ],
+            selected: <bool>{_ajustes.soloAudio},
+            onSelectionChanged: _ocupado
+                ? null
+                : (Set<bool> e) => setState(() => _ajustes = _ajustes.copiar(soloAudio: e.first)),
           ),
-          const SizedBox(height: 8),
-          FilledButton.icon(
-            onPressed: _ocupado ? null : _descargar,
-            icon: const Icon(Icons.download),
-            label: Text(_elegido == null ? 'Descargar' : 'Descargar lo elegido'),
-          ),
-          if (_ocupado) ...<Widget>[
-            const SizedBox(height: 10),
-            LinearProgressIndicator(value: _porcentaje),
-            const SizedBox(height: 6),
-            Text(_estado, textAlign: TextAlign.center),
-          ],
-          const SizedBox(height: 12),
-          Expanded(child: _cuerpo()),
-        ],
-      ),
+        ),
+        const SizedBox(width: 10),
+        IconButton.filledTonal(
+          onPressed: _ocupado ? null : _abrirAjustes,
+          tooltip: 'Opciones',
+          icon: const Icon(Icons.tune_rounded),
+        ),
+      ],
     );
   }
 
   Widget _cuerpo() {
-    if (_mensaje.isNotEmpty) {
-      return SingleChildScrollView(
-        child: SelectableText(_mensaje, style: const TextStyle(fontSize: 12)),
-      );
+    if (_mensaje.isNotEmpty && _resultados.isEmpty) {
+      return _Aviso(mensaje: _mensaje, fallo: _fallo);
     }
     if (_resultados.isEmpty) {
-      return Center(
-        child: Text(
-          _buscando
-              ? 'Escribe el nombre de una cancion o video.'
-              : 'Pega una URL, o compartela desde YouTube.',
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      );
+      return _Vacio(buscando: _buscando);
     }
-    return ListView.separated(
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: _resultados.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (BuildContext context, int i) {
         final Resultado r = _resultados[i];
-        final bool marcado = identical(r, _elegido);
-        return ListTile(
-          selected: marcado,
-          leading: Icon(marcado ? Icons.check_circle : Icons.play_circle_outline),
-          title: Text(r.titulo, maxLines: 2, overflow: TextOverflow.ellipsis),
-          subtitle: Text('${r.autor}  ·  ${formatoTiempo(r.duracion)}'),
-          onTap: () => setState(() => _elegido = marcado ? null : r),
+        return _TarjetaResultado(
+          resultado: r,
+          marcado: identical(r, _elegido),
+          alPulsar: () => setState(() => _elegido = identical(r, _elegido) ? null : r),
         );
       },
     );
   }
 }
 
-/// Opciones avanzadas: las mismas que ofrece la version de consola.
-class _HojaAjustes extends StatefulWidget {
-  const _HojaAjustes({required this.inicial});
+class _TarjetaResultado extends StatelessWidget {
+  const _TarjetaResultado({
+    required this.resultado,
+    required this.marcado,
+    required this.alPulsar,
+  });
 
-  final Ajustes inicial;
-
-  @override
-  State<_HojaAjustes> createState() => _HojaAjustesState();
-}
-
-class _HojaAjustesState extends State<_HojaAjustes> {
-  late Ajustes _a = widget.inicial;
-  late final TextEditingController _subs = TextEditingController(text: _a.subtitulos);
-  late final TextEditingController _fragmento = TextEditingController(text: _a.fragmento);
-
-  static const Map<String, int> _calidades = <String, int>{
-    'La mejor': 0,
-    '1080p': 1080,
-    '720p': 720,
-    '480p': 480,
-    '360p': 360,
-  };
-
-  @override
-  void dispose() {
-    _subs.dispose();
-    _fragmento.dispose();
-    super.dispose();
-  }
+  final Resultado resultado;
+  final bool marcado;
+  final VoidCallback alPulsar;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(
-        left: 16,
-        right: 16,
-        top: 16,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text('Opciones', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 16),
-            if (_a.soloAudio) ...<Widget>[
-              DropdownButtonFormField<String>(
-                initialValue: _a.formatoAudio,
-                decoration: const InputDecoration(labelText: 'Formato', border: OutlineInputBorder()),
-                items: const <String>['mp3', 'm4a', 'opus', 'flac', 'wav']
-                    .map((String f) => DropdownMenuItem<String>(value: f, child: Text(f)))
-                    .toList(),
-                onChanged: (String? v) => setState(() => _a = _a.copiar(formatoAudio: v)),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: _a.bitrate,
-                decoration: const InputDecoration(labelText: 'Calidad', border: OutlineInputBorder()),
-                items: const <String>['128', '192', '256', '320']
-                    .map((String b) => DropdownMenuItem<String>(value: b, child: Text('$b kb/s')))
-                    .toList(),
-                onChanged: (String? v) => setState(() => _a = _a.copiar(bitrate: v)),
-              ),
-            ] else ...<Widget>[
-              DropdownButtonFormField<int>(
-                initialValue: _a.calidad,
-                decoration:
-                    const InputDecoration(labelText: 'Calidad maxima', border: OutlineInputBorder()),
-                items: _calidades.entries
-                    .map((MapEntry<String, int> e) =>
-                        DropdownMenuItem<int>(value: e.value, child: Text(e.key)))
-                    .toList(),
-                onChanged: (int? v) => setState(() => _a = _a.copiar(calidad: v)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _subs,
-                decoration: const InputDecoration(
-                  labelText: 'Subtitulos (es,en) o vacio',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SwitchListTile(
-                value: _a.sinPatrocinios,
-                onChanged: (bool v) => setState(() => _a = _a.copiar(sinPatrocinios: v)),
-                title: const Text('Quitar patrocinios'),
-                subtitle: const Text('Elimina los segmentos con SponsorBlock'),
-                contentPadding: EdgeInsets.zero,
-              ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _fragmento,
-              decoration: const InputDecoration(
-                labelText: 'Fragmento 00:30-02:15 o vacio',
-                border: OutlineInputBorder(),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        decoration: BoxDecoration(
+          color: marcado ? Tema.acento.withValues(alpha: 0.16) : Tema.superficie,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: marcado ? Tema.acento : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: alPulsar,
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: <Widget>[
+                  Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      PortadaRemota(url: resultado.miniatura),
+                      if (marcado)
+                        const DecoratedBox(
+                          decoration: BoxDecoration(color: Colors.black54),
+                          child: SizedBox(
+                            width: 128,
+                            height: 74,
+                            child: Icon(Icons.check_circle_rounded, color: Tema.acento, size: 34),
+                          ),
+                        ),
+                      Positioned(
+                        right: 4,
+                        bottom: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            formatoTiempo(resultado.duracion),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          resultado.titulo,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          resultado.autor,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(
-                _a.copiar(subtitulos: _subs.text.trim(), fragmento: _fragmento.text.trim()),
-              ),
-              child: const Text('Aplicar'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TarjetaProgreso extends StatelessWidget {
+  const _TarjetaProgreso({required this.porcentaje, required this.estado});
+
+  final double? porcentaje;
+  final String estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final String etiqueta =
+        porcentaje == null ? '--' : '${(porcentaje! * 100).toStringAsFixed(0)}%';
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Tema.superficieAlta,
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 46,
+            height: 46,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                CircularProgressIndicator(
+                  value: porcentaje,
+                  strokeWidth: 4,
+                  backgroundColor: Colors.white12,
+                ),
+                Text(etiqueta, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Text('Descargando', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 3),
+                Text(estado, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Aviso extends StatelessWidget {
+  const _Aviso({required this.mensaje, required this.fallo});
+
+  final String mensaje;
+  final bool fallo;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: fallo ? const Color(0x33FF6B81) : const Color(0x3357D9A3),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                Icon(fallo ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded),
+                const SizedBox(width: 10),
+                Text(
+                  fallo ? 'Algo fallo' : 'Listo',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            SelectableText(mensaje, style: const TextStyle(fontSize: 12, height: 1.4)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Vacio extends StatelessWidget {
+  const _Vacio({required this.buscando});
+
+  final bool buscando;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(
+              buscando ? Icons.travel_explore_rounded : Icons.content_paste_rounded,
+              size: 56,
+              color: Colors.white24,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              buscando
+                  ? 'Busca por nombre y elige\nde la lista.'
+                  : 'Pega una URL, o compartela\ndesde YouTube.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white54, height: 1.5),
             ),
           ],
         ),

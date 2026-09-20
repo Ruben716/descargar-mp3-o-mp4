@@ -5,10 +5,13 @@ import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Base64
+import android.util.Size
 import android.system.Os
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -19,6 +22,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
@@ -94,6 +98,10 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
+                    "caratula" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        enHilo(respuesta) { _ -> caratula(uri) }
+                    }
                     // Consulta ligera: Flutter la repite mientras dura la descarga.
                     "progreso" -> enHilo(respuesta) { puente ->
                         puente.callAttr("progreso").toString()
@@ -169,6 +177,28 @@ class MainActivity : FlutterActivity() {
             "Movies/Descargador/", false, salida,
         )
         return JSONObject().put("ok", true).put("elementos", salida).toString()
+    }
+
+    /**
+     * Devuelve la caratula del archivo en base64.
+     *
+     * MediaStore la genera a partir de lo incrustado en el MP3 o del primer
+     * fotograma del video, asi que la biblioteca se ve sin descargar nada.
+     */
+    private fun caratula(uri: String): String {
+        return try {
+            val mapa = contentResolver.loadThumbnail(Uri.parse(uri), Size(512, 512), null)
+            val memoria = ByteArrayOutputStream()
+            mapa.compress(Bitmap.CompressFormat.JPEG, 82, memoria)
+            mapa.recycle()
+            JSONObject()
+                .put("ok", true)
+                .put("imagen", Base64.encodeToString(memoria.toByteArray(), Base64.NO_WRAP))
+                .toString()
+        } catch (error: Throwable) {
+            // Sin caratula la lista sigue funcionando con un icono generico.
+            JSONObject().put("ok", true).put("imagen", "").toString()
+        }
     }
 
     private fun listar(coleccion: Uri, carpeta: String, esAudio: Boolean, salida: JSONArray) {

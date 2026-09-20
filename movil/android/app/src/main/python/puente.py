@@ -158,6 +158,7 @@ def buscar(texto: str, limite: int) -> str:
                     "autor": r.uploader or "",
                     "duracion": r.duration or 0,
                     "url": r.url,
+                    "miniatura": r.thumbnail,
                 }
                 for r in resultados
             ],
