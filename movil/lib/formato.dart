@@ -56,3 +56,17 @@ String sinTildes(String texto) {
 /// Si [texto] contiene [consulta], ignorando mayusculas y tildes.
 bool coincide(String texto, String consulta) =>
     sinTildes(texto).contains(sinTildes(consulta.trim()));
+
+/// Separa «Artista - Tema» en sus dos mitades.
+///
+/// Se corta por el primer guion y no por el ultimo: hay temas que llevan
+/// guion dentro, pero el artista casi nunca. Sin guion no hay artista que
+/// sacar y el nombre entero es el tema.
+({String artista, String tema}) partirNombre(String texto) {
+  final Match? corte = RegExp(r'\s+[-–—]\s+').firstMatch(texto);
+  if (corte == null) return (artista: '', tema: texto.trim());
+  return (
+    artista: texto.substring(0, corte.start).trim(),
+    tema: texto.substring(corte.end).trim(),
+  );
+}

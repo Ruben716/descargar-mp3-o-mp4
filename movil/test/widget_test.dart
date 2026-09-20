@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -12,6 +13,7 @@ import 'package:descargador_movil/formato.dart';
 import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
+import 'package:descargador_movil/pantalla_artista.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
 import 'package:descargador_movil/portadas.dart';
 import 'package:descargador_movil/reproductor.dart';
@@ -1181,7 +1183,139 @@ void main() {
 
     expect(Nucleo.caratulaConocida(pista.uri), isFalse);
   });
+
+  // --- Retomar donde se dejo ----------------------------------------------
+
+  Elemento pistaDe(String nombre, String uri) => Elemento(
+        nombre: nombre,
+        uri: uri,
+        duracion: 100,
+        tamano: 10,
+        audio: true,
+      );
+
+  test('al volver a abrir se retoma la cola donde estaba', () {
+    final String guardado = jsonEncode(<String, dynamic>{
+      'uris': <String>['content://audio/1', 'content://audio/2', 'content://audio/3'],
+      'indice': 1,
+      'posicion': 42000,
+    });
+
+    final ({List<Elemento> cola, int indice, Duration posicion})? sesion =
+        EstadoReproductor.sesionDesde(guardado, _biblioteca3);
+
+    expect(sesion!.cola.map((Elemento e) => e.uri).toList(),
+        <String>['content://audio/1', 'content://audio/2', 'content://audio/3']);
+    expect(sesion.indice, 1, reason: 'se queda en la que sonaba, no en la primera');
+    expect(sesion.posicion, const Duration(seconds: 42));
+  });
+
+  test('lo que ya se borro se cae de la cola al retomarla', () {
+    // La sesion guardo tres, pero la primera ya no esta en el telefono. El
+    // sitio se busca por la cancion, no por el numero que tenia.
+    final String guardado = jsonEncode(<String, dynamic>{
+      'uris': <String>['content://audio/9', 'content://audio/1', 'content://audio/2'],
+      'indice': 2,
+      'posicion': 0,
+    });
+
+    final ({List<Elemento> cola, int indice, Duration posicion})? sesion =
+        EstadoReproductor.sesionDesde(guardado, _biblioteca3);
+
+    expect(sesion!.cola.length, 2, reason: 'la que ya no existe no se encola');
+    expect(sesion.cola[sesion.indice].uri, 'content://audio/2');
+  });
+
+  test('si no queda nada de la sesion, no se retoma', () {
+    final String guardado = jsonEncode(<String, dynamic>{
+      'uris': <String>['content://audio/borrada'],
+      'indice': 0,
+      'posicion': 0,
+    });
+
+    expect(EstadoReproductor.sesionDesde(guardado, _biblioteca3), isNull);
+  });
+
+  test('una sesion ilegible no impide abrir la app', () {
+    for (final String basura in <String>['esto no es json', '[]', '{}', '{"uris":[]}']) {
+      expect(EstadoReproductor.sesionDesde(basura, _biblioteca3), isNull,
+          reason: 'con $basura');
+    }
+  });
+
+  test('sin sesion guardada no se inventa ninguna cola', () async {
+    biblioteca = _conCanciones;
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    await estado.restaurarSesion();
+
+    expect(estado.cola, isEmpty);
+    expect(estado.actual, isNull);
+  });
+
+  test('la velocidad pasa por todos sus valores y vuelve al principio', () {
+    final List<double> vistas = <double>[];
+    double actual = EstadoReproductor.velocidades.first;
+
+    for (int i = 0; i < EstadoReproductor.velocidades.length; i++) {
+      actual = EstadoReproductor.siguienteVelocidad(actual);
+      vistas.add(actual);
+    }
+
+    expect(vistas.toSet(), EstadoReproductor.velocidades.toSet());
+    expect(actual, EstadoReproductor.velocidades.first,
+        reason: 'una vuelta entera lo deja como estaba');
+  });
+
+  test('una velocidad rara vuelve a la primera', () {
+    expect(EstadoReproductor.siguienteVelocidad(3.7), EstadoReproductor.velocidades.first);
+  });
+
+  // --- Por artista ---------------------------------------------------------
+
+  test('las canciones se agrupan por quien las canta', () {
+    final List<Elemento> pistas = <Elemento>[
+      pistaDe('Soda Stereo - De Musica Ligera [x1].mp3', 'content://audio/1'),
+      pistaDe('Grupo 5 - Motor y Motivo [x2].mp3', 'content://audio/2'),
+      pistaDe('Soda Stereo - Persiana Americana [x3].mp3', 'content://audio/3'),
+      pistaDe('Un tema sin guion [x4].mp3', 'content://audio/4'),
+    ];
+
+    final Map<String, List<Elemento>> grupos = Artistas.agrupar(pistas);
+
+    // Alfabetico, y el cajon de sastre al final.
+    expect(grupos.keys.toList(), <String>['Grupo 5', 'Soda Stereo', Artistas.sinNombre]);
+    expect(grupos['Soda Stereo']!.length, 2);
+    expect(grupos[Artistas.sinNombre]!.single.uri, 'content://audio/4');
+  });
+
+  test('el artista se ordena sin que las tildes lo manden al final', () {
+    final List<Elemento> pistas = <Elemento>[
+      pistaDe('Zoe - Labios Rotos [x1].mp3', 'content://audio/1'),
+      pistaDe('Ángeles Azules - Nunca Es Suficiente [x2].mp3', 'content://audio/2'),
+    ];
+
+    expect(Artistas.agrupar(pistas).keys.first, 'Ángeles Azules');
+  });
+
+  testWidgets('la biblioteca tiene una pestania de artistas',
+      (WidgetTester tester) async {
+    biblioteca = _conCanciones;
+    await abrirBiblioteca(tester);
+
+    expect(find.textContaining('Artistas ('), findsOneWidget);
+  });
 }
+
+/// Las mismas tres canciones de _conCanciones, ya como objetos.
+final List<Elemento> _biblioteca3 = <Elemento>[
+  for (final (String nombre, String uri) in <(String, String)>[
+    ('Corazon Partio [c1].mp3', 'content://audio/1'),
+    ('Bailando [c2].mp3', 'content://audio/2'),
+    ('Amame [c3].mp3', 'content://audio/3'),
+  ])
+    Elemento(nombre: nombre, uri: uri, duracion: 100, tamano: 100, audio: true),
+];
 
 /// Tres canciones con tildes y duraciones distintas, para filtrar y ordenar.
 const String _conCanciones = '{"ok":true,"elementos":['

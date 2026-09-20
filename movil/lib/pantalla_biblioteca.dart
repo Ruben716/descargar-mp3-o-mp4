@@ -6,6 +6,7 @@ import 'fila_pista.dart';
 import 'formato.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'pantalla_artista.dart';
 import 'pantalla_lista.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -35,7 +36,7 @@ class PantallaBiblioteca extends StatefulWidget {
 class PantallaBibliotecaState extends State<PantallaBiblioteca>
     with SingleTickerProviderStateMixin {
   final Listas _listas = Listas.instancia;
-  late final TabController _pestanas = TabController(length: 3, vsync: this);
+  late final TabController _pestanas = TabController(length: 4, vsync: this);
   final TextEditingController _busqueda = TextEditingController();
 
   List<Elemento> _elementos = <Elemento>[];
@@ -106,6 +107,9 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     }
     return salida;
   }
+
+  /// Las canciones repartidas por artista, respetando el buscador.
+  Map<String, List<Elemento>> get _artistas => Artistas.agrupar(_canciones);
 
   /// Los nombres de lista que casan con la busqueda.
   List<String> get _nombresListas {
@@ -215,8 +219,11 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
             labelColor: Tema.acento,
             unselectedLabelColor: Colors.white54,
             labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             tabs: <Widget>[
               Tab(text: 'Canciones (${_canciones.length})'),
+              Tab(text: 'Artistas (${_artistas.length})'),
               Tab(text: 'Videos (${_videos.length})'),
               Tab(text: 'Listas (${_nombresListas.length})'),
             ],
@@ -228,6 +235,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
             controller: _pestanas,
             children: <Widget>[
               _pistas(_canciones, 'Aqui apareceran las canciones que descargues.'),
+              _seccionArtistas(),
               _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
               _seccionListas(),
             ],
@@ -306,6 +314,30 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
           elemento: elementos[i],
           enCola: elementos,
           acciones: _accionesDe(elementos[i]),
+        ),
+      ),
+    );
+  }
+
+  Widget _seccionArtistas() {
+    final Map<String, List<Elemento>> grupos = _artistas;
+    if (grupos.isEmpty) {
+      return _Vacio(
+        texto: _busqueda.text.trim().isEmpty
+            ? 'Aqui se agrupan tus canciones por quien las canta.'
+            : 'Nada con ese nombre.',
+        icono: Icons.person_outline_rounded,
+      );
+    }
+    final List<String> nombres = grupos.keys.toList();
+    return RefreshIndicator(
+      onRefresh: recargar,
+      child: ListView.builder(
+        padding: const EdgeInsets.only(bottom: 20),
+        itemCount: nombres.length,
+        itemBuilder: (BuildContext context, int i) => FilaArtista(
+          artista: nombres[i],
+          pistas: grupos[nombres[i]]!,
         ),
       ),
     );

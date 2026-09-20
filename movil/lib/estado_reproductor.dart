@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalogo.dart';
 import 'ecualizador.dart';
@@ -30,13 +32,17 @@ class Pista {
 class EstadoReproductor extends ChangeNotifier {
   EstadoReproductor._() {
     motor.playerStateStream.listen((_) => notifyListeners());
-    motor.positionStream.listen(_anotarSiYaCuenta);
+    motor.positionStream.listen((Duration instante) {
+      _anotarSiYaCuenta(instante);
+      _quizasGuardarSesion();
+    });
     // Al saltar de pista dentro de la cola hay que actualizar lo que se ve.
     motor.currentIndexStream.listen((int? indice) {
       if (indice == null || indice >= _cola.length) return;
       final Elemento actual = _cola[indice];
       if (actual.uri != _anotada) _anotada = null;
       _actual = Pista(titulo: actual.nombre, fuente: actual.uri, elemento: actual);
+      unawaited(_guardarSesion());
       notifyListeners();
     });
     // Un fallo mientras suena no llega por el await de setUrl: viaja por este
@@ -75,6 +81,120 @@ class EstadoReproductor extends ChangeNotifier {
     if (instante < minimoParaContar) return;
     _anotada = uri;
     unawaited(Catalogo.instancia.anotarEscucha(uri));
+  }
+
+  // --- Retomar donde se dejo ----------------------------------------------
+
+  @visibleForTesting
+  static const String claveSesion = 'sesion_v1';
+
+  bool _sesionRestaurada = false;
+  DateTime _ultimoGuardado = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Apunta la cola y el punto exacto para poder seguir tras cerrar la app.
+  Future<void> _guardarSesion() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      if (_cola.isEmpty) {
+        await memoria.remove(claveSesion);
+        return;
+      }
+      await memoria.setString(
+        claveSesion,
+        jsonEncode(<String, dynamic>{
+          'uris': _cola.map((Elemento e) => e.uri).toList(),
+          'indice': motor.currentIndex ?? 0,
+          'posicion': motor.position.inMilliseconds,
+        }),
+      );
+    } catch (_) {
+      // Quedarse sin guardar la sesion no puede cortar la musica.
+    }
+  }
+
+  /// Guarda de tanto en tanto mientras suena, que la posicion cambia siempre.
+  void _quizasGuardarSesion() {
+    final DateTime ahora = DateTime.now();
+    if (ahora.difference(_ultimoGuardado) < const Duration(seconds: 5)) return;
+    _ultimoGuardado = ahora;
+    unawaited(_guardarSesion());
+  }
+
+  /// Vuelve a dejar la cola como estaba, parada y en el mismo punto.
+  ///
+  /// No se pone a sonar sola: abrir la app no deberia arrancar musica. Lo que
+  /// se haya borrado desde la ultima vez se cae de la cola, y el sitio donde
+  /// ibas se busca por su URI y no por el numero que tenia, porque si algo de
+  /// antes ya no esta ese numero apuntaria a otra cancion.
+  Future<void> restaurarSesion() async {
+    if (_sesionRestaurada || _cola.isNotEmpty) return;
+    _sesionRestaurada = true;
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      final String? crudo = memoria.getString(claveSesion);
+      if (crudo == null || crudo.isEmpty) return;
+
+      final ({List<Elemento> cola, int indice, Duration posicion})? sesion =
+          sesionDesde(crudo, await Nucleo.biblioteca());
+      if (sesion == null) return;
+
+      _cola = sesion.cola;
+      final Elemento donde = sesion.cola[sesion.indice];
+      _actual = Pista(titulo: donde.nombre, fuente: donde.uri, elemento: donde);
+      notifyListeners();
+
+      await motor.setAudioSources(
+        await _fuentes(sesion.cola),
+        initialIndex: sesion.indice,
+        initialPosition: sesion.posicion,
+      );
+    } catch (_) {
+      // Una sesion que ya no se entiende no puede impedir abrir la app.
+    }
+  }
+
+  /// Traduce lo guardado a la cola que toca, cruzandolo con la biblioteca.
+  ///
+  /// Va aparte del motor a proposito: aqui esta todo lo que puede salir mal
+  /// (una sesion ilegible, canciones borradas, un indice que ya no apunta a
+  /// donde apuntaba) y asi se puede comprobar sin un reproductor de por medio.
+  /// Devuelve `null` cuando no queda nada que retomar.
+  @visibleForTesting
+  static ({List<Elemento> cola, int indice, Duration posicion})? sesionDesde(
+    String crudo,
+    List<Elemento> biblioteca,
+  ) {
+    try {
+      final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
+      final List<String> uris = ((datos['uris'] as List<dynamic>?) ?? <dynamic>[])
+          .map((dynamic u) => u.toString())
+          .toList();
+      if (uris.isEmpty) return null;
+
+      final Map<String, Elemento> porUri = <String, Elemento>{
+        for (final Elemento e in biblioteca) e.uri: e,
+      };
+      final List<Elemento> cola = <Elemento>[
+        for (final String u in uris)
+          if (porUri[u] != null) porUri[u]!,
+      ];
+      if (cola.isEmpty) return null;
+
+      // El sitio se busca por la cancion y no por el numero que tenia: si algo
+      // de antes ya no esta, ese numero apuntaria a otra distinta.
+      final int guardado = (datos['indice'] as num?)?.toInt() ?? 0;
+      final String? sonaba = guardado >= 0 && guardado < uris.length ? uris[guardado] : null;
+      final int encontrado =
+          sonaba == null ? 0 : cola.indexWhere((Elemento e) => e.uri == sonaba);
+
+      return (
+        cola: cola,
+        indice: encontrado < 0 ? 0 : encontrado,
+        posicion: Duration(milliseconds: (datos['posicion'] as num?)?.toInt() ?? 0),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Recupera el ecualizador guardado en cuanto el aparato diga sus bandas.
@@ -142,6 +262,7 @@ class EstadoReproductor extends ChangeNotifier {
       // antes hay que rebarajar, o diria "aleatorio" y sonaria en orden.
       if (motor.shuffleModeEnabled) await motor.shuffle();
       await motor.play();
+      unawaited(_guardarSesion());
     } catch (error) {
       _error = '$error';
       _actual = null;
@@ -239,6 +360,7 @@ class EstadoReproductor extends ChangeNotifier {
       _orden.proximaInsercion = null;
     }
     _cola.insert(destino, elemento);
+    unawaited(_guardarSesion());
     notifyListeners();
   }
 
@@ -263,6 +385,7 @@ class EstadoReproductor extends ChangeNotifier {
     final int original = escucha[posicion];
     await motor.removeAudioSourceAt(original);
     _cola.removeAt(original);
+    unawaited(_guardarSesion());
     notifyListeners();
   }
 
@@ -278,6 +401,7 @@ class EstadoReproductor extends ChangeNotifier {
     final int destino = hasta.clamp(0, _cola.length - 1);
     await motor.moveAudioSource(desde, destino);
     _cola.insert(destino, _cola.removeAt(desde));
+    unawaited(_guardarSesion());
     notifyListeners();
   }
 
@@ -399,9 +523,30 @@ class EstadoReproductor extends ChangeNotifier {
   Future<void> alternar() async {
     if (motor.playing) {
       await motor.pause();
+      unawaited(_guardarSesion());
     } else {
       await motor.play();
     }
+  }
+
+  /// Velocidades ofrecidas, de la mas lenta a la mas rapida.
+  static const List<double> velocidades = <double>[0.75, 1, 1.25, 1.5, 2];
+
+  double get velocidad => motor.speed;
+
+  /// La que sigue en la lista, volviendo al principio al pasar la ultima.
+  ///
+  /// Una velocidad que no este en la lista (o la de arranque) devuelve la
+  /// primera, para no quedarse sin salida.
+  @visibleForTesting
+  static double siguienteVelocidad(double actual) {
+    final int donde = velocidades.indexOf(actual);
+    return donde < 0 ? velocidades.first : velocidades[(donde + 1) % velocidades.length];
+  }
+
+  Future<void> alternarVelocidad() async {
+    await motor.setSpeed(siguienteVelocidad(motor.speed));
+    notifyListeners();
   }
 
   Future<void> saltar(Duration desplazamiento) async {
@@ -415,6 +560,7 @@ class EstadoReproductor extends ChangeNotifier {
   Future<void> cerrar() async {
     _cola = <Elemento>[];
     cancelarSuenio();
+    unawaited(_guardarSesion());
     try {
       await motor.stop();
     } catch (_) {

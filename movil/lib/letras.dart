@@ -129,15 +129,8 @@ class Letras {
   ///
   /// Se corta por el primer guion y no por el ultimo: hay temas que llevan
   /// guion dentro, pero el artista casi nunca.
-  static ({String artista, String tema}) partesDe(String nombre) {
-    final String limpio = consultaDe(nombre, conservarGuion: true);
-    final Match? corte = RegExp(r'\s+[-–—]\s+').firstMatch(limpio);
-    if (corte == null) return (artista: '', tema: limpio);
-    return (
-      artista: limpio.substring(0, corte.start).trim(),
-      tema: limpio.substring(corte.end).trim(),
-    );
-  }
+  static ({String artista, String tema}) partesDe(String nombre) =>
+      partirNombre(consultaDe(nombre, conservarGuion: true));
 
   /// Cuantos de los terminos de [referencia] estan en [candidato], de 0 a 1.
   static double parecido(String candidato, String referencia) {

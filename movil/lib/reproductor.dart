@@ -34,9 +34,36 @@ class _ReproductorState extends State<Reproductor> {
   /// Si se ve la letra en lugar de la caratula.
   bool _letras = false;
 
+  final EstadoReproductor _estado = EstadoReproductor.instancia;
+
+  @override
+  void initState() {
+    super.initState();
+    // Arrancar la pista se decide aqui y no mas abajo porque ahi el elemento
+    // ya es el que suena, y entonces nunca se pondria la que se pidio.
+    if (widget.elemento.audio && !_estado.esActual(widget.elemento.uri)) {
+      _estado.reproducirElemento(widget.elemento);
+    }
+  }
+
+  /// La pista que toca ensenar.
+  ///
+  /// Con una cola, lo que suena cambia solo al acabar cada cancion y la
+  /// pantalla tiene que seguirlo: antes se quedaba con la que se abrio, asi
+  /// que cambiaba el sonido pero no la caratula ni el titulo. El video no se
+  /// encola, de modo que ese se queda con el suyo.
+  Elemento get _pista =>
+      widget.elemento.audio ? (_estado.actual?.elemento ?? widget.elemento) : widget.elemento;
+
   @override
   Widget build(BuildContext context) {
-    final Elemento elemento = widget.elemento;
+    return ListenableBuilder(
+      listenable: _estado,
+      builder: (BuildContext context, _) => _pantalla(context, _pista),
+    );
+  }
+
+  Widget _pantalla(BuildContext context, Elemento elemento) {
     return ValueListenableBuilder<bool>(
       valueListenable: Nucleo.enVentanaFlotante,
       builder: (BuildContext context, bool flotando, _) {
@@ -172,14 +199,6 @@ class _AudioState extends State<_Audio> {
   final EstadoReproductor _estado = EstadoReproductor.instancia;
 
   @override
-  void initState() {
-    super.initState();
-    if (!_estado.esActual(widget.elemento.uri)) {
-      _estado.reproducirElemento(widget.elemento);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final AudioPlayer motor = _estado.motor;
     return Padding(
@@ -257,11 +276,15 @@ class _AudioState extends State<_Audio> {
           const SizedBox(height: 4),
           ListenableBuilder(
             listenable: _estado,
-            builder: (BuildContext context, _) => Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Wrap y no Row: tres botones con sus etiquetas no caben en una
+            // pantalla estrecha, y asi bajan de linea en vez de desbordar.
+            builder: (BuildContext context, _) => Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
                 _BotonAleatorio(estado: _estado),
                 _BotonRepeticion(estado: _estado),
+                _BotonVelocidad(estado: _estado),
               ],
             ),
           ),
@@ -593,6 +616,34 @@ class _BotonAleatorio extends StatelessWidget {
           fontSize: 12,
           color: estado.aleatorio ? Tema.acento : Colors.white38,
         ),
+      ),
+    );
+  }
+}
+
+/// Pasa por las velocidades de reproduccion.
+class _BotonVelocidad extends StatelessWidget {
+  const _BotonVelocidad({required this.estado});
+
+  final EstadoReproductor estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool normal = estado.velocidad == 1;
+    // «1x» se escribe sin decimales; «1.25x» los necesita.
+    final String etiqueta = estado.velocidad == estado.velocidad.roundToDouble()
+        ? '${estado.velocidad.round()}x'
+        : '${estado.velocidad}x';
+    return TextButton.icon(
+      onPressed: estado.alternarVelocidad,
+      icon: Icon(
+        Icons.speed_rounded,
+        size: 20,
+        color: normal ? Colors.white38 : Tema.acento,
+      ),
+      label: Text(
+        etiqueta,
+        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : Tema.acento),
       ),
     );
   }
