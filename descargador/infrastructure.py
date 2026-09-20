@@ -19,6 +19,15 @@ from .domain import (
 
 FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
 
+#: Fallos del servidor que suelen desaparecer al repetir la peticion.
+ERRORES_TRANSITORIOS = ("403", "forbidden", "429", "too many requests", "timed out")
+INTENTOS_TRANSITORIOS = 3
+
+
+def _es_transitorio(error: Exception) -> bool:
+    mensaje = str(error).lower()
+    return any(pista in mensaje for pista in ERRORES_TRANSITORIOS)
+
 
 def _cargar_motor():
     """Importa yt-dlp tarde para poder explicar la falta de dependencias.
@@ -107,8 +116,15 @@ def incrusta_caratula(audio_only: bool) -> bool:
 
 
 class YtDlpDownloader:
-    def __init__(self, on_progress: Callable[[DownloadProgress], None] | None = None):
+    def __init__(
+        self,
+        on_progress: Callable[[DownloadProgress], None] | None = None,
+        registro: object | None = None,
+    ):
         self._on_progress = on_progress
+        #: Receptor opcional del log detallado del motor (debug/warning/error).
+        #: Sirve para diagnosticar fallos donde no hay consola, como el móvil.
+        self._registro = registro
 
     # -- consulta ---------------------------------------------------------
     def inspect(self, request: DownloadRequest) -> VideoInfo:
@@ -150,6 +166,24 @@ class YtDlpDownloader:
 
     # -- descarga ---------------------------------------------------------
     def download(self, request: DownloadRequest) -> DownloadResult:
+        """Descarga reintentando los fallos pasajeros del servidor.
+
+        yt-dlp solo reintenta errores 5xx: un 403 aborta. Pero YouTube devuelve
+        403 de vez en cuando cuando la URL del stream rota, y eso tiraba la
+        descarga entera. Reintentar desde el principio vuelve a extraer la URL,
+        y lo ya bajado se conserva porque continuedl esta activo.
+        """
+        ultimo: DownloadError | None = None
+        for intento in range(INTENTOS_TRANSITORIOS):
+            try:
+                return self._intentar(request)
+            except DownloadError as exc:
+                ultimo = exc
+                if intento == INTENTOS_TRANSITORIOS - 1 or not _es_transitorio(exc):
+                    raise
+        raise ultimo if ultimo else DownloadError("No se pudo completar la descarga.")
+
+    def _intentar(self, request: DownloadRequest) -> DownloadResult:
         YoutubeDL, YoutubeDLError, download_range_func = _cargar_motor()
         opts = request.options
         archivos: list[Path] = []
@@ -199,6 +233,8 @@ class YtDlpDownloader:
                 options["download_archive"] = str(destino / ".descargadas.txt")
             if self._on_progress is not None:
                 options |= {"progress_hooks": [self._notificar], "noprogress": True, "quiet": True}
+            if self._registro is not None:
+                options |= {"logger": self._registro, "verbose": True}
 
             with YoutubeDL(options) as engine:
                 info = engine.extract_info(request.url, download=False, process=False)

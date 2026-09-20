@@ -82,10 +82,35 @@ def informacion(url: str) -> str:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
+class _Registro:
+    """Recoge el log del motor para poder explicar un fallo sin consola."""
+
+    def __init__(self, limite: int = 60):
+        self.lineas: list[str] = []
+        self._limite = limite
+
+    def _anotar(self, mensaje: str) -> None:
+        self.lineas.append(str(mensaje))
+        del self.lineas[: max(0, len(self.lineas) - self._limite)]
+
+    def debug(self, mensaje):
+        self._anotar(mensaje)
+
+    def info(self, mensaje):
+        self._anotar(mensaje)
+
+    def warning(self, mensaje):
+        self._anotar(f"AVISO {mensaje}")
+
+    def error(self, mensaje):
+        self._anotar(f"ERROR {mensaje}")
+
+
 def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_audio: str) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
+    registro = _Registro()
     try:
         opciones = DownloadOptions(
             audio_only=bool(solo_audio),
@@ -94,12 +119,17 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_au
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )
-        resultado = DownloadVideo(YtDlpDownloader(_anotar)).execute(url, Path(carpeta), opciones)
+        motor = YtDlpDownloader(_anotar, registro)
+        resultado = DownloadVideo(motor).execute(url, Path(carpeta), opciones)
         _AVANCE["status"] = "listo"
         return _respuesta({"ok": True, "archivos": [str(r) for r in resultado.files]})
     except DownloadError as exc:
         _AVANCE["status"] = "error"
-        return _respuesta({"ok": False, "error": str(exc)})
+        return _respuesta({"ok": False, "error": str(exc), "registro": registro.lineas})
     except Exception as exc:
         _AVANCE["status"] = "error"
-        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        return _respuesta({
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "registro": registro.lineas,
+        })

@@ -140,6 +140,42 @@ class AdapterTests(unittest.TestCase):
         self.assertLess(claves.index("SponsorBlock"), claves.index("ModifyChapters"))
 
 
+class RetryTests(unittest.TestCase):
+    """yt-dlp no reintenta un 403, y YouTube los devuelve de forma esporadica."""
+
+    def _peticion(self):
+        return DownloadRequest("https://example.com/v", Path("out"))
+
+    def test_retries_a_transient_failure_and_succeeds(self):
+        motor = YtDlpDownloader()
+        esperado = DownloadResult((Path("v.mp4"),))
+        intentos = [DownloadError("HTTP Error 403: Forbidden"), esperado]
+
+        def fingir(_peticion):
+            siguiente = intentos.pop(0)
+            if isinstance(siguiente, Exception):
+                raise siguiente
+            return siguiente
+
+        with patch.object(YtDlpDownloader, "_intentar", side_effect=fingir):
+            self.assertEqual(motor.download(self._peticion()), esperado)
+        self.assertEqual(intentos, [])
+
+    def test_does_not_retry_a_real_error(self):
+        motor = YtDlpDownloader()
+        fallo = Mock(side_effect=DownloadError("Pasa la URL de un video individual."))
+        with patch.object(YtDlpDownloader, "_intentar", fallo), self.assertRaises(DownloadError):
+            motor.download(self._peticion())
+        self.assertEqual(fallo.call_count, 1)
+
+    def test_gives_up_after_the_last_attempt(self):
+        motor = YtDlpDownloader()
+        fallo = Mock(side_effect=DownloadError("HTTP Error 429: Too Many Requests"))
+        with patch.object(YtDlpDownloader, "_intentar", fallo), self.assertRaises(DownloadError):
+            motor.download(self._peticion())
+        self.assertEqual(fallo.call_count, 3)
+
+
 class CliTests(unittest.TestCase):
     def _adaptador(self, patched):
         adaptador = patched.return_value

@@ -122,6 +122,12 @@ class _PantallaDescargaState extends State<PantallaDescarga> with WidgetsBinding
         texto = 'Listo:\n\n${archivos.join('\n\n')}';
       } else {
         texto = 'Error: ${datos['error']}';
+        // El registro del motor solo aparece cuando algo ha fallado; es lo
+        // unico que explica por que, porque aqui no hay consola.
+        final List<dynamic> registro = (datos['registro'] as List<dynamic>?) ?? <dynamic>[];
+        if (registro.isNotEmpty) {
+          texto += '\n\n--- registro del motor ---\n${registro.join('\n')}';
+        }
       }
     } catch (error) {
       texto = 'Error: $error';
