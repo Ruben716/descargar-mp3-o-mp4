@@ -1,5 +1,6 @@
 import contextlib
 import io
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,7 +37,12 @@ from descargador.domain import (
     parse_section,
     parse_timestamp,
 )
-from descargador.infrastructure import YtDlpDownloader, incrusta_caratula
+from descargador.infrastructure import (
+    YtDlpDownloader,
+    escribir_etiquetas,
+    incrusta_caratula,
+    nombre_con_etiquetas,
+)
 
 
 class DownloadTests(unittest.TestCase):
@@ -184,6 +190,78 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class EditarEtiquetasTests(unittest.TestCase):
+    def test_el_nombre_recoge_artista_y_titulo_sin_perder_el_identificador(self):
+        # El identificador entre corchetes es con lo que se reconoce la pista
+        # para no volver a descargarla: renombrar no puede llevárselo.
+        self.assertEqual(
+            nombre_con_etiquetas(
+                "Soda Stereo - De Musica Ligera (Official) [T_Fk].mp3",
+                titulo="De Música Ligera", artista="Soda Stereo"),
+            "Soda Stereo - De Música Ligera [T_Fk].mp3")
+
+    def test_sin_artista_no_queda_un_guion_suelto(self):
+        self.assertEqual(
+            nombre_con_etiquetas("Video by alguien [Dc9a].mp4", titulo="Un título", artista=""),
+            "Un título [Dc9a].mp4")
+
+    def test_los_caracteres_que_android_no_admite_se_cambian(self):
+        self.assertEqual(
+            nombre_con_etiquetas("Algo [id].mp3", titulo="Con / barras : raras", artista="AC/DC"),
+            "AC DC - Con barras raras [id].mp3")
+
+    def test_unas_etiquetas_vacias_dejan_el_nombre_como_estaba(self):
+        self.assertEqual(
+            nombre_con_etiquetas("Lo que sea [id].mp3", titulo="   ", artista="  "),
+            "Lo que sea [id].mp3")
+
+    def test_se_reescribe_la_cabecera_sin_tocar_el_sonido(self):
+        """Comprueba la orden que se le da a FFmpeg, no a FFmpeg."""
+        with tempfile.TemporaryDirectory() as carpeta:
+            origen = Path(carpeta) / "entra.mp3"
+            origen.write_bytes(b"audio")
+            destino = Path(carpeta) / "sale.mp3"
+
+            def fingir(orden, **_):
+                destino.write_bytes(b"audio")
+                return subprocess.CompletedProcess(orden, 0, "", "")
+
+            with (
+                patch("descargador.infrastructure._preparar_ffmpeg", return_value="ffmpeg"),
+                patch("descargador.infrastructure.subprocess.run", side_effect=fingir) as corrio,
+            ):
+                escribir_etiquetas(origen, destino, titulo="Tema", artista="Artista")
+
+            orden = corrio.call_args.args[0]
+            # «-c copy» es lo que evita recomprimir, y «-map 0» conserva la
+            # carátula, que en un MP3 viaja como un flujo de vídeo.
+            self.assertIn("-c", orden)
+            self.assertEqual(orden[orden.index("-c") + 1], "copy")
+            self.assertIn("-map", orden)
+            self.assertIn("title=Tema", orden)
+            self.assertIn("artist=Artista", orden)
+
+    def test_si_ffmpeg_falla_se_avisa_y_no_se_deja_a_medias(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            origen = Path(carpeta) / "entra.mp3"
+            origen.write_bytes(b"audio")
+            fallo = subprocess.CompletedProcess([], 1, "", "Invalid data found")
+
+            with (
+                patch("descargador.infrastructure._preparar_ffmpeg", return_value="ffmpeg"),
+                patch("descargador.infrastructure.subprocess.run", return_value=fallo),
+                self.assertRaises(DownloadError) as caso,
+            ):
+                escribir_etiquetas(origen, Path(carpeta) / "sale.mp3",
+                                   titulo="T", artista="A")
+
+            self.assertIn("Invalid data found", str(caso.exception))
+
+    def test_un_archivo_que_no_esta_se_dice_claro(self):
+        with self.assertRaises(DownloadError):
+            escribir_etiquetas(Path("no-existe.mp3"), Path("sale.mp3"), titulo="T", artista="A")
 
 
 class FormatoVerticalTests(unittest.TestCase):

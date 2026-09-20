@@ -21,7 +21,12 @@ from descargador.domain import (
     DownloadProgress,
     parse_section,
 )
-from descargador.infrastructure import YtDlpDownloader, configurar_entorno
+from descargador.infrastructure import (
+    YtDlpDownloader,
+    configurar_entorno,
+    escribir_etiquetas,
+    nombre_con_etiquetas,
+)
 
 #: Ultimo avance publicado por el motor. Kotlin lo consulta mientras descarga.
 _AVANCE: dict = {"status": "inactivo"}
@@ -224,3 +229,21 @@ def importar_lista(url: str) -> str:
         return _respuesta({"ok": False, "error": str(exc)})
     except Exception as exc:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def etiquetar(origen: str, destino: str, titulo: str, artista: str, nombre: str) -> str:
+    """Reescribe titulo y artista de un audio ya descargado.
+
+    Trabaja sobre copias porque el archivo de verdad vive en MediaStore y solo
+    se llega a el por un descriptor: Kotlin trae una copia, esto la reetiqueta
+    y Kotlin devuelve el resultado a su sitio. Ademas calcula el nombre que le
+    corresponde, que es lo que se ve en la biblioteca.
+    """
+    try:
+        escribir_etiquetas(Path(origen), Path(destino), titulo=titulo, artista=artista)
+        return _respuesta({
+            "ok": True,
+            "nombre": nombre_con_etiquetas(nombre, titulo=titulo, artista=artista),
+        })
+    except DownloadError as exc:
+        return _respuesta({"ok": False, "error": str(exc)})

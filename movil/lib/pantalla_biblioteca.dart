@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
+import 'dialogo_etiquetas.dart';
 import 'estado_reproductor.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
@@ -184,12 +185,23 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     if (creada != null) await _listas.crear(creada);
   }
 
+  Future<void> _etiquetar(Elemento elemento) async {
+    if (await editarEtiquetas(context, elemento)) await recargar();
+  }
+
   List<AccionPista> _accionesDe(Elemento elemento) => <AccionPista>[
     AccionPista(
       icono: Icons.playlist_add_rounded,
       texto: 'Anadir a lista',
       alElegir: () => _elegirLista(elemento),
     ),
+    // Solo en audio: en video no hay etiquetas que corregir que se vean.
+    if (elemento.audio)
+      AccionPista(
+        icono: Icons.edit_rounded,
+        texto: 'Editar etiquetas',
+        alElegir: () => _etiquetar(elemento),
+      ),
     AccionPista(
       icono: Icons.delete_outline_rounded,
       texto: 'Eliminar descarga',

@@ -77,6 +77,23 @@ class Nucleo {
 
   static Future<Avance> progreso() async => Avance.desdeJson(await _pedir('progreso'));
 
+  /// Reescribe titulo y artista de una pista y la renombra.
+  ///
+  /// Devuelve el nombre con el que quedo, que puede ser el de antes si el
+  /// telefono no dejo renombrar (por ejemplo, si ya hay otra igual).
+  static Future<String> etiquetar(
+    String uri, {
+    required String titulo,
+    required String artista,
+  }) async {
+    final Map<String, dynamic> datos = await _pedir('etiquetar', <String, dynamic>{
+      'uri': uri,
+      'titulo': titulo,
+      'artista': artista,
+    });
+    return datos['nombre']?.toString() ?? '';
+  }
+
   static Future<List<Elemento>> biblioteca() async {
     final Map<String, dynamic> datos = await _pedir('biblioteca');
     return ((datos['elementos'] as List<dynamic>?) ?? <dynamic>[])

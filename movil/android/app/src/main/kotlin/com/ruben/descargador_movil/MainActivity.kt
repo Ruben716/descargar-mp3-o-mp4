@@ -149,6 +149,14 @@ class MainActivity : AudioServiceActivity() {
                             llamada.argument<String>("titulo").orEmpty(),
                         ),
                     )
+                    "etiquetar" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        val titulo = llamada.argument<String>("titulo").orEmpty()
+                        val artista = llamada.argument<String>("artista").orEmpty()
+                        enHilo(respuesta) { puente ->
+                            etiquetar(puente, uri, titulo, artista)
+                        }
+                    }
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
@@ -523,6 +531,89 @@ class MainActivity : AudioServiceActivity() {
         }
         marca.writeText(nativos)
         return destino
+    }
+
+    /**
+     * Reescribe titulo y artista de una pista y la renombra.
+     *
+     * El archivo de verdad vive en MediaStore y solo se llega a el por un
+     * descriptor, asi que no se puede etiquetar en el sitio: se saca una copia,
+     * Python la reetiqueta con FFmpeg y el resultado vuelve a su lugar. Al
+     * final se renombra, que es lo que se ve en la biblioteca y lo que permite
+     * agrupar por artista.
+     */
+    private fun etiquetar(puente: PyObject, uri: String, titulo: String, artista: String): String {
+        if (uri.isEmpty()) return fallo("No se indico que pista etiquetar.")
+        asegurarFfmpeg(puente)
+        val destino = Uri.parse(uri)
+        val nombre = nombreDe(destino) ?: return fallo("Esa pista ya no esta en el telefono.")
+        val extension = nombre.substringAfterLast('.', "mp3")
+
+        val entrada = File(cacheDir, "etiquetas_entra.$extension")
+        val salida = File(cacheDir, "etiquetas_sale.$extension")
+        return try {
+            entrada.delete()
+            salida.delete()
+            contentResolver.openInputStream(destino).use { origen ->
+                if (origen == null) return fallo("No se pudo abrir la pista.")
+                entrada.outputStream().use { origen.copyTo(it) }
+            }
+
+            val crudo = puente.callAttr(
+                "etiquetar",
+                entrada.absolutePath,
+                salida.absolutePath,
+                titulo,
+                artista,
+                nombre,
+            ).toString()
+            val datos = JSONObject(crudo)
+            if (!datos.optBoolean("ok")) return crudo
+
+            // El «wt» vacia el archivo antes de escribir: sin el, un audio mas
+            // corto dejaria basura del anterior pegada al final.
+            contentResolver.openOutputStream(destino, "wt").use { hueco ->
+                if (hueco == null) return fallo("No se pudo guardar la pista etiquetada.")
+                salida.inputStream().use { it.copyTo(hueco) }
+            }
+
+            val nuevo = datos.optString("nombre", nombre)
+            JSONObject().put("ok", true).put("nombre", renombrar(destino, nuevo) ?: nombre).toString()
+        } catch (error: Throwable) {
+            fallo("${error.message}")
+        } finally {
+            entrada.delete()
+            salida.delete()
+        }
+    }
+
+    private fun nombreDe(uri: Uri): String? {
+        return try {
+            contentResolver.query(
+                uri,
+                arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        } catch (error: Throwable) {
+            null
+        }
+    }
+
+    /** Renombra en MediaStore. Devuelve el nombre que quedo, o null si no pudo. */
+    private fun renombrar(uri: Uri, nombre: String): String? {
+        if (nombre.isEmpty()) return null
+        return try {
+            val valores = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+            }
+            if (contentResolver.update(uri, valores, null, null) > 0) nombre else null
+        } catch (error: Throwable) {
+            // Suele ser que ya hay otra pista con ese nombre. Las etiquetas de
+            // dentro ya se escribieron, asi que se deja el nombre viejo.
+            null
+        }
     }
 
     /**

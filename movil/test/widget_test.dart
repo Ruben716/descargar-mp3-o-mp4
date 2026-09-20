@@ -13,6 +13,7 @@ import 'package:descargador_movil/formato.dart';
 import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
+import 'package:descargador_movil/dialogo_etiquetas.dart';
 import 'package:descargador_movil/pantalla_artista.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
 import 'package:descargador_movil/portadas.dart';
@@ -1304,6 +1305,101 @@ void main() {
     await abrirBiblioteca(tester);
 
     expect(find.textContaining('Artistas ('), findsOneWidget);
+  });
+
+  // --- Editar etiquetas ----------------------------------------------------
+
+  /// Abre el dialogo de etiquetas sobre una pista suelta.
+  Future<void> abrirEtiquetas(WidgetTester tester, Elemento pista) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () => editarEtiquetas(context, pista),
+            child: const Text('abrir'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('abrir'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('el dialogo llega con el artista y el titulo ya puestos',
+      (WidgetTester tester) async {
+    await abrirEtiquetas(
+      tester,
+      pistaDe('Soda Stereo - De Musica Ligera [T_Fk].mp3', 'content://audio/1'),
+    );
+
+    expect(find.widgetWithText(TextField, 'Soda Stereo'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'De Musica Ligera'), findsOneWidget);
+  });
+
+  testWidgets('un nombre sin guion deja el artista vacio',
+      (WidgetTester tester) async {
+    await abrirEtiquetas(
+      tester,
+      pistaDe('Un tema suelto [x].mp3', 'content://audio/1'),
+    );
+
+    expect(find.widgetWithText(TextField, 'Un tema suelto'), findsOneWidget);
+    // El campo del artista existe, pero vacio: no se inventa nada.
+    expect(find.widgetWithText(TextField, 'Artista'), findsOneWidget);
+  });
+
+  testWidgets('sin titulo no se deja guardar', (WidgetTester tester) async {
+    await abrirEtiquetas(
+      tester,
+      pistaDe('Artista - Tema [x].mp3', 'content://audio/1'),
+    );
+
+    final Finder guardar = find.widgetWithText(FilledButton, 'Guardar');
+    expect(tester.widget<FilledButton>(guardar).onPressed, isNotNull);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Tema'), '   ');
+    await tester.pumpAndSettle();
+
+    expect(tester.widget<FilledButton>(guardar).onPressed, isNull);
+  });
+
+  testWidgets('guardar manda al nucleo lo escrito', (WidgetTester tester) async {
+    await abrirEtiquetas(
+      tester,
+      pistaDe('Mal escrito [x].mp3', 'content://audio/1'),
+    );
+
+    await tester.enterText(find.widgetWithText(TextField, 'Artista'), 'Soda Stereo');
+    await tester.enterText(find.widgetWithText(TextField, 'Mal escrito'), 'De Musica Ligera');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Guardar'));
+    await tester.pumpAndSettle();
+
+    final MethodCall envio =
+        llamadas.lastWhere((MethodCall c) => c.method == 'etiquetar');
+    expect(envio.arguments['uri'], 'content://audio/1');
+    expect(envio.arguments['artista'], 'Soda Stereo');
+    expect(envio.arguments['titulo'], 'De Musica Ligera');
+  });
+
+  testWidgets('editar etiquetas se ofrece en las canciones y no en los videos',
+      (WidgetTester tester) async {
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Una [c1].mp3","tamano":100,"duracion":100,"audio":true,"uri":"content://audio/1"},'
+        '{"nombre":"Un video [c2].mp4","tamano":100,"duracion":100,"audio":false,"uri":"content://video/1"}]}';
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Editar etiquetas'), findsOneWidget);
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('Videos ('));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Editar etiquetas'), findsNothing);
   });
 }
 

@@ -1,5 +1,6 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -538,6 +539,63 @@ class YtDlpDownloader:
         if info.get("is_live"):
             return "El video está en directo. Usa la URL cuando la transmisión termine."
         return None
+
+
+def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str) -> None:
+    """Reescribe título y artista de un audio ya descargado.
+
+    Con «-c copy -map 0» el sonido y la carátula pasan tal cual: solo cambia la
+    cabecera, así que no se pierde calidad ni tarda. FFmpeg no sabe escribir
+    sobre el archivo que está leyendo, de ahí que el destino tenga que ser otro
+    y sea quien llama el que lo ponga en su sitio.
+    """
+    if not origen.is_file():
+        raise DownloadError("No se encontró el archivo que se quería etiquetar.")
+    ffmpeg = _preparar_ffmpeg()
+    orden = [
+        ffmpeg, "-y", "-i", str(origen),
+        "-map", "0", "-c", "copy",
+        # La versión 3 es la que entienden todos los reproductores; con la 4
+        # hay teléfonos que no leen ni el título.
+        "-id3v2_version", "3",
+        "-metadata", f"title={titulo}",
+        "-metadata", f"artist={artista}",
+        str(destino),
+    ]
+    try:
+        resultado = subprocess.run(orden, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise DownloadError(f"No se pudo ejecutar FFmpeg: {exc}") from exc
+    if resultado.returncode != 0 or not destino.is_file():
+        detalle = (resultado.stderr or "").strip().splitlines()
+        raise DownloadError(
+            "No se pudieron escribir las etiquetas: " + (detalle[-1] if detalle else "falló FFmpeg"))
+
+
+def nombre_con_etiquetas(nombre: str, *, titulo: str, artista: str) -> str:
+    """El nombre de archivo que corresponde a esas etiquetas.
+
+    Conserva la extensión y el identificador entre corchetes, que es con lo que
+    se reconoce la pista y se evita volver a descargarla. Sin artista no se
+    inventa un guion suelto.
+    """
+    extension = ""
+    resto = nombre
+    if "." in nombre:
+        resto, _, sufijo = nombre.rpartition(".")
+        extension = f".{sufijo}"
+    identificador = ""
+    marca = re.search(r"\s*(\[[^\]]+\])\s*$", resto)
+    if marca:
+        identificador = f" {marca.group(1)}"
+
+    limpio = f"{artista.strip()} - {titulo.strip()}" if artista.strip() else titulo.strip()
+    # Los mismos caracteres que rechaza Android en un nombre de archivo.
+    limpio = re.sub(r'[\\/:*?"<>|]', " ", limpio)
+    limpio = re.sub(r"\s+", " ", limpio).strip()
+    if not limpio:
+        return nombre
+    return f"{limpio}{identificador}{extension}"
 
 
 # -- utilidades del sistema ------------------------------------------------
