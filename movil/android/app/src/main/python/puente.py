@@ -261,9 +261,12 @@ def etiquetar(origen: str, destino: str, titulo: str, artista: str, nombre: str)
 
 def _backend_android(url: str, metodo: str, cabeceras: dict, datos):
     """Manda la peticion por la red del sistema y traduce la respuesta."""
-    from com.ruben.descargador_movil import RedNativa  # type: ignore[import-not-found]
+    # jclass y no «from com... import»: es la forma que documenta Chaquopy y
+    # da un error entendible si la clase no viaja en el APK.
+    from java import jclass  # type: ignore[import-not-found]
 
-    respuesta = RedNativa.pedir(url, metodo, json.dumps(cabeceras), datos)
+    red = jclass("com.ruben.descargador_movil.RedNativa")
+    respuesta = red.pedir(url, metodo, json.dumps(cabeceras), datos)
     return (
         respuesta.estado,
         respuesta.url,
