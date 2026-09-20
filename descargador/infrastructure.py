@@ -21,14 +21,26 @@ FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
 
 
 def _cargar_motor():
-    """Importa el motor tarde para poder explicar la falta de dependencias."""
+    """Importa yt-dlp tarde para poder explicar la falta de dependencias.
+
+    No toca FFmpeg: consultar un video no lo necesita, y en Android el paquete
+    imageio-ffmpeg no sirve porque sus binarios son de escritorio.
+    """
     try:
-        from imageio_ffmpeg import get_ffmpeg_exe
         from yt_dlp import YoutubeDL
         from yt_dlp.utils import YoutubeDLError, download_range_func
     except ImportError as exc:
         raise DownloadError(FALTAN_DEPENDENCIAS) from exc
-    return YoutubeDL, YoutubeDLError, download_range_func, get_ffmpeg_exe
+    return YoutubeDL, YoutubeDLError, download_range_func
+
+
+def _cargar_ffmpeg():
+    """Devuelve el localizador de FFmpeg de imageio-ffmpeg, solo al descargar."""
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+    return get_ffmpeg_exe
 
 
 def _runtimes_js() -> dict:
@@ -78,7 +90,7 @@ class YtDlpDownloader:
 
     # -- consulta ---------------------------------------------------------
     def inspect(self, request: DownloadRequest) -> VideoInfo:
-        YoutubeDL, YoutubeDLError, _, _ = _cargar_motor()
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
             "noplaylist": True,
             "quiet": True,
@@ -116,7 +128,8 @@ class YtDlpDownloader:
 
     # -- descarga ---------------------------------------------------------
     def download(self, request: DownloadRequest) -> DownloadResult:
-        YoutubeDL, YoutubeDLError, download_range_func, get_ffmpeg_exe = _cargar_motor()
+        YoutubeDL, YoutubeDLError, download_range_func = _cargar_motor()
+        get_ffmpeg_exe = _cargar_ffmpeg()
         opts = request.options
         archivos: list[Path] = []
 
