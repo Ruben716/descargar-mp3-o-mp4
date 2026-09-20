@@ -24,7 +24,14 @@ from .domain import (
 FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
 
 #: Fallos del servidor que suelen desaparecer al repetir la peticion.
-ERRORES_TRANSITORIOS = ("403", "forbidden", "429", "too many requests", "timed out")
+#:
+#: «unexpected response» y «challenge» son de las webs que sirven una pantalla
+#: anti-robots en vez de la página: al volver a pedirla suele llegar la buena,
+#: porque la decisión depende del momento y no de la petición en sí.
+ERRORES_TRANSITORIOS = (
+    "403", "forbidden", "429", "too many requests", "timed out",
+    "unexpected response", "challenge",
+)
 INTENTOS_TRANSITORIOS = 3
 
 #: Nivel al que se iguala el volumen, en el estándar EBU R128.

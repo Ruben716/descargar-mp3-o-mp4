@@ -38,6 +38,7 @@ from descargador.domain import (
     parse_timestamp,
 )
 from descargador.infrastructure import (
+    INTENTOS_TRANSITORIOS,
     YtDlpDownloader,
     escribir_etiquetas,
     incrusta_caratula,
@@ -590,6 +591,38 @@ class RetryTests(unittest.TestCase):
         with patch.object(YtDlpDownloader, "_intentar", side_effect=fingir):
             self.assertEqual(motor.download(self._peticion()), esperado)
         self.assertEqual(intentos, [])
+
+    def test_reintenta_la_pantalla_anti_robots(self):
+        """TikTok sirve un desafio en vez de la pagina y yt-dlp se planta.
+
+        Comprobado: el mismo video baja bien desde otra red, asi que la
+        respuesta depende del momento y repetir tiene sentido.
+        """
+        motor = YtDlpDownloader()
+        esperado = DownloadResult((Path("v.mp4"),))
+        intentos = [
+            DownloadError("ERROR: [TikTok] 768: Unexpected response from webpage request"),
+            esperado,
+        ]
+
+        def fingir(_peticion):
+            siguiente = intentos.pop(0)
+            if isinstance(siguiente, Exception):
+                raise siguiente
+            return siguiente
+
+        with patch.object(YtDlpDownloader, "_intentar", side_effect=fingir):
+            self.assertEqual(motor.download(self._peticion()), esperado)
+        self.assertEqual(intentos, [])
+
+    def test_no_se_reintenta_para_siempre(self):
+        # Si la web insiste en el desafio, se acaba avisando en vez de dar
+        # vueltas: tres intentos y fuera.
+        motor = YtDlpDownloader()
+        fallo = Mock(side_effect=DownloadError("Unexpected response from webpage request"))
+        with patch.object(YtDlpDownloader, "_intentar", fallo), self.assertRaises(DownloadError):
+            motor.download(self._peticion())
+        self.assertEqual(fallo.call_count, INTENTOS_TRANSITORIOS)
 
     def test_does_not_retry_a_real_error(self):
         motor = YtDlpDownloader()
