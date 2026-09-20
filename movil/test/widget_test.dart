@@ -116,6 +116,40 @@ void main() {
     expect(find.byIcon(Icons.play_circle_outline_rounded), findsNWidgets(2));
   });
 
+  testWidgets('cancelar el dialogo de nueva lista no rompe nada',
+      (WidgetTester tester) async {
+    // Regresion: el controlador del campo se liberaba antes de que el dialogo
+    // terminara de cerrarse y Flutter abortaba con _dependents.isEmpty.
+    await abrir(tester);
+    await tester.tap(find.text('Biblioteca'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Lista'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nueva lista'), findsOneWidget);
+
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Nueva lista'), findsNothing);
+  });
+
+  testWidgets('no se puede crear una lista sin nombre', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.tap(find.text('Biblioteca'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Lista'));
+    await tester.pumpAndSettle();
+
+    final Finder crear = find.widgetWithText(FilledButton, 'Crear');
+    expect(tester.widget<FilledButton>(crear).onPressed, isNull);
+
+    await tester.enterText(find.byType(TextField).last, 'Para correr');
+    await tester.pumpAndSettle();
+    expect(tester.widget<FilledButton>(crear).onPressed, isNotNull);
+  });
+
   test('una lista recuerda sus pistas y las olvida al borrar la descarga',
       () async {
     final Listas listas = Listas.instancia;

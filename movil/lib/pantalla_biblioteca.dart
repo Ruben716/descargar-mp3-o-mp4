@@ -124,29 +124,10 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
   }
 
   Future<void> _crearLista() async {
-    final TextEditingController nombre = TextEditingController();
     final String? creada = await showDialog<String>(
       context: context,
-      builder: (BuildContext contexto) => AlertDialog(
-        title: const Text('Nueva lista'),
-        content: TextField(
-          controller: nombre,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Por ejemplo: Para correr'),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(contexto).pop(),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(contexto).pop(nombre.text),
-            child: const Text('Crear'),
-          ),
-        ],
-      ),
+      builder: (BuildContext contexto) => const _DialogoNuevaLista(),
     );
-    nombre.dispose();
     if (creada != null) await _listas.crear(creada);
   }
 
@@ -452,6 +433,57 @@ class _HojaListasState extends State<_HojaListas> {
               ),
         ],
       ),
+    );
+  }
+}
+
+
+/// Dialogo para crear una lista.
+///
+/// Es un widget propio a proposito: el controlador del campo tiene que vivir y
+/// morir con el. Crearlo en el metodo y liberarlo tras el await lo destruia
+/// mientras el dialogo seguia cerrandose con su animacion, y Flutter aborta si
+/// un campo de texto sigue usando un controlador ya liberado.
+class _DialogoNuevaLista extends StatefulWidget {
+  const _DialogoNuevaLista();
+
+  @override
+  State<_DialogoNuevaLista> createState() => _DialogoNuevaListaState();
+}
+
+class _DialogoNuevaListaState extends State<_DialogoNuevaLista> {
+  final TextEditingController _nombre = TextEditingController();
+
+  @override
+  void dispose() {
+    _nombre.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool valido = _nombre.text.trim().isNotEmpty;
+    return AlertDialog(
+      backgroundColor: Tema.superficieAlta,
+      title: const Text('Nueva lista'),
+      content: TextField(
+        controller: _nombre,
+        autofocus: true,
+        textCapitalization: TextCapitalization.sentences,
+        onChanged: (_) => setState(() {}),
+        onSubmitted: valido ? (String v) => Navigator.of(context).pop(v) : null,
+        decoration: const InputDecoration(hintText: 'Por ejemplo: Para correr'),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: valido ? () => Navigator.of(context).pop(_nombre.text) : null,
+          child: const Text('Crear'),
+        ),
+      ],
     );
   }
 }
