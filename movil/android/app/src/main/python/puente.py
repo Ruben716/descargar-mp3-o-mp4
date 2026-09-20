@@ -8,8 +8,13 @@ import shutil
 import sys
 from pathlib import Path
 
-from descargador.application import DownloadVideo, InspectVideo
-from descargador.domain import DownloadError, DownloadOptions, DownloadProgress
+from descargador.application import DownloadVideo, InspectVideo, SearchVideos
+from descargador.domain import (
+    DownloadError,
+    DownloadOptions,
+    DownloadProgress,
+    parse_section,
+)
 from descargador.infrastructure import YtDlpDownloader, configurar_entorno
 
 #: Ultimo avance publicado por el motor. Kotlin lo consulta mientras descarga.
@@ -106,7 +111,9 @@ class _Registro:
         self._anotar(f"ERROR {mensaje}")
 
 
-def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_audio: str) -> str:
+def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
+              formato_audio: str, bitrate: str = "192", subtitulos: str = "",
+              fragmento: str = "", sin_patrocinios: bool = False) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -116,6 +123,10 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_au
             audio_only=bool(solo_audio),
             quality=int(calidad) or None,
             audio_format=formato_audio or "mp3",
+            audio_bitrate=bitrate or "192",
+            subtitles=tuple(i.strip() for i in subtitulos.split(",") if i.strip()),
+            section=parse_section(fragmento) if fragmento.strip() else None,
+            skip_sponsors=bool(sin_patrocinios),
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )
@@ -133,3 +144,25 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int, formato_au
             "error": f"{type(exc).__name__}: {exc}",
             "registro": registro.lineas,
         })
+
+
+def buscar(texto: str, limite: int) -> str:
+    """Busca por nombre. En un movil es mas comodo que pegar una URL."""
+    try:
+        resultados = SearchVideos(YtDlpDownloader()).execute(texto, int(limite))
+        return _respuesta({
+            "ok": True,
+            "resultados": [
+                {
+                    "titulo": r.title,
+                    "autor": r.uploader or "",
+                    "duracion": r.duration or 0,
+                    "url": r.url,
+                }
+                for r in resultados
+            ],
+        })
+    except DownloadError as exc:
+        return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})

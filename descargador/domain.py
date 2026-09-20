@@ -126,6 +126,24 @@ class VideoInfo:
     uploader: str | None = None
     duration: float | None = None
     formats: tuple[MediaFormat, ...] = ()
+    #: Solo lo rellenan los resultados de búsqueda, para poder descargarlos.
+    url: str = ""
+
+
+@dataclass(frozen=True)
+class SearchQuery:
+    """Búsqueda por texto. Escribir URLs en un móvil es un suplicio."""
+
+    text: str
+    limit: int = 10
+
+    def __post_init__(self):
+        texto = self.text.strip()
+        if not texto:
+            raise DownloadError("Escribe algo que buscar.")
+        if not 1 <= self.limit <= 25:
+            raise DownloadError("El número de resultados debe estar entre 1 y 25.")
+        object.__setattr__(self, "text", texto)
 
 
 @dataclass(frozen=True)
@@ -137,3 +155,5 @@ class VideoDownloader(Protocol):
     def download(self, request: DownloadRequest) -> DownloadResult: ...
 
     def inspect(self, request: DownloadRequest) -> VideoInfo: ...
+
+    def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]: ...

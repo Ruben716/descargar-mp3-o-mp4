@@ -14,6 +14,7 @@ from .domain import (
     DownloadRequest,
     DownloadResult,
     MediaFormat,
+    SearchQuery,
     VideoInfo,
 )
 
@@ -152,6 +153,42 @@ class YtDlpDownloader:
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo consultar el video: {exc}") from exc
+
+    # -- busqueda ---------------------------------------------------------
+    def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca por texto en YouTube y devuelve resultados con su URL.
+
+        Usa extraccion plana: solo interesan titulo, autor y duracion para
+        pintar la lista, y pedir la ficha completa de cada resultado seria
+        lentisimo. Esta es la unica ruta del adaptador que acepta una lista,
+        porque una busqueda es precisamente eso.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        opciones = {
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+            "extract_flat": "in_playlist",
+        }
+        try:
+            with YoutubeDL(opciones) as engine:
+                info = engine.extract_info(f"ytsearch{query.limit}:{query.text}", download=False)
+            entradas = (info or {}).get("entries") or []
+            return tuple(self._resultado(e) for e in entradas if e)
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(f"No se pudo buscar: {exc}") from exc
+
+    @staticmethod
+    def _resultado(datos: dict) -> VideoInfo:
+        identificador = datos.get("id") or ""
+        return VideoInfo(
+            title=datos.get("title") or "(sin título)",
+            uploader=datos.get("uploader") or datos.get("channel"),
+            duration=datos.get("duration"),
+            url=datos.get("url") or f"https://www.youtube.com/watch?v={identificador}",
+        )
 
     @staticmethod
     def _formato(datos: dict) -> MediaFormat:

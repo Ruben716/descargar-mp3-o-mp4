@@ -1,9 +1,11 @@
 package com.ruben.descargador_movil
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -72,14 +74,26 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                     "descargar" -> {
-                        val url = llamada.argument<String>("url").orEmpty()
-                        val soloAudio = llamada.argument<Boolean>("soloAudio") ?: false
-                        val calidad = llamada.argument<Int>("calidad") ?: 0
-                        val formatoAudio = llamada.argument<String>("formatoAudio") ?: "mp3"
+                        val ajustes = Ajustes(
+                            url = llamada.argument<String>("url").orEmpty(),
+                            soloAudio = llamada.argument<Boolean>("soloAudio") ?: false,
+                            calidad = llamada.argument<Int>("calidad") ?: 0,
+                            formatoAudio = llamada.argument<String>("formatoAudio") ?: "mp3",
+                            bitrate = llamada.argument<String>("bitrate") ?: "192",
+                            subtitulos = llamada.argument<String>("subtitulos").orEmpty(),
+                            fragmento = llamada.argument<String>("fragmento").orEmpty(),
+                            sinPatrocinios = llamada.argument<Boolean>("sinPatrocinios") ?: false,
+                        )
+                        enHilo(respuesta) { puente -> descargar(puente, ajustes) }
+                    }
+                    "buscar" -> {
+                        val texto = llamada.argument<String>("texto").orEmpty()
+                        val limite = llamada.argument<Int>("limite") ?: 10
                         enHilo(respuesta) { puente ->
-                            descargar(puente, url, soloAudio, calidad, formatoAudio)
+                            puente.callAttr("buscar", texto, limite).toString()
                         }
                     }
+                    "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
                     // Consulta ligera: Flutter la repite mientras dura la descarga.
                     "progreso" -> enHilo(respuesta) { puente ->
                         puente.callAttr("progreso").toString()
@@ -95,27 +109,37 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    /** Todo lo que el usuario puede ajustar antes de descargar. */
+    private data class Ajustes(
+        val url: String,
+        val soloAudio: Boolean,
+        val calidad: Int,
+        val formatoAudio: String,
+        val bitrate: String,
+        val subtitulos: String,
+        val fragmento: String,
+        val sinPatrocinios: Boolean,
+    )
+
     /**
      * Descarga con el proceso protegido y deja el resultado en la biblioteca
      * del movil, para que aparezca en la galeria o el reproductor de musica.
      */
-    private fun descargar(
-        puente: PyObject,
-        url: String,
-        soloAudio: Boolean,
-        calidad: Int,
-        formatoAudio: String,
-    ): String {
+    private fun descargar(puente: PyObject, ajustes: Ajustes): String {
         asegurarFfmpeg(puente)
         ServicioDescarga.arrancar(this)
         try {
             val crudo = puente.callAttr(
                 "descargar",
-                url,
+                ajustes.url,
                 carpetaTrabajo().absolutePath,
-                soloAudio,
-                calidad,
-                formatoAudio,
+                ajustes.soloAudio,
+                ajustes.calidad,
+                ajustes.formatoAudio,
+                ajustes.bitrate,
+                ajustes.subtitulos,
+                ajustes.fragmento,
+                ajustes.sinPatrocinios,
             ).toString()
 
             val datos = JSONObject(crudo)
@@ -125,11 +149,57 @@ class MainActivity : FlutterActivity() {
             val guardados = JSONArray()
             for (i in 0 until origen.length()) {
                 val archivo = File(origen.getString(i))
-                guardados.put(exportarABiblioteca(archivo, soloAudio) ?: archivo.absolutePath)
+                guardados.put(exportarABiblioteca(archivo, ajustes.soloAudio) ?: archivo.absolutePath)
             }
             return JSONObject().put("ok", true).put("archivos", guardados).toString()
         } finally {
             ServicioDescarga.detener(this)
+        }
+    }
+
+    /** Lo descargado, leido de la biblioteca del telefono. */
+    private fun biblioteca(): String {
+        val salida = JSONArray()
+        listar(
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+            "Music/Descargador/", true, salida,
+        )
+        listar(
+            MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+            "Movies/Descargador/", false, salida,
+        )
+        return JSONObject().put("ok", true).put("elementos", salida).toString()
+    }
+
+    private fun listar(coleccion: Uri, carpeta: String, esAudio: Boolean, salida: JSONArray) {
+        val columnas = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.DURATION,
+        )
+        try {
+            contentResolver.query(
+                coleccion,
+                columnas,
+                "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?",
+                arrayOf("$carpeta%"),
+                "${MediaStore.MediaColumns.DATE_ADDED} DESC",
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    salida.put(
+                        JSONObject()
+                            .put("nombre", cursor.getString(1) ?: "")
+                            .put("tamano", cursor.getLong(2))
+                            .put("duracion", cursor.getLong(3) / 1000)
+                            .put("audio", esAudio)
+                            .put("uri", ContentUris.withAppendedId(coleccion, id).toString()),
+                    )
+                }
+            }
+        } catch (error: Throwable) {
+            // Una coleccion vacia o inaccesible no debe tumbar la biblioteca.
         }
     }
 

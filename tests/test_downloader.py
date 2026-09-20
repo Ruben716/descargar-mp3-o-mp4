@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from descargador.application import DownloadVideo, InspectVideo
+from descargador.application import DownloadVideo, InspectVideo, SearchVideos
 from descargador.cli import (
     acciones_ajustes,
     describir_ajustes,
@@ -20,6 +20,7 @@ from descargador.domain import (
     DownloadProgress,
     DownloadRequest,
     DownloadResult,
+    SearchQuery,
     VideoInfo,
     parse_section,
     parse_timestamp,
@@ -138,6 +139,32 @@ class AdapterTests(unittest.TestCase):
     def test_sponsorblock_needs_both_postprocessors(self):
         claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(skip_sponsors=True))]
         self.assertLess(claves.index("SponsorBlock"), claves.index("ModifyChapters"))
+
+
+class SearchTests(unittest.TestCase):
+    def test_rejects_empty_or_oversized_searches(self):
+        for caso in ({"text": ""}, {"text": "   "}, {"text": "algo", "limit": 0},
+                     {"text": "algo", "limit": 26}):
+            with self.subTest(**caso), self.assertRaises(DownloadError):
+                SearchQuery(**caso)
+
+    def test_trims_the_text(self):
+        self.assertEqual(SearchQuery("  algo que buscar  ").text, "algo que buscar")
+
+    def test_use_case_delegates_and_does_not_download(self):
+        adaptador = Mock()
+        adaptador.search.return_value = (VideoInfo("Uno", url="https://y/1"),)
+        resultados = SearchVideos(adaptador).execute("algo", 5)
+        adaptador.search.assert_called_once_with(SearchQuery("algo", 5))
+        adaptador.download.assert_not_called()
+        self.assertEqual(resultados[0].url, "https://y/1")
+
+    def test_result_always_carries_a_usable_url(self):
+        """Sin URL directa se compone desde el id, o no se podria descargar."""
+        conteniendo = YtDlpDownloader._resultado({"id": "abc123", "title": "Uno"})
+        self.assertEqual(conteniendo.url, "https://www.youtube.com/watch?v=abc123")
+        directa = YtDlpDownloader._resultado({"id": "x", "url": "https://y/ver"})
+        self.assertEqual(directa.url, "https://y/ver")
 
 
 class RetryTests(unittest.TestCase):
