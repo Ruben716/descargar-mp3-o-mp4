@@ -294,6 +294,25 @@ class _VideoState extends State<_Video> {
     }
     if (!_listo) return const Center(child: CircularProgressIndicator());
 
+    return ValueListenableBuilder<bool>(
+      valueListenable: Nucleo.enVentanaFlotante,
+      builder: (BuildContext context, bool flotando, _) =>
+          flotando ? _soloVideo() : _completo(context),
+    );
+  }
+
+  /// En la ventana flotante sobra todo lo demas: solo la imagen.
+  Widget _soloVideo() => ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: _motor.value.aspectRatio,
+            child: VideoPlayer(_motor),
+          ),
+        ),
+      );
+
+  Widget _completo(BuildContext context) {
     return Column(
       children: <Widget>[
         const Spacer(),
@@ -358,6 +377,17 @@ class _VideoState extends State<_Video> {
                       color: Colors.white70,
                       onPressed: () => _motor.seekTo(valor.position + const Duration(seconds: 10)),
                       icon: const Icon(Icons.forward_10),
+                    ),
+                    const SizedBox(width: 12),
+                    IconButton(
+                      iconSize: 26,
+                      color: Colors.white54,
+                      tooltip: 'Ventana flotante',
+                      onPressed: () => Nucleo.pedirVentanaFlotante(
+                        ancho: _motor.value.size.width.round(),
+                        alto: _motor.value.size.height.round(),
+                      ),
+                      icon: const Icon(Icons.picture_in_picture_alt_rounded),
                     ),
                   ],
                 ),

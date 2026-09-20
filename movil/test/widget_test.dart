@@ -35,6 +35,7 @@ void main() {
         'urlCompartida' => null,
         'biblioteca' => '{"ok":true,"elementos":[]}',
         'buscar' => _busqueda,
+        'importarLista' => _busqueda,
         'caratula' => '{"ok":true,"imagen":""}',
         'previsualizar' =>
           '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
@@ -87,6 +88,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Descargar seleccion'), findsOneWidget);
+  });
+
+  testWidgets('pegar un enlace de lista ofrece traerla entera',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    // Se cambia al modo URL con el boton de enlace.
+    await tester.tap(find.byIcon(Icons.link_rounded).last);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://www.youtube.com/playlist?list=PLabc',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Traer la lista'), findsOneWidget);
+
+    await tester.tap(find.text('Traer la lista'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cancion uno'), findsOneWidget);
   });
 
   testWidgets('el panel de opciones se abre y ofrece lo del nucleo',

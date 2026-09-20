@@ -37,6 +37,8 @@ dependencies:
   video_player: ^2.14.0
   just_audio: ^0.10.6
   shared_preferences: ^2.5.5
+  just_audio_background: ^0.0.1-beta.17
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

@@ -4,13 +4,16 @@ import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Intent
+import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Rational
 import android.util.Size
 import android.system.Os
 import androidx.core.app.ActivityCompat
@@ -18,7 +21,7 @@ import androidx.core.content.ContextCompat
 import com.chaquo.python.PyObject
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
@@ -34,10 +37,15 @@ import org.json.JSONObject
  *
  * Chaquopy arranca CPython dentro del proceso de la app y el canal deja que
  * Dart invoque el mismo nucleo que usa la version de consola.
+ *
+ * Hereda de AudioServiceActivity (que a su vez es una FlutterActivity) para
+ * que Android reconozca la app como reproductor y muestre sus controles.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : AudioServiceActivity() {
 
     private val canal = "com.ruben.descargador/nucleo"
+
+    private var canalFlutter: MethodChannel? = null
 
     @Volatile
     private var ffmpegListo = false
@@ -64,8 +72,8 @@ class MainActivity : FlutterActivity() {
             Python.start(AndroidPlatform(this))
         }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, canal)
-            .setMethodCallHandler { llamada, respuesta ->
+        canalFlutter = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, canal)
+        canalFlutter!!.setMethodCallHandler { llamada, respuesta ->
                 when (llamada.method) {
                     "diagnostico" -> enHilo(respuesta) { puente ->
                         asegurarFfmpeg(puente)
@@ -102,6 +110,17 @@ class MainActivity : FlutterActivity() {
                         val soloAudio = llamada.argument<Boolean>("soloAudio") ?: true
                         enHilo(respuesta) { puente ->
                             puente.callAttr("previsualizar", url, soloAudio).toString()
+                        }
+                    }
+                    "ventanaFlotante" -> {
+                        val ancho = llamada.argument<Int>("ancho") ?: 16
+                        val alto = llamada.argument<Int>("alto") ?: 9
+                        respuesta.success(entrarEnVentanaFlotante(ancho, alto))
+                    }
+                    "importarLista" -> {
+                        val url = llamada.argument<String>("url").orEmpty()
+                        enHilo(respuesta) { puente ->
+                            puente.callAttr("importar_lista", url).toString()
                         }
                     }
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
@@ -175,6 +194,34 @@ class MainActivity : FlutterActivity() {
         } finally {
             ServicioDescarga.detener(this)
         }
+    }
+
+    /**
+     * Encoge la app a una ventana flotante, como hace YouTube.
+     *
+     * Android la recorta a la proporcion que se le pase, asi que conviene
+     * darle la del video para que no salgan franjas negras.
+     */
+    private fun entrarEnVentanaFlotante(ancho: Int, alto: Int): Boolean {
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            return false
+        }
+        return try {
+            // Android rechaza proporciones extremas; se recortan a lo admitido.
+            val proporcion = (ancho.toDouble() / alto.toDouble()).coerceIn(0.42, 2.39)
+            val parametros = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational((proporcion * 1000).toInt(), 1000))
+                .build()
+            enterPictureInPictureMode(parametros)
+        } catch (error: Throwable) {
+            false
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(enVentana: Boolean, config: Configuration) {
+        super.onPictureInPictureModeChanged(enVentana, config)
+        // Flutter necesita saberlo para dejar solo el video en pantalla.
+        canalFlutter?.invokeMethod("ventanaFlotante", enVentana)
     }
 
     /** Lo descargado, leido de la biblioteca del telefono. */

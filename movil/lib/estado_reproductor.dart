@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
+import 'formato.dart';
 import 'nucleo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
@@ -77,9 +79,19 @@ class EstadoReproductor extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      // Sin cabeceras just_audio va directo al archivo; con ellas levantaria
-      // un proxy local que aqui no hace ninguna falta.
-      await motor.setUrl(pista.fuente);
+      // La etiqueta MediaItem es lo que pinta el sistema en la notificacion y
+      // en la pantalla de bloqueo; sin ella saldria vacia.
+      await motor.setAudioSource(
+        AudioSource.uri(
+          Uri.parse(pista.fuente),
+          tag: MediaItem(
+            id: pista.fuente,
+            title: nombreLimpio(pista.titulo),
+            album: 'Descargador',
+            artUri: await Nucleo.caratulaArchivo(pista.fuente),
+          ),
+        ),
+      );
       await motor.play();
     } catch (error) {
       _error = '$error';

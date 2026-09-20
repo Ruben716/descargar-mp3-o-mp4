@@ -253,6 +253,33 @@ class YtDlpDownloader:
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
 
+    def playlist(self, url: str) -> tuple[VideoInfo, ...]:
+        """Lee una lista de reproducción entera sin descargar nada.
+
+        Es la misma extracción plana que la búsqueda: solo hacen falta título,
+        autor y URL de cada pista. Aquí sí se acepta una lista, claro.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        opciones = {
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+            "extract_flat": "in_playlist",
+            # Un canal entero puede traer miles; con esto la espera es razonable.
+            "playlistend": 200,
+        }
+        try:
+            with YoutubeDL(opciones) as engine:
+                info = engine.extract_info(url, download=False)
+            entradas = (info or {}).get("entries")
+            if entradas is None:
+                raise DownloadError("Ese enlace no es una lista de reproducción.")
+            return tuple(self._resultado(e) for e in entradas if e)
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(f"No se pudo leer la lista: {exc}") from exc
+
     @staticmethod
     def _resultado(datos: dict) -> VideoInfo:
         identificador = datos.get("id") or ""

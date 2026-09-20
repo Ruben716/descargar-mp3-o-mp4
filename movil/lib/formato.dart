@@ -22,3 +22,12 @@ String formatoTiempo(num segundos) {
   final String base = '$minutos:${segs.toString().padLeft(2, '0')}';
   return horas > 0 ? '$horas:${minutos.toString().padLeft(2, '0')}:${segs.toString().padLeft(2, '0')}' : base;
 }
+
+/// Quita la extension y el identificador del nombre de archivo.
+///
+/// "Cancion [abc123].mp3" queda en "Cancion": es lo que debe verse en la
+/// notificacion y en el reproductor.
+String nombreLimpio(String nombre) {
+  final String sinExtension = nombre.replaceAll(RegExp(r'\.[a-zA-Z0-9]{2,4}$'), '');
+  return sinExtension.replaceAll(RegExp(r'\s*\[[^\]]+\]\s*$'), '').trim();
+}

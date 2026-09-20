@@ -1,12 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 import 'control_descarga.dart';
 import 'mini_reproductor.dart';
+import 'nucleo.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
 import 'tema.dart';
 
-void main() => runApp(const AplicacionDescargador());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Sin esto el telefono no reconoce la app como reproductor: no hay controles
+  // en la barra de estado ni en la pantalla de bloqueo.
+  await JustAudioBackground.init(
+    androidNotificationChannelId: 'com.ruben.descargador.reproduccion',
+    androidNotificationChannelName: 'Reproduccion',
+    androidNotificationOngoing: true,
+    androidStopForegroundOnPause: true,
+  );
+  Nucleo.escucharVentanaFlotante();
+  runApp(const AplicacionDescargador());
+}
 
 class AplicacionDescargador extends StatelessWidget {
   const AplicacionDescargador({super.key});

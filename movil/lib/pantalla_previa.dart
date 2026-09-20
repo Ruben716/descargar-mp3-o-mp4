@@ -99,6 +99,27 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: Nucleo.enVentanaFlotante,
+      builder: (BuildContext context, bool flotando, _) =>
+          flotando ? _soloVideo() : _completo(context),
+    );
+  }
+
+  /// En la ventana flotante sobra todo lo demas: solo la imagen.
+  Widget _soloVideo() {
+    final VideoPlayerController? motor = _motor;
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: motor == null
+            ? const CircularProgressIndicator()
+            : AspectRatio(aspectRatio: motor.value.aspectRatio, child: VideoPlayer(motor)),
+      ),
+    );
+  }
+
+  Widget _completo(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -108,6 +129,17 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
           'VISTA PREVIA',
           style: TextStyle(fontSize: 11, letterSpacing: 1.4, fontWeight: FontWeight.w800),
         ),
+        actions: <Widget>[
+          if (_motor != null)
+            IconButton(
+              tooltip: 'Ventana flotante',
+              onPressed: () => Nucleo.pedirVentanaFlotante(
+                ancho: _motor!.value.size.width.round(),
+                alto: _motor!.value.size.height.round(),
+              ),
+              icon: const Icon(Icons.picture_in_picture_alt_rounded),
+            ),
+        ],
       ),
       body: Stack(
         fit: StackFit.expand,

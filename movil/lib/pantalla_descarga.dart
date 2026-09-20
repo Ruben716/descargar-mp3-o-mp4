@@ -166,6 +166,44 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
 
   bool get _ocupado => _control.activa || _buscandoAhora;
 
+  /// Un enlace de lista se reconoce por llevar list= o /playlist.
+  bool get _esLista {
+    if (_buscando) return false;
+    final String texto = _entrada.text;
+    return texto.contains('list=') || texto.contains('/playlist');
+  }
+
+  Future<void> _importarLista() async {
+    FocusScope.of(context).unfocus();
+    _control.limpiarMensaje();
+    setState(() {
+      _buscandoAhora = true;
+      _aviso = '';
+      _fallo = false;
+      _resultados = <Resultado>[];
+    });
+    try {
+      final List<Resultado> pistas = await Nucleo.importarLista(_entrada.text.trim());
+      if (!mounted) return;
+      setState(() {
+        _resultados = pistas;
+        if (pistas.isEmpty) {
+          _aviso = 'Esa lista esta vacia.';
+          _fallo = true;
+        }
+      });
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _aviso = '$error';
+          _fallo = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _buscandoAhora = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -186,9 +224,14 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
                 _TarjetaProgreso(porcentaje: _control.porcentaje, estado: _control.estado)
               else
                 BotonDegradado(
-                  texto: _elegido == null ? 'Descargar' : 'Descargar seleccion',
-                  icono: Icons.arrow_downward_rounded,
-                  alPulsar: _ocupado ? null : _descargar,
+                  texto: _esLista
+                      ? 'Traer la lista'
+                      : (_elegido == null ? 'Descargar' : 'Descargar seleccion'),
+                  icono: _esLista
+                      ? Icons.playlist_add_rounded
+                      : Icons.arrow_downward_rounded,
+                  alPulsar:
+                      _ocupado ? null : (_esLista ? _importarLista : _descargar),
                 ),
             ],
           ),
@@ -206,7 +249,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
           child: TextField(
             controller: _entrada,
             textInputAction: _buscando ? TextInputAction.search : TextInputAction.done,
-            onSubmitted: _ocupado ? null : (_) => _buscando ? _buscar() : _descargar(),
+            onSubmitted: _ocupado
+                ? null
+                : (_) => _buscando
+                    ? _buscar()
+                    : (_esLista ? _importarLista() : _descargar()),
             decoration: InputDecoration(
               hintText: _buscando ? 'Busca una cancion o video' : 'Pega la URL',
               prefixIcon: Icon(_buscando ? Icons.search_rounded : Icons.link_rounded),

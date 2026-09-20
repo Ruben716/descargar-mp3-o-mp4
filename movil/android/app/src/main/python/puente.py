@@ -10,6 +10,7 @@ from pathlib import Path
 
 from descargador.application import (
     DownloadVideo,
+    ImportPlaylist,
     InspectVideo,
     SearchVideos,
     StreamVideo,
@@ -194,3 +195,26 @@ def previsualizar(url: str, solo_audio: bool) -> str:
             "error": f"{type(exc).__name__}: {exc}",
             "registro": registro.lineas,
         })
+
+
+def importar_lista(url: str) -> str:
+    """Trae las pistas de una lista de reproduccion ajena."""
+    try:
+        pistas = ImportPlaylist(YtDlpDownloader()).execute(url)
+        return _respuesta({
+            "ok": True,
+            "resultados": [
+                {
+                    "titulo": p.title,
+                    "autor": p.uploader or "",
+                    "duracion": p.duration or 0,
+                    "url": p.url,
+                    "miniatura": p.thumbnail,
+                }
+                for p in pistas
+            ],
+        })
+    except DownloadError as exc:
+        return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})

@@ -1,6 +1,9 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Acceso al nucleo Python, el mismo que usa la version de consola.
 ///
@@ -38,6 +41,15 @@ class Nucleo {
         .toList();
   }
 
+  /// Trae las pistas de una lista de reproduccion ajena, sin descargarlas.
+  static Future<List<Resultado>> importarLista(String url) async {
+    final Map<String, dynamic> datos =
+        await _pedir('importarLista', <String, dynamic>{'url': url});
+    return ((datos['resultados'] as List<dynamic>?) ?? <dynamic>[])
+        .map((dynamic r) => Resultado.desdeJson(r as Map<String, dynamic>))
+        .toList();
+  }
+
   static Future<List<String>> descargar(Ajustes ajustes) async {
     final Map<String, dynamic> datos = await _pedir('descargar', ajustes.aMapa());
     return ((datos['archivos'] as List<dynamic>?) ?? <dynamic>[])
@@ -67,12 +79,49 @@ class Nucleo {
   static Future<void> eliminar(String uri) =>
       _pedir('eliminar', <String, dynamic>{'uri': uri});
 
+  /// Cierto mientras la app va encogida en una ventana flotante.
+  static final ValueNotifier<bool> enVentanaFlotante = ValueNotifier<bool>(false);
+
+  /// Encoge la app a una ventana flotante con la proporcion del video.
+  static Future<bool> pedirVentanaFlotante({required int ancho, required int alto}) async =>
+      await _canal.invokeMethod<bool>(
+        'ventanaFlotante',
+        <String, dynamic>{'ancho': ancho, 'alto': alto},
+      ) ??
+      false;
+
+  /// Android avisa por el mismo canal al entrar o salir de la ventana.
+  static void escucharVentanaFlotante() {
+    _canal.setMethodCallHandler((MethodCall llamada) async {
+      if (llamada.method == 'ventanaFlotante') {
+        enVentanaFlotante.value = llamada.arguments == true;
+      }
+      return null;
+    });
+  }
+
   static Future<String?> urlCompartida() => _canal.invokeMethod<String>('urlCompartida');
 
   static final Map<String, Uint8List?> _caratulas = <String, Uint8List?>{};
 
   /// Caratula del archivo, ya decodificada. Se recuerda porque cruzar el
   /// canal y decodificar base64 por cada pintado seria un derroche.
+  /// La caratula guardada como archivo: la notificacion del sistema necesita
+  /// una direccion, no unos bytes.
+  static Future<Uri?> caratulaArchivo(String uri) async {
+    final Uint8List? imagen = await caratula(uri);
+    if (imagen == null) return null;
+    try {
+      final Directory cache = await getTemporaryDirectory();
+      final String nombre = uri.hashCode.toRadixString(16);
+      final File destino = File('${cache.path}/caratula_$nombre.jpg');
+      if (!destino.existsSync()) await destino.writeAsBytes(imagen);
+      return destino.uri;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<Uint8List?> caratula(String uri) async {
     if (_caratulas.containsKey(uri)) return _caratulas[uri];
     try {

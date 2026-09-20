@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from .domain import (
+    DownloadError,
     DownloadOptions,
     DownloadRequest,
     DownloadResult,
@@ -49,3 +50,16 @@ class StreamVideo:
     def execute(self, url: str, *, audio_only: bool = True) -> PlaybackSource:
         opciones = DownloadOptions(audio_only=audio_only)
         return self.downloader.stream(DownloadRequest(url, Path("."), opciones))
+
+
+class ImportPlaylist:
+    """Trae el contenido de una lista ajena, para no añadirla a mano."""
+
+    def __init__(self, downloader: VideoDownloader):
+        self.downloader = downloader
+
+    def execute(self, url: str) -> tuple[VideoInfo, ...]:
+        limpia = url.strip()
+        if not limpia:
+            raise DownloadError("Pega el enlace de una lista de reproducción.")
+        return self.downloader.playlist(limpia)

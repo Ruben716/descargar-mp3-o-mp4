@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from descargador.application import (
     DownloadVideo,
+    ImportPlaylist,
     InspectVideo,
     SearchVideos,
     StreamVideo,
@@ -172,6 +173,25 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(conteniendo.url, "https://www.youtube.com/watch?v=abc123")
         directa = YtDlpDownloader._resultado({"id": "x", "url": "https://y/ver"})
         self.assertEqual(directa.url, "https://y/ver")
+
+
+class PlaylistTests(unittest.TestCase):
+    """Traer listas de otras apps sin tener que anadirlas a mano."""
+
+    def test_rejects_an_empty_link_before_the_adapter(self):
+        adaptador = Mock()
+        for enlace in ("", "   "):
+            with self.subTest(enlace=enlace), self.assertRaises(DownloadError):
+                ImportPlaylist(adaptador).execute(enlace)
+        adaptador.playlist.assert_not_called()
+
+    def test_delegates_the_trimmed_link(self):
+        adaptador = Mock()
+        adaptador.playlist.return_value = (VideoInfo("Una", url="https://y/1"),)
+        pistas = ImportPlaylist(adaptador).execute("  https://y/lista  ")
+        adaptador.playlist.assert_called_once_with("https://y/lista")
+        self.assertEqual(len(pistas), 1)
+        adaptador.download.assert_not_called()
 
 
 class StreamTests(unittest.TestCase):
