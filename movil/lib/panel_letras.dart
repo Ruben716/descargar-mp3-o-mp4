@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'letras.dart';
 import 'nucleo.dart';
@@ -57,6 +58,19 @@ class _PanelLetrasState extends State<PanelLetras> {
     if (mounted) setState(() => _letra = letra);
   }
 
+  /// Corre la letra medio segundo y lo guarda para esta pista.
+  Future<void> _ajustar(Duration cuanto) async {
+    final Letra? letra = _letra;
+    if (letra == null) return;
+    final Duration nuevo = letra.desfase + cuanto;
+    setState(() {
+      _letra = letra.conDesfase(nuevo);
+      // Sin esto la linea resaltada no se movería hasta el siguiente cambio.
+      _resaltada = -1;
+    });
+    await Catalogo.instancia.guardarDesfase(widget.elemento.uri, nuevo.inMilliseconds);
+  }
+
   void _seguir(Letra letra, Duration instante) {
     final int toca = letra.lineaEn(instante);
     if (toca == _resaltada) return;
@@ -94,6 +108,15 @@ class _PanelLetrasState extends State<PanelLetras> {
       );
     }
 
+    return Column(
+      children: <Widget>[
+        Expanded(child: _versos(letra)),
+        _ControlSincronia(desfase: letra.desfase, alAjustar: _ajustar),
+      ],
+    );
+  }
+
+  Widget _versos(Letra letra) {
     return StreamBuilder<Duration>(
       stream: _estado.motor.positionStream,
       builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
@@ -142,6 +165,76 @@ class _PanelLetrasState extends State<PanelLetras> {
           },
         );
       },
+    );
+  }
+}
+
+/// Corrige a mano la sincronia de la letra.
+///
+/// Hace falta aunque la letra sea la correcta: las marcas que da el servidor
+/// son del disco, y el video de YouTube casi nunca arranca en el mismo punto
+/// porque suele llevar una entradilla.
+class _ControlSincronia extends StatelessWidget {
+  const _ControlSincronia({required this.desfase, required this.alAjustar});
+
+  static const Duration paso = Duration(milliseconds: 500);
+
+  final Duration desfase;
+  final Future<void> Function(Duration) alAjustar;
+
+  String get _etiqueta {
+    if (desfase == Duration.zero) return 'A la par';
+    final double segundos = desfase.inMilliseconds / 1000;
+    final String signo = segundos > 0 ? '+' : '';
+    return '$signo${segundos.toStringAsFixed(1)} s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool ajustada = desfase != Duration.zero;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              IconButton(
+                onPressed: () => alAjustar(-paso),
+                tooltip: 'La letra va atrasada',
+                icon: const Icon(Icons.fast_rewind_rounded, size: 20),
+                color: Colors.white54,
+              ),
+              SizedBox(
+                width: 84,
+                child: TextButton(
+                  onPressed: ajustada ? () => alAjustar(-desfase) : null,
+                  child: Text(
+                    _etiqueta,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: ajustada ? Tema.acento : Colors.white38,
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: () => alAjustar(paso),
+                tooltip: 'La letra va adelantada',
+                icon: const Icon(Icons.fast_forward_rounded, size: 20),
+                color: Colors.white54,
+              ),
+            ],
+          ),
+          Text(
+            ajustada ? 'Toca el valor para dejarlo como estaba' : 'Ajusta si no va a la par',
+            style: const TextStyle(color: Colors.white24, fontSize: 10),
+          ),
+        ],
+      ),
     );
   }
 }

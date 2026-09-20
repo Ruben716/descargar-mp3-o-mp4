@@ -17,7 +17,7 @@ class Catalogo {
   static const String _tablaEscuchas = 'escuchas';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 3;
+  static const int _version = 4;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -39,7 +39,8 @@ class Catalogo {
       uri TEXT PRIMARY KEY,
       lrc TEXT NOT NULL,
       texto TEXT NOT NULL,
-      fecha INTEGER NOT NULL
+      fecha INTEGER NOT NULL,
+      desfase INTEGER NOT NULL DEFAULT 0
     )
   ''';
 
@@ -66,6 +67,20 @@ class Catalogo {
     // que es justo lo que no se puede perder.
     if (desde < 2) await bd.execute(_esquemaLetras);
     if (desde < 3) await bd.execute(_esquemaEscuchas);
+    if (desde < 4) {
+      // La columna solo hay que anadirla a una tabla que se creo sin ella.
+      // Viniendo de la v1 la crea el CREATE de arriba, que es el de ahora y ya
+      // la trae: intentarlo igualmente aborta la actualizacion entera.
+      if (desde >= 2) {
+        await bd.execute(
+          'ALTER TABLE $_tablaLetras ADD COLUMN desfase INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+      // Las letras guardadas hasta aqui se eligieron sin comprobar que la
+      // cancion fuera la pedida, asi que algunas son de otro tema. Se tiran
+      // para que se vuelvan a buscar bien; volver a bajarlas es barato.
+      await bd.delete(_tablaLetras);
+    }
   }
 
   /// Se guarda la apertura, no la base ya abierta.
@@ -161,10 +176,10 @@ class Catalogo {
   ///
   /// Devolver una letra vacia no es lo mismo que devolver `null`: lo primero
   /// dice que se busco y no habia, y evita repetir la consulta cada vez.
-  Future<({String lrc, String texto})?> letraDe(String uri) async {
+  Future<({String lrc, String texto, int desfase})?> letraDe(String uri) async {
     final List<Map<String, Object?>> filas = await (await _abierta).query(
       _tablaLetras,
-      columns: <String>['lrc', 'texto'],
+      columns: <String>['lrc', 'texto', 'desfase'],
       where: 'uri = ?',
       whereArgs: <Object>[uri],
       limit: 1,
@@ -173,6 +188,18 @@ class Catalogo {
     return (
       lrc: filas.first['lrc'] as String? ?? '',
       texto: filas.first['texto'] as String? ?? '',
+      desfase: filas.first['desfase'] as int? ?? 0,
+    );
+  }
+
+  /// Guarda el ajuste manual de sincronia de esa letra, en milisegundos.
+  Future<void> guardarDesfase(String uri, int milisegundos) async {
+    if (uri.isEmpty) return;
+    await (await _abierta).update(
+      _tablaLetras,
+      <String, Object>{'desfase': milisegundos},
+      where: 'uri = ?',
+      whereArgs: <Object>[uri],
     );
   }
 

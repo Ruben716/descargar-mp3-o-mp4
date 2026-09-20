@@ -754,9 +754,9 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      // Salta dos versiones de una vez, que es lo que le pasa a quien no
+      // Salta tres versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 3);
+      expect(await nueva.getVersion(), 4);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -898,14 +898,117 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 3);
-      expect((await nueva.query('descargas')).length, 1);
-      expect((await nueva.query('letras')).length, 1, reason: 'la letra guardada sigue');
+      expect(await nueva.getVersion(), 4);
+      expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
+      // Las letras si se tiran, y a proposito: las guardadas antes se
+      // eligieron sin comprobar que la cancion fuera la pedida, asi que
+      // algunas eran de otro tema. Se vuelven a buscar bien.
+      expect(await nueva.query('letras'), isEmpty);
       expect(await nueva.query('escuchas'), isEmpty);
     } finally {
       await nueva.close();
       await temporal.delete(recursive: true);
     }
+  });
+
+  // --- La letra tiene que ser la de esta cancion --------------------------
+
+  test('el nombre se parte en artista y tema', () {
+    expect(Letras.partesDe('Soda Stereo - De Musica Ligera [x1].mp3'),
+        (artista: 'Soda Stereo', tema: 'De Musica Ligera'));
+    expect(Letras.partesDe('KAROL G, Shakira - TQG (Official Video) [x2].mp3'),
+        (artista: 'KAROL G, Shakira', tema: 'TQG'));
+    // Sin guion no hay artista que sacar, y el tema es el nombre entero.
+    expect(Letras.partesDe('Un tema suelto [x3].mp3'),
+        (artista: '', tema: 'Un tema suelto'));
+  });
+
+  test('el parecido ignora tildes, mayusculas y puntuacion', () {
+    expect(Letras.parecido('De Música Ligera', 'de musica ligera'), 1);
+    // El servidor a veces repite el artista dentro del nombre del tema.
+    expect(Letras.parecido('Soda Stereo - De Música Ligera', 'De Musica Ligera'), 1);
+    expect(Letras.parecido('Adios Amor', 'Motor y Motivo'), 0);
+  });
+
+  test('no se acepta la letra de otra cancion aunque dure lo mismo', () {
+    // Esto es lo que pasaba de verdad: buscando un tema de un grupo, el
+    // servidor devuelve medio catalogo del grupo, y se colaba el que durase
+    // parecido. Una letra equivocada es peor que ninguna.
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{
+        'trackName': 'Adios Amor',
+        'duration': 245.0,
+        'syncedLyrics': '[00:01.00] linea',
+      },
+      <String, dynamic>{
+        'trackName': 'Motor Y Motivo',
+        'duration': 197.0,
+        'syncedLyrics': '[00:01.00] linea',
+      },
+    ];
+
+    final Map<String, dynamic>? elegida =
+        Letras.mejorCandidata(candidatas, 245, tema: 'Motor y Motivo');
+
+    expect(elegida!['trackName'], 'Motor Y Motivo');
+  });
+
+  test('si ninguna es la cancion pedida, se prefiere quedarse sin letra', () {
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{
+        'trackName': 'Otra Cosa',
+        'duration': 200.0,
+        'syncedLyrics': '[00:01.00] linea',
+      },
+    ];
+
+    expect(Letras.mejorCandidata(candidatas, 200, tema: 'Motor y Motivo'), isNull);
+  });
+
+  test('una candidata sin duracion no le gana a la que si encaja', () {
+    // Antes puntuaba cero, que es la mejor nota posible, y salia elegida
+    // siempre por no poder compararla.
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{'trackName': 'El Tema', 'syncedLyrics': '[00:01.00] sin duracion'},
+      <String, dynamic>{
+        'trackName': 'El Tema',
+        'duration': 200.0,
+        'syncedLyrics': '[00:01.00] con duracion',
+      },
+    ];
+
+    final Map<String, dynamic>? elegida =
+        Letras.mejorCandidata(candidatas, 200, tema: 'El Tema');
+
+    expect(elegida!['duration'], 200.0);
+  });
+
+  test('el desfase corre la letra entera', () {
+    final Letra letra = Letra(
+      lineas: Letras.analizarLrc('[00:10.00] una\n[00:20.00] otra'),
+      texto: '',
+    );
+    expect(letra.lineaEn(const Duration(seconds: 12)), 0);
+    expect(letra.lineaEn(const Duration(seconds: 22)), 1);
+
+    // Con cinco segundos de retraso, a los 12 aun no ha entrado la primera.
+    final Letra retrasada = letra.conDesfase(const Duration(seconds: 5));
+    expect(retrasada.lineaEn(const Duration(seconds: 12)), -1);
+    expect(retrasada.lineaEn(const Duration(seconds: 16)), 0);
+
+    // Y adelantandola, entra antes.
+    final Letra adelantada = letra.conDesfase(const Duration(seconds: -5));
+    expect(adelantada.lineaEn(const Duration(seconds: 6)), 0);
+  });
+
+  test('el ajuste de sincronia se guarda y vuelve con la letra', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+    await catalogo.guardarLetra('content://audio/4', lrc: '[00:01.00] algo', texto: 'algo');
+    expect((await catalogo.letraDe('content://audio/4'))!.desfase, 0);
+
+    await catalogo.guardarDesfase('content://audio/4', 1500);
+
+    expect((await catalogo.letraDe('content://audio/4'))!.desfase, 1500);
   });
 }
 
