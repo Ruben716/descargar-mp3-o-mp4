@@ -7,6 +7,7 @@ from .domain import (
     DownloadRequest,
     DownloadResult,
     PlaybackSource,
+    Playlist,
     SearchQuery,
     VideoDownloader,
     VideoInfo,
@@ -58,7 +59,7 @@ class ImportPlaylist:
     def __init__(self, downloader: VideoDownloader):
         self.downloader = downloader
 
-    def execute(self, url: str) -> tuple[VideoInfo, ...]:
+    def execute(self, url: str) -> Playlist:
         limpia = url.strip()
         if not limpia:
             raise DownloadError("Pega el enlace de una lista de reproducción.")

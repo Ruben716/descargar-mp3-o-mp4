@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'listas.dart';
 import 'nucleo.dart';
 
 /// Estado de la descarga, compartido por las pantallas.
@@ -79,6 +80,7 @@ class ControlDescarga extends ChangeNotifier {
     _indice = 0;
     _total = 0;
     _cancelado = false;
+    _listaCreada = '';
     ajustes = const Ajustes(url: '');
     notifyListeners();
   }
@@ -88,7 +90,7 @@ class ControlDescarga extends ChangeNotifier {
   /// Descarga una lista entera, una detras de otra.
   ///
   /// Un fallo suelto no detiene el resto: al final se dice cuantas salieron.
-  Future<void> iniciarVarios(List<String> urls) async {
+  Future<void> iniciarVarios(List<String> urls, {String nombreLista = ''}) async {
     if (_activa || urls.isEmpty) return;
     _activa = true;
     _cancelado = false;
@@ -104,6 +106,8 @@ class ControlDescarga extends ChangeNotifier {
     int correctas = 0;
     int fallidas = 0;
     String ultimoError = '';
+    // Los URI de biblioteca de lo que se va guardando, para recrear la lista.
+    final List<String> guardados = <String>[];
 
     try {
       for (int i = 0; i < urls.length; i++) {
@@ -112,9 +116,11 @@ class ControlDescarga extends ChangeNotifier {
         notifyListeners();
         try {
           // Solo avisa la ultima: con una lista larga saldrian cientos.
-          await Nucleo.descargar(
-            ajustes.copiar(url: urls[i]),
-            avisar: i == urls.length - 1,
+          guardados.addAll(
+            await Nucleo.descargar(
+              ajustes.copiar(url: urls[i]),
+              avisar: i == urls.length - 1,
+            ),
           );
           correctas++;
           alTerminar?.call();
@@ -129,6 +135,7 @@ class ControlDescarga extends ChangeNotifier {
           ultimoError = '$error';
         }
       }
+      await _recrearLista(nombreLista, guardados);
       _resumen(correctas, fallidas, ultimoError);
     } finally {
       _reloj?.cancel();
@@ -142,6 +149,32 @@ class ControlDescarga extends ChangeNotifier {
     }
   }
 
+  /// Deja en la app una lista con lo que se acaba de bajar.
+  ///
+  /// Si ya existe una con ese nombre se numera, para no mezclar dos descargas
+  /// distintas en la misma.
+  Future<void> _recrearLista(String nombre, List<String> uris) async {
+    if (nombre.trim().isEmpty || uris.isEmpty) return;
+    final Listas listas = Listas.instancia;
+    await listas.cargar();
+    String elegido = nombre.trim();
+    int intento = 2;
+    while (listas.nombres.contains(elegido)) {
+      elegido = '${nombre.trim()} ($intento)';
+      intento++;
+    }
+    await listas.crear(elegido);
+    for (final String uri in uris) {
+      await listas.anadir(elegido, uri);
+    }
+    _listaCreada = elegido;
+  }
+
+  String _listaCreada = '';
+
+  /// Nombre de la lista recien creada, para poder mencionarla al terminar.
+  String get listaCreada => _listaCreada;
+
   void _resumen(int correctas, int fallidas, String ultimoError) {
     if (_total == 1) {
       _fallo = fallidas > 0;
@@ -149,10 +182,12 @@ class ControlDescarga extends ChangeNotifier {
       return;
     }
     final String corte = _cancelado ? ' (cancelado)' : '';
+    final String creada =
+        _listaCreada.isEmpty ? '' : ' Se creo la lista "$_listaCreada".';
     _fallo = correctas == 0;
     _mensaje = fallidas == 0
-        ? '$correctas guardadas en tu biblioteca$corte.'
-        : '$correctas guardadas, $fallidas con error$corte.'
+        ? '$correctas guardadas en tu biblioteca$corte.$creada'
+        : '$correctas guardadas, $fallidas con error$corte.$creada'
             '\n\nUltimo error: $ultimoError';
   }
 

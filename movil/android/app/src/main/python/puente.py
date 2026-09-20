@@ -200,9 +200,10 @@ def previsualizar(url: str, solo_audio: bool) -> str:
 def importar_lista(url: str) -> str:
     """Trae las pistas de una lista de reproduccion ajena."""
     try:
-        pistas = ImportPlaylist(YtDlpDownloader()).execute(url)
+        lista = ImportPlaylist(YtDlpDownloader()).execute(url)
         return _respuesta({
             "ok": True,
+            "titulo": lista.title,
             "resultados": [
                 {
                     "titulo": p.title,
@@ -211,7 +212,7 @@ def importar_lista(url: str) -> str:
                     "url": p.url,
                     "miniatura": p.thumbnail,
                 }
-                for p in pistas
+                for p in lista.items
             ],
         })
     except DownloadError as exc:

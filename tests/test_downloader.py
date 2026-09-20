@@ -28,6 +28,7 @@ from descargador.domain import (
     DownloadRequest,
     DownloadResult,
     PlaybackSource,
+    Playlist,
     SearchQuery,
     VideoInfo,
     parse_section,
@@ -187,11 +188,17 @@ class PlaylistTests(unittest.TestCase):
 
     def test_delegates_the_trimmed_link(self):
         adaptador = Mock()
-        adaptador.playlist.return_value = (VideoInfo("Una", url="https://y/1"),)
-        pistas = ImportPlaylist(adaptador).execute("  https://y/lista  ")
+        adaptador.playlist.return_value = Playlist(
+            "Mis temas", (VideoInfo("Una", url="https://y/1"),))
+        lista = ImportPlaylist(adaptador).execute("  https://y/lista  ")
         adaptador.playlist.assert_called_once_with("https://y/lista")
-        self.assertEqual(len(pistas), 1)
+        self.assertEqual(lista.title, "Mis temas")
+        self.assertEqual(len(lista.items), 1)
         adaptador.download.assert_not_called()
+
+    def test_a_playlist_without_name_is_still_usable(self):
+        """Sin nombre no se podria recrear la lista en la app."""
+        self.assertEqual(Playlist("Mis temas").items, ())
 
 
 class StreamTests(unittest.TestCase):

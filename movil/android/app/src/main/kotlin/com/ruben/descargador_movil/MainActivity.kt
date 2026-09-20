@@ -342,7 +342,9 @@ class MainActivity : AudioServiceActivity() {
             valores.put(MediaStore.MediaColumns.IS_PENDING, 0)
             contentResolver.update(destino, valores, null, null)
             archivo.delete()
-            "$carpeta/${archivo.name}"
+            // Se devuelve el URI de MediaStore, no la ruta: es lo que la app
+            // necesita para poder anadir la pista a una lista suya.
+            destino.toString()
         } catch (error: Throwable) {
             // Si la biblioteca falla, el archivo sigue en la carpeta de la app.
             null

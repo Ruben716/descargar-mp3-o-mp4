@@ -6,6 +6,7 @@ import 'control_descarga.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_ajustes.dart';
+import 'cargando.dart';
 import 'nucleo.dart';
 import 'pantalla_previa.dart';
 import 'portadas.dart';
@@ -29,6 +30,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   Resultado? _elegido;
   bool _buscandoAhora = false;
   bool _importada = false;
+  String _nombreLista = '';
   String _aviso = '';
   bool _fallo = false;
 
@@ -186,7 +188,8 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
 
   Future<void> _descargarTodo() async {
     final List<String> urls = _resultados.map((Resultado r) => r.url).toList();
-    await _control.iniciarVarios(urls);
+    // Al bajarla entera se recrea la lista en la app con ese mismo nombre.
+    await _control.iniciarVarios(urls, nombreLista: _nombreLista);
   }
 
   /// Lo que hace el boton grande segun lo que haya escrito.
@@ -202,12 +205,13 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final List<Resultado> pistas = await Nucleo.importarLista(_texto);
+      final ListaTraida lista = await Nucleo.importarLista(_texto);
       if (!mounted) return;
       setState(() {
-        _resultados = pistas;
-        _importada = pistas.isNotEmpty;
-        if (pistas.isEmpty) {
+        _resultados = lista.pistas;
+        _importada = lista.pistas.isNotEmpty;
+        _nombreLista = lista.titulo;
+        if (lista.pistas.isEmpty) {
           _aviso = 'Esa lista esta vacia.';
           _fallo = true;
         }
@@ -350,6 +354,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 
   Widget _cuerpo() {
+    if (_buscandoAhora) {
+      return CargandoMusica(
+        texto: _esLista ? 'Trayendo la lista...' : 'Buscando...',
+      );
+    }
     final String mensaje = _aviso.isNotEmpty ? _aviso : _control.mensaje;
     final bool fallo = _aviso.isNotEmpty ? _fallo : _control.fallo;
     if (mensaje.isNotEmpty && _resultados.isEmpty) {
@@ -374,7 +383,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         children: <Widget>[
           Expanded(
             child: Text(
-              '${_resultados.length} pistas en la lista',
+              '${_resultados.length} pistas · $_nombreLista',
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ),

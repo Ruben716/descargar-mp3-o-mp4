@@ -42,12 +42,15 @@ class Nucleo {
   }
 
   /// Trae las pistas de una lista de reproduccion ajena, sin descargarlas.
-  static Future<List<Resultado>> importarLista(String url) async {
+  static Future<ListaTraida> importarLista(String url) async {
     final Map<String, dynamic> datos =
         await _pedir('importarLista', <String, dynamic>{'url': url});
-    return ((datos['resultados'] as List<dynamic>?) ?? <dynamic>[])
-        .map((dynamic r) => Resultado.desdeJson(r as Map<String, dynamic>))
-        .toList();
+    return ListaTraida(
+      titulo: datos['titulo']?.toString() ?? 'Lista importada',
+      pistas: ((datos['resultados'] as List<dynamic>?) ?? <dynamic>[])
+          .map((dynamic r) => Resultado.desdeJson(r as Map<String, dynamic>))
+          .toList(),
+    );
   }
 
   static Future<List<String>> descargar(Ajustes ajustes, {bool avisar = true}) async {
@@ -174,6 +177,14 @@ class Resultado {
   final double duracion;
   final String url;
   final String miniatura;
+}
+
+/// Una lista ajena tal y como llega: con su nombre, para poder recrearla.
+class ListaTraida {
+  const ListaTraida({required this.titulo, required this.pistas});
+
+  final String titulo;
+  final List<Resultado> pistas;
 }
 
 class Previsualizacion {

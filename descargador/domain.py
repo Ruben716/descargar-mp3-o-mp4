@@ -163,6 +163,14 @@ class SearchQuery:
 
 
 @dataclass(frozen=True)
+class Playlist:
+    """Una lista ajena con su nombre, para poder recrearla tal cual."""
+
+    title: str
+    items: tuple[VideoInfo, ...] = ()
+
+
+@dataclass(frozen=True)
 class DownloadResult:
     files: tuple[Path, ...]
 
@@ -174,6 +182,6 @@ class VideoDownloader(Protocol):
 
     def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]: ...
 
-    def playlist(self, url: str) -> tuple[VideoInfo, ...]: ...
+    def playlist(self, url: str) -> Playlist: ...
 
     def stream(self, request: DownloadRequest) -> PlaybackSource: ...

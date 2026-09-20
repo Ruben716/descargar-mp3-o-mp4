@@ -28,6 +28,7 @@ void main() {
     // una prueba heredaria lo que dejo la anterior.
     EstadoReproductor.instancia.reiniciar();
     ControlDescarga.instancia.reiniciar();
+    Listas.instancia.reiniciar();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
       llamadas.add(llamada);
@@ -35,12 +36,14 @@ void main() {
         'urlCompartida' => null,
         'biblioteca' => '{"ok":true,"elementos":[]}',
         'buscar' => _busqueda,
-        'importarLista' => _busqueda,
+        'importarLista' =>
+          '{"ok":true,"titulo":"Mis temas","resultados":'
+              '${_busqueda.substring(_busqueda.indexOf('['), _busqueda.length - 1)}}',
         'caratula' => '{"ok":true,"imagen":""}',
         'previsualizar' =>
           '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
         'eliminar' => '{"ok":true}',
-        'descargar' => '{"ok":true,"archivos":["Music/Descargador/x.mp3"]}',
+        'descargar' => '{"ok":true,"archivos":["content://audio/99"]}',
         _ => '{"ok":true}',
       };
     });
@@ -119,7 +122,7 @@ void main() {
     await tester.tap(find.text('Traer la lista'));
     await tester.pumpAndSettle();
 
-    expect(find.text('2 pistas en la lista'), findsOneWidget);
+    expect(find.text('2 pistas · Mis temas'), findsOneWidget);
     expect(find.text('Todo en video'), findsOneWidget);
 
     await tester.tap(find.text('Todo en video'));
@@ -131,6 +134,10 @@ void main() {
     expect(descargas.length, 2);
     expect((descargas.first.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
     expect((descargas.last.arguments as Map<dynamic, dynamic>)['avisar'], isTrue);
+
+    // Y queda una lista en la app con lo descargado.
+    expect(Listas.instancia.nombres, contains('Mis temas'));
+    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
   });
 
   testWidgets('los resultados de una busqueda no ofrecen descargar todo',
@@ -141,7 +148,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Cancion uno'), findsOneWidget);
-    expect(find.textContaining('pistas en la lista'), findsNothing);
+    expect(find.textContaining('pistas ·'), findsNothing);
   });
 
   testWidgets('buscar con un enlace pegado no busca, lo resuelve',

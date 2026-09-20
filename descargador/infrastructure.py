@@ -15,6 +15,7 @@ from .domain import (
     DownloadResult,
     MediaFormat,
     PlaybackSource,
+    Playlist,
     SearchQuery,
     VideoInfo,
 )
@@ -253,7 +254,7 @@ class YtDlpDownloader:
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
 
-    def playlist(self, url: str) -> tuple[VideoInfo, ...]:
+    def playlist(self, url: str) -> Playlist:
         """Lee una lista de reproducción entera sin descargar nada.
 
         Es la misma extracción plana que la búsqueda: solo hacen falta título,
@@ -276,7 +277,10 @@ class YtDlpDownloader:
             entradas = (info or {}).get("entries")
             if entradas is None:
                 raise DownloadError("Ese enlace no es una lista de reproducción.")
-            return tuple(self._resultado(e) for e in entradas if e)
+            return Playlist(
+                title=(info or {}).get("title") or "Lista importada",
+                items=tuple(self._resultado(e) for e in entradas if e),
+            )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo leer la lista: {exc}") from exc
 

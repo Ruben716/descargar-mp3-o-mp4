@@ -68,6 +68,23 @@ class Listas extends ChangeNotifier {
     await _guardar();
   }
 
+  /// Anade sin quitar. alternar() no sirve al recrear una lista: si una pista
+  /// apareciera dos veces, el segundo paso la borraria.
+  Future<void> anadir(String nombre, String uri) async {
+    final List<String> lista = _listas.putIfAbsent(nombre, () => <String>[]);
+    if (lista.contains(uri)) return;
+    lista.add(uri);
+    await _guardar();
+  }
+
+  /// Vuelve al estado inicial. Es un objeto unico para toda la app y conviene
+  /// poder empezar de cero; lo usan las pruebas.
+  void reiniciar() {
+    _listas.clear();
+    _cargado = false;
+    notifyListeners();
+  }
+
   Future<void> alternar(String nombre, String uri) async {
     final List<String> lista = _listas.putIfAbsent(nombre, () => <String>[]);
     if (lista.contains(uri)) {
