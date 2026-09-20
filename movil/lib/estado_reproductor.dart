@@ -37,8 +37,15 @@ class EstadoReproductor extends ChangeNotifier {
     motor.playbackEventStream.listen(
       (_) {},
       onError: (Object fallo, StackTrace _) {
-        _error = 'Reproduccion: $fallo';
         _preparando = false;
+        // Al cambiar de pista o cerrar, el motor suele soltar un error
+        // pasajero ("Connection aborted") aunque todo siga sonando. Solo
+        // interesa cuando de verdad nos quedamos sin nada reproduciendo.
+        if (motor.playing) {
+          notifyListeners();
+          return;
+        }
+        _error = '$fallo';
         notifyListeners();
       },
     );

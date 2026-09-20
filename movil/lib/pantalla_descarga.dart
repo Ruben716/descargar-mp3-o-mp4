@@ -47,15 +47,17 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     if (mounted) setState(() {});
   }
 
-  /// Si falla escuchar una vista previa hay que decirlo: antes se quedaba
-  /// callado y parecia que el boton no hacia nada.
+  /// Un fallo del reproductor se avisa de paso y sin ocupar la pantalla:
+  /// la vista previa ya tiene su propio motor y muestra los suyos aparte.
   void _vigilarReproductor() {
     final String? fallo = _reproductor.consumirError();
     if (fallo == null || !mounted) return;
-    setState(() {
-      _aviso = 'No se pudo reproducir la vista previa.\n\n$fallo';
-      _fallo = true;
-    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('No se pudo reproducir: $fallo'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
