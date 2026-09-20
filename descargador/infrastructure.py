@@ -452,16 +452,24 @@ class YtDlpDownloader:
     def _seleccion_formato(opts: DownloadOptions) -> str:
         if opts.audio_only:
             return "ba/b"
-        alto = f"[height<={opts.quality}]" if opts.quality else ""
+        # El «?» del tope es lo que evita descartar un formato solo porque no
+        # diga su altura. Instagram y compañía sirven MP4 sin metadatos, y con
+        # el filtro estricto se quedaban fuera los únicos que servían.
+        alto = f"[height<=?{opts.quality}]" if opts.quality else ""
         general = f"bv*{alto}+ba/b{alto}" if alto else "bv*+ba/b"
+        # Y sin una rama sin condiciones al final, el tope puede dejarlas todas
+        # vacías y yt-dlp aborta con «Requested format is not available». Pasa
+        # con el vídeo vertical: un reel de 720p mide 720x1280, y esos 1280
+        # superan cualquier tope pensado para vídeo apaisado.
+        respaldo = "/b" if alto else ""
         if not opts.prefer_mp4:
-            return general
+            return f"{general}{respaldo}"
         # H.264 primero: es el unico codec que decodifica por hardware
         # cualquier movil. Un MP4 con AV1 o VP9 se reproduce a tirones o no se
         # reproduce. Si no lo hay, se baja a cualquier MP4 y luego a lo general.
         return (f"bv*[vcodec^=avc1]{alto}+ba[ext=m4a]/"
                 f"bv*[ext=mp4]{alto}+ba[ext=m4a]/"
-                f"b[ext=mp4]{alto}/{general}")
+                f"b[ext=mp4]{alto}/{general}{respaldo}")
 
     @staticmethod
     def _argumentos_postproceso(opts: DownloadOptions) -> dict[str, list[str]]:

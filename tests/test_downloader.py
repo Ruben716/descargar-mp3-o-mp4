@@ -125,15 +125,16 @@ class AdapterTests(unittest.TestCase):
     def test_format_selection(self):
         self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions()), "bv*+ba/b")
         self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
-        self.assertIn("height<=720", YtDlpDownloader._seleccion_formato(DownloadOptions(quality=720)))
+        # El tope va con «?»: un formato que no diga su altura no se descarta.
+        self.assertIn("height<=?720", YtDlpDownloader._seleccion_formato(DownloadOptions(quality=720)))
 
     def test_mp4_preference_asks_for_h264_first(self):
         """En el movil el contenedor y el codec deciden si el video se reproduce."""
         seleccion = YtDlpDownloader._seleccion_formato(DownloadOptions(prefer_mp4=True, quality=720))
-        self.assertTrue(seleccion.startswith("bv*[vcodec^=avc1][height<=720]"))
+        self.assertTrue(seleccion.startswith("bv*[vcodec^=avc1][height<=?720]"))
         # Debe conservar alternativas: si no hay H.264, algo se descarga igual.
-        self.assertIn("/bv*+ba/b" if "/bv*+ba/b" in seleccion else "/b", seleccion)
-        self.assertEqual(seleccion.count("height<=720"), 5)
+        self.assertIn("/bv*[height<=?720]+ba/", seleccion)
+        self.assertEqual(seleccion.count("height<=?720"), 5)
 
     def test_audio_extracted_before_embedding_thumbnail(self):
         claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(audio_only=True))]
@@ -183,6 +184,75 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class FormatoVerticalTests(unittest.TestCase):
+    """El selector tiene que servir también para vídeo vertical y sin metadatos.
+
+    Se le pregunta al selector de yt-dlp, no a nuestra cadena de texto: lo que
+    importa es qué formato acaba eligiendo. No toca la red; los formatos son
+    los que devuelve un reel, copiados a mano.
+    """
+
+    #: Ni un solo H.264, el vídeo separado en VP9 y más alto que ancho, y MP4
+    #: sueltos que no dicen ni su resolución ni su códec.
+    FORMATOS: ClassVar[list[dict]] = [
+        {"format_id": "dash-a", "ext": "m4a", "vcodec": "none",
+         "acodec": "mp4a.40.5", "abr": 72},
+        {"format_id": "1", "ext": "mp4", "url": "https://x/1"},
+        {"format_id": "3", "ext": "mp4", "url": "https://x/3"},
+        {"format_id": "dash-v720", "ext": "mp4", "vcodec": "vp09.00.31.08",
+         "acodec": "none", "width": 720, "height": 1280, "vbr": 1489},
+        {"format_id": "dash-v1080", "ext": "mp4", "vcodec": "vp09.00.40.08",
+         "acodec": "none", "width": 1080, "height": 1920, "vbr": 2677},
+    ]
+
+    @classmethod
+    def _elegidos(cls, selector: str) -> list[str]:
+        from yt_dlp import YoutubeDL
+
+        with YoutubeDL({"quiet": True, "no_warnings": True, "simulate": True}) as motor:
+            elegir = motor.build_format_selector(selector)
+            return [
+                f["format_id"]
+                for f in elegir({"formats": cls.FORMATOS, "incomplete_formats": False})
+            ]
+
+    def test_un_video_vertical_sin_metadatos_si_se_puede_descargar(self):
+        # Regresión: con el tope estricto no quedaba ninguna rama viable y
+        # yt-dlp abortaba con «Requested format is not available».
+        opciones = DownloadOptions(quality=1080, prefer_mp4=True)
+        self.assertTrue(self._elegidos(YtDlpDownloader._seleccion_formato(opciones)))
+
+    def test_el_tope_estricto_era_el_que_no_dejaba_nada(self):
+        # Demuestra la causa: el mismo selector sin el «?» y sin respaldo no
+        # encuentra nada entre estos formatos.
+        estricto = ("bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/"
+                    "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/"
+                    "b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/b[height<=1080]")
+        self.assertEqual(self._elegidos(estricto), [])
+
+    def test_el_tope_no_descarta_lo_que_no_dice_su_altura(self):
+        selector = YtDlpDownloader._seleccion_formato(
+            DownloadOptions(quality=1080, prefer_mp4=True))
+        self.assertIn("height<=?1080", selector)
+        self.assertNotIn("height<=1080", selector)
+
+    def test_con_tope_siempre_queda_una_rama_sin_condiciones(self):
+        for opciones in (DownloadOptions(quality=720),
+                         DownloadOptions(quality=720, prefer_mp4=True)):
+            with self.subTest(mp4=opciones.prefer_mp4):
+                self.assertTrue(
+                    YtDlpDownloader._seleccion_formato(opciones).endswith("/b"))
+
+    def test_sin_tope_la_seleccion_no_cambia(self):
+        # Sin altura que limitar no hacía falta respaldo: la cadena ya acababa
+        # en «b» y no se le añade uno de más.
+        self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions()), "bv*+ba/b")
+
+    def test_el_audio_se_elige_igual_que_siempre(self):
+        self.assertEqual(
+            YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
 
 
 class EtiquetasTests(unittest.TestCase):
