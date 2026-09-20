@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'control_descarga.dart';
+import 'estado_reproductor.dart';
 import 'mini_reproductor.dart';
 import 'nucleo.dart';
 import 'pantalla_biblioteca.dart';
@@ -20,6 +21,7 @@ Future<void> main() async {
     androidStopForegroundOnPause: true,
   );
   Nucleo.escucharVentanaFlotante();
+  EstadoReproductor.instancia.recuperarEcualizador();
   runApp(const AplicacionTumbao());
 }
 

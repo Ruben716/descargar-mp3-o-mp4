@@ -106,7 +106,29 @@ class _HojaAjustesState extends State<HojaAjustes> {
           etiqueta: (String v) => '$v kb/s',
           alElegir: (String v) => setState(() => _a = _a.copiar(bitrate: v)),
         ),
+        const SizedBox(height: 8),
+        _igualarVolumen(),
       ];
+
+  /// Igualar el volumen obliga a reconvertir, y hay formatos que se copian
+  /// tal cual. En vez de dejar que falle la descarga, se dice aqui.
+  Widget _igualarVolumen() {
+    final bool admitido = !formatosSinNormalizar.contains(_a.formatoAudio);
+    return SwitchListTile(
+      value: _a.normalizar && admitido,
+      onChanged: admitido
+          ? (bool v) => setState(() => _a = _a.copiar(normalizar: v))
+          : null,
+      title: const Text('Igualar el volumen'),
+      subtitle: Text(
+        admitido
+            ? 'Para que una cancion no reviente despues de otra'
+            : 'Con ${_a.formatoAudio.toUpperCase()} no se puede: elige MP3, FLAC o WAV',
+      ),
+      contentPadding: EdgeInsets.zero,
+      activeThumbColor: Tema.acento,
+    );
+  }
 
   List<Widget> _opcionesVideo() => <Widget>[
         _Etiqueta('Calidad maxima'),

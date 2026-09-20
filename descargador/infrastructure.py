@@ -26,6 +26,12 @@ FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
 ERRORES_TRANSITORIOS = ("403", "forbidden", "429", "too many requests", "timed out")
 INTENTOS_TRANSITORIOS = 3
 
+#: Nivel al que se iguala el volumen, en el estándar EBU R128.
+#:
+#: -14 LUFS es lo que usan las plataformas de streaming, así que lo descargado
+#: suena al mismo nivel que el resto de lo que escucha el teléfono.
+NIVEL_SONORIDAD = "I=-14:TP=-1.5:LRA=11"
+
 
 def _es_transitorio(error: Exception) -> bool:
     mensaje = str(error).lower()
@@ -368,6 +374,7 @@ class YtDlpDownloader:
                 "color": "no_color",
                 "post_hooks": [terminado],
                 "postprocessors": self._postprocesadores(opts, caratula),
+                "postprocessor_args": self._argumentos_postproceso(opts),
                 "writethumbnail": caratula,
                 "js_runtimes": _runtimes_js(),
             }
@@ -417,6 +424,19 @@ class YtDlpDownloader:
         return (f"bv*[vcodec^=avc1]{alto}+ba[ext=m4a]/"
                 f"bv*[ext=mp4]{alto}+ba[ext=m4a]/"
                 f"b[ext=mp4]{alto}/{general}")
+
+    @staticmethod
+    def _argumentos_postproceso(opts: DownloadOptions) -> dict[str, list[str]]:
+        """Argumentos extra para FFmpeg, dirigidos a un postprocesador concreto.
+
+        La clave `extractaudio+ffmpeg` apunta solo a la conversión de audio.
+        Con la clave `default` el filtro llegaría también a los pasos que
+        copian el flujo (metadatos, carátula), y ffmpeg aborta al mezclar un
+        filtro con «-c copy». Comprobado contra el resolutor de yt-dlp.
+        """
+        if not opts.normalize:
+            return {}
+        return {"extractaudio+ffmpeg": ["-af", f"loudnorm={NIVEL_SONORIDAD}"]}
 
     @staticmethod
     def _postprocesadores(opts: DownloadOptions, caratula: bool = True) -> list[dict]:

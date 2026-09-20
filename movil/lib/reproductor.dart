@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_cola.dart';
+import 'hoja_ecualizador.dart';
 import 'hoja_suenio.dart';
 import 'nucleo.dart';
 import 'panel_letras.dart';
@@ -76,11 +77,35 @@ class _ReproductorState extends State<Reproductor> {
                   icon: const Icon(Icons.queue_music_rounded, size: 22),
                 ),
               ],
-              IconButton(
-                tooltip: 'Compartir',
-                onPressed: () =>
-                    Nucleo.compartirArchivo(elemento.uri, audio: elemento.audio),
-                icon: const Icon(Icons.share_rounded, size: 20),
+              PopupMenuButton<String>(
+                color: Tema.superficieAlta,
+                icon: const Icon(Icons.more_vert_rounded, size: 20),
+                onSelected: (String elegido) {
+                  if (elegido == 'compartir') {
+                    Nucleo.compartirArchivo(elemento.uri, audio: elemento.audio);
+                  } else {
+                    abrirEcualizador(context);
+                  }
+                },
+                itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                  if (elemento.audio)
+                    const PopupMenuItem<String>(
+                      value: 'ecualizador',
+                      child: ListTile(
+                        leading: Icon(Icons.graphic_eq_rounded),
+                        title: Text('Ecualizador'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  const PopupMenuItem<String>(
+                    value: 'compartir',
+                    child: ListTile(
+                      leading: Icon(Icons.share_rounded),
+                      title: Text('Compartir'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),

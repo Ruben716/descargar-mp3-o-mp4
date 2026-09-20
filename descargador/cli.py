@@ -8,6 +8,7 @@ from pathlib import Path
 from .application import DownloadVideo, InspectVideo
 from .domain import (
     AUDIO_FORMATS,
+    FORMATOS_SIN_NORMALIZAR,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -100,6 +101,7 @@ def describir_ajustes(opciones: DownloadOptions, destino: Path, audio: bool) -> 
     lineas = []
     if audio:
         lineas.append(f"  Formato:      {opciones.audio_format} a {opciones.audio_bitrate} kb/s")
+        lineas.append(f"  Volumen:      {'se iguala' if opciones.normalize else 'tal cual'}")
     else:
         calidad = f"hasta {opciones.quality}p" if opciones.quality else "la mejor disponible"
         subtitulos = ",".join(opciones.subtitles) if opciones.subtitles else "no"
@@ -174,6 +176,13 @@ def _alternar_patrocinios(opciones: DownloadOptions, destino: Path):
     return replace(opciones, skip_sponsors=not opciones.skip_sponsors), destino
 
 
+def _alternar_normalizar(opciones: DownloadOptions, destino: Path):
+    if not opciones.normalize and opciones.audio_format in FORMATOS_SIN_NORMALIZAR:
+        print(f"  Con {opciones.audio_format} no se puede: cambia antes el formato.")
+        return opciones, destino
+    return replace(opciones, normalize=not opciones.normalize), destino
+
+
 def _alternar_registro(opciones: DownloadOptions, destino: Path):
     return replace(opciones, use_archive=not opciones.use_archive), destino
 
@@ -182,7 +191,8 @@ def acciones_ajustes(audio: bool) -> list[tuple[str, Ajuste]]:
     """Menú de ajustes disponible según se descargue audio o video."""
     comunes: list[tuple[str, Ajuste]]
     if audio:
-        comunes = [("Formato", _cambiar_formato_audio), ("Calidad", _cambiar_bitrate)]
+        comunes = [("Formato", _cambiar_formato_audio), ("Calidad", _cambiar_bitrate),
+                   ("Volumen", _alternar_normalizar)]
     else:
         comunes = [("Calidad", _cambiar_calidad), ("Subtítulos", _cambiar_subtitulos),
                    ("Patrocinios", _alternar_patrocinios)]
@@ -235,6 +245,7 @@ def construir_opciones(args) -> DownloadOptions:
         subtitles=subtitulos,
         section=parse_section(args.seccion) if args.seccion else None,
         skip_sponsors=args.sin_patrocinios,
+        normalize=args.normalizar,
         use_archive=args.registro,
     )
 
@@ -255,6 +266,8 @@ def crear_parser() -> argparse.ArgumentParser:
                         help="Descargar e incrustar subtítulos (predeterminado: es,en)")
     parser.add_argument("--seccion", metavar="INICIO-FIN",
                         help="Descargar solo un fragmento, por ejemplo 00:30-02:15")
+    parser.add_argument("--normalizar", action="store_true",
+                        help="iguala el volumen del audio descargado (exige reconvertir)")
     parser.add_argument("--sin-patrocinios", action="store_true",
                         help="Eliminar segmentos patrocinados con SponsorBlock")
     parser.add_argument("--registro", action="store_true",

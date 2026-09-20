@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
+import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
@@ -56,11 +57,24 @@ class EstadoReproductor extends ChangeNotifier {
 
   static final EstadoReproductor instancia = EstadoReproductor._();
 
+  /// Recupera el ecualizador guardado en cuanto el aparato diga sus bandas.
+  ///
+  /// Sin esperar al resultado: eso no pasa hasta que suena la primera pista, y
+  /// bloquear el arranque de la app por un ajuste de sonido no tendria sentido.
+  void recuperarEcualizador() {
+    unawaited(Ecualizador.instancia.recuperar());
+  }
+
   /// El orden aleatorio es nuestro y no el de fabrica para poder decidir donde
   /// caen las altas; ver [OrdenAleatorio].
   final OrdenAleatorio _orden = OrdenAleatorio();
 
-  late final AudioPlayer motor = AudioPlayer(shuffleOrder: _orden);
+  /// El ecualizador se enchufa al construir el motor: los efectos de Android
+  /// no se pueden anadir a un reproductor que ya existe.
+  late final AudioPlayer motor = AudioPlayer(
+    shuffleOrder: _orden,
+    audioPipeline: Ecualizador.instancia.tuberia,
+  );
 
   /// Lo que hay en cola, en el orden en que se cargo. Sin ella no habria
   /// siguiente ni anterior.

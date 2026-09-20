@@ -7,6 +7,13 @@ from urllib.parse import urlsplit
 #: Códecs que acepta el extractor de audio.
 AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "best")
 
+#: Formatos donde no se puede garantizar la normalización de volumen.
+#:
+#: FFmpegExtractAudio copia el flujo tal cual cuando el códec de destino ya
+#: es el de origen, y entonces el filtro chocaría con «-c copy». YouTube
+#: entrega opus y aac, así que con esos destinos puede no reconvertir.
+FORMATOS_SIN_NORMALIZAR = ("best", "opus", "m4a", "aac")
+
 #: Categorías de SponsorBlock que se eliminan con --sin-patrocinios.
 SPONSOR_CATEGORIES = ("sponsor", "selfpromo", "interaction")
 
@@ -59,6 +66,9 @@ class DownloadOptions:
     #: Prefiere MP4 aunque exista algo mejor en otro contenedor. En el móvil es
     #: casi obligatorio: el reproductor de Android no traga MKV ni VP9.
     prefer_mp4: bool = False
+    #: Iguala el volumen de lo descargado, para que una canción no reviente
+    #: después de otra. Exige reconvertir, así que no vale con cualquier códec.
+    normalize: bool = False
 
     def __post_init__(self):
         if self.quality is not None and self.quality <= 0:
@@ -73,6 +83,14 @@ class DownloadOptions:
             inicio, fin = self.section
             if inicio < 0 or fin <= inicio:
                 raise DownloadError("El final del fragmento debe ser posterior al inicio.")
+        if self.normalize:
+            if not self.audio_only:
+                raise DownloadError("Normalizar el volumen solo se aplica al descargar audio.")
+            if self.audio_format in FORMATOS_SIN_NORMALIZAR:
+                validos = ", ".join(f for f in AUDIO_FORMATS if f not in FORMATOS_SIN_NORMALIZAR)
+                raise DownloadError(
+                    f"Normalizar obliga a reconvertir y {self.audio_format!r} puede copiarse "
+                    f"tal cual. Elige entre {validos}.")
 
 
 @dataclass(frozen=True)

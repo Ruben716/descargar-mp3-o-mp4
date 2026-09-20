@@ -95,6 +95,7 @@ class MainActivity : AudioServiceActivity() {
                             subtitulos = llamada.argument<String>("subtitulos").orEmpty(),
                             fragmento = llamada.argument<String>("fragmento").orEmpty(),
                             sinPatrocinios = llamada.argument<Boolean>("sinPatrocinios") ?: false,
+                            normalizar = llamada.argument<Boolean>("normalizar") ?: false,
                             avisar = llamada.argument<Boolean>("avisar") ?: true,
                         )
                         enHilo(respuesta) { puente -> descargar(puente, ajustes) }
@@ -178,6 +179,7 @@ class MainActivity : AudioServiceActivity() {
         val subtitulos: String,
         val fragmento: String,
         val sinPatrocinios: Boolean,
+        val normalizar: Boolean,
         /** En un lote solo avisa la ultima, o saldrian cientos de avisos. */
         val avisar: Boolean,
     )
@@ -201,6 +203,7 @@ class MainActivity : AudioServiceActivity() {
                 ajustes.subtitulos,
                 ajustes.fragmento,
                 ajustes.sinPatrocinios,
+                ajustes.normalizar,
             ).toString()
 
             val datos = JSONObject(crudo)

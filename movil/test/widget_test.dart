@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:descargador_movil/main.dart';
 import 'package:descargador_movil/catalogo.dart';
 import 'package:descargador_movil/control_descarga.dart';
+import 'package:descargador_movil/ecualizador.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/fila_pista.dart';
@@ -763,6 +764,66 @@ void main() {
       await nueva.close();
       await temporal.delete(recursive: true);
     }
+  });
+
+  // --- Ecualizador y volumen ---------------------------------------------
+
+  test('los ajustes del ecualizador valen con cualquier numero de bandas', () {
+    // Cada telefono reparte sus bandas como quiere: hay de cinco y de diez.
+    for (final int bandas in <int>[5, 10]) {
+      final List<double> graves = <double>[
+        for (int i = 0; i < bandas; i++)
+          Ajuste.graves.ganancia(i / (bandas - 1), 12),
+      ];
+      expect(graves.first, greaterThan(graves.last),
+          reason: 'con $bandas bandas los graves suben abajo');
+
+      final List<double> agudos = <double>[
+        for (int i = 0; i < bandas; i++)
+          Ajuste.agudos.ganancia(i / (bandas - 1), 12),
+      ];
+      expect(agudos.last, greaterThan(agudos.first));
+    }
+  });
+
+  test('el ajuste plano deja todas las bandas a cero', () {
+    for (final double posicion in <double>[0, 0.25, 0.5, 0.75, 1]) {
+      expect(Ajuste.plano.ganancia(posicion, 12), 0);
+    }
+  });
+
+  test('la voz sube el centro y la fiesta lo hunde', () {
+    expect(Ajuste.voz.ganancia(0.5, 12), greaterThan(Ajuste.voz.ganancia(0, 12)));
+    expect(Ajuste.fiesta.ganancia(0.5, 12), lessThan(Ajuste.fiesta.ganancia(0, 12)));
+  });
+
+  test('igualar el volumen no viaja con un formato que se copiaria', () {
+    // El nucleo rechaza la descarga entera en ese caso, asi que se filtra aqui.
+    for (final String formato in formatosSinNormalizar) {
+      final Map<String, dynamic> mapa = Ajustes(
+        url: 'https://y/1',
+        soloAudio: true,
+        normalizar: true,
+        formatoAudio: formato,
+      ).aMapa();
+      expect(mapa['normalizar'], isFalse, reason: 'con $formato no se puede');
+    }
+
+    final Map<String, dynamic> mp3 = const Ajustes(
+      url: 'https://y/1',
+      soloAudio: true,
+      normalizar: true,
+    ).aMapa();
+    expect(mp3['normalizar'], isTrue);
+  });
+
+  test('igualar el volumen no viaja al bajar video', () {
+    final Map<String, dynamic> mapa = const Ajustes(
+      url: 'https://y/1',
+      normalizar: true,
+    ).aMapa();
+
+    expect(mapa['normalizar'], isFalse);
   });
 }
 

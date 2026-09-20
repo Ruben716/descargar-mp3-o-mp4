@@ -255,6 +255,13 @@ class Avance {
 }
 
 /// Lo que el usuario puede ajustar. Refleja DownloadOptions del dominio.
+/// Formatos de audio en los que no se puede igualar el volumen.
+///
+/// Espeja `FORMATOS_SIN_NORMALIZAR` del nucleo: al sacar el audio, FFmpeg
+/// copia el flujo tal cual cuando el codec de destino ya es el de origen, y
+/// entonces el filtro no se puede aplicar. YouTube entrega opus y aac.
+const Set<String> formatosSinNormalizar = <String>{'best', 'opus', 'm4a', 'aac'};
+
 class Ajustes {
   const Ajustes({
     required this.url,
@@ -265,6 +272,7 @@ class Ajustes {
     this.subtitulos = '',
     this.fragmento = '',
     this.sinPatrocinios = false,
+    this.normalizar = false,
   });
 
   final String url;
@@ -276,6 +284,9 @@ class Ajustes {
   final String fragmento;
   final bool sinPatrocinios;
 
+  /// Iguala el volumen del MP3 al descargarlo.
+  final bool normalizar;
+
   Ajustes copiar({
     String? url,
     bool? soloAudio,
@@ -285,6 +296,7 @@ class Ajustes {
     String? subtitulos,
     String? fragmento,
     bool? sinPatrocinios,
+    bool? normalizar,
   }) =>
       Ajustes(
         url: url ?? this.url,
@@ -295,6 +307,7 @@ class Ajustes {
         subtitulos: subtitulos ?? this.subtitulos,
         fragmento: fragmento ?? this.fragmento,
         sinPatrocinios: sinPatrocinios ?? this.sinPatrocinios,
+        normalizar: normalizar ?? this.normalizar,
       );
 
   Map<String, dynamic> aMapa() => <String, dynamic>{
@@ -307,5 +320,9 @@ class Ajustes {
         'subtitulos': subtitulos,
         'fragmento': fragmento,
         'sinPatrocinios': sinPatrocinios,
+        // Igualar el volumen exige reconvertir, que solo pasa al sacar el
+        // audio y con un formato que no se pueda copiar tal cual. En otro caso
+        // el nucleo rechazaria la descarga entera.
+        'normalizar': soloAudio && normalizar && !formatosSinNormalizar.contains(formatoAudio),
       };
 }

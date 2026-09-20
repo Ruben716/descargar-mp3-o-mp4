@@ -14,6 +14,7 @@ from descargador.application import (
     StreamVideo,
 )
 from descargador.cli import (
+    _alternar_normalizar,
     acciones_ajustes,
     describir_ajustes,
     formato_tamano,
@@ -22,6 +23,7 @@ from descargador.cli import (
     main,
 )
 from descargador.domain import (
+    FORMATOS_SIN_NORMALIZAR,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -148,6 +150,76 @@ class AdapterTests(unittest.TestCase):
     def test_sponsorblock_needs_both_postprocessors(self):
         claves = [p["key"] for p in YtDlpDownloader._postprocesadores(DownloadOptions(skip_sponsors=True))]
         self.assertLess(claves.index("SponsorBlock"), claves.index("ModifyChapters"))
+
+    def test_sin_normalizar_no_se_pasan_argumentos_a_ffmpeg(self):
+        self.assertEqual(YtDlpDownloader._argumentos_postproceso(DownloadOptions()), {})
+
+    def test_el_filtro_de_volumen_va_solo_a_la_conversion_de_audio(self):
+        # Con la clave «default» el filtro llegaría también a los pasos que
+        # copian el flujo (metadatos, carátula) y ffmpeg abortaría.
+        opciones = DownloadOptions(audio_only=True, normalize=True)
+        argumentos = YtDlpDownloader._argumentos_postproceso(opciones)
+
+        self.assertEqual(list(argumentos), ["extractaudio+ffmpeg"])
+        self.assertEqual(argumentos["extractaudio+ffmpeg"][0], "-af")
+        self.assertIn("loudnorm", argumentos["extractaudio+ffmpeg"][1])
+
+    def test_yt_dlp_entrega_el_filtro_donde_lo_esperamos(self):
+        """Comprueba el acuerdo con yt-dlp, no nuestro diccionario.
+
+        Si en una versión futura cambia cómo resuelve las claves, esto avisa
+        antes de que el filtro se cuele en un paso que copia el flujo.
+        """
+        from yt_dlp.utils._utils import _configuration_args
+
+        argumentos = YtDlpDownloader._argumentos_postproceso(
+            DownloadOptions(audio_only=True, normalize=True))
+        # Las mismas claves que arma yt_dlp al escribir el archivo de salida.
+        salida = ["_o1", "_o", ""]
+
+        def recibe(postprocesador):
+            return _configuration_args(postprocesador, argumentos, "ffmpeg", salida)
+
+        self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
+        self.assertEqual(recibe("Metadata"), [])
+        self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class NormalizarTests(unittest.TestCase):
+    def test_normalizar_exige_audio(self):
+        with self.assertRaises(DownloadError):
+            DownloadOptions(normalize=True)
+
+    def test_normalizar_rechaza_los_formatos_que_podrian_copiarse(self):
+        for formato in FORMATOS_SIN_NORMALIZAR:
+            with self.subTest(formato=formato), self.assertRaises(DownloadError):
+                DownloadOptions(audio_only=True, normalize=True, audio_format=formato)
+
+    def test_normalizar_acepta_los_que_siempre_reconvierten(self):
+        for formato in ("mp3", "flac", "wav", "vorbis", "alac"):
+            with self.subTest(formato=formato):
+                opciones = DownloadOptions(audio_only=True, normalize=True, audio_format=formato)
+                self.assertTrue(opciones.normalize)
+
+    def test_el_menu_de_audio_ofrece_igualar_el_volumen(self):
+        # Si no está en el menú, la opción solo existiría para quien use
+        # la línea de comandos.
+        nombres = [nombre for nombre, _ in acciones_ajustes(audio=True)]
+        self.assertIn("Volumen", nombres)
+
+    def test_el_menu_no_deja_activarlo_con_un_formato_que_no_lo_admite(self):
+        opciones = DownloadOptions(audio_only=True, audio_format="opus")
+        with contextlib.redirect_stdout(io.StringIO()) as salida:
+            resultado, _ = _alternar_normalizar(opciones, Path("."))
+        self.assertFalse(resultado.normalize)
+        self.assertIn("opus", salida.getvalue())
+
+    def test_el_menu_lo_activa_y_lo_desactiva(self):
+        opciones = DownloadOptions(audio_only=True, audio_format="mp3")
+        activado, _ = _alternar_normalizar(opciones, Path("."))
+        self.assertTrue(activado.normalize)
+        apagado, _ = _alternar_normalizar(activado, Path("."))
+        self.assertFalse(apagado.normalize)
 
 
 class SearchTests(unittest.TestCase):
