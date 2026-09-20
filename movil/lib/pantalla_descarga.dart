@@ -79,8 +79,13 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 
   Future<void> _buscar() async {
-    final String texto = _entrada.text.trim();
+    final String texto = _texto;
     if (texto.isEmpty) return;
+    // Buscar un enlace no tiene sentido; se hace lo que el enlace pide.
+    if (_esEnlace) {
+      await _accionPrincipal();
+      return;
+    }
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     setState(() {
@@ -166,12 +171,19 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
 
   bool get _ocupado => _control.activa || _buscandoAhora;
 
+  String get _texto => _entrada.text.trim();
+
+  bool get _esEnlace => _texto.startsWith('http');
+
   /// Un enlace de lista se reconoce por llevar list= o /playlist.
-  bool get _esLista {
-    if (_buscando) return false;
-    final String texto = _entrada.text;
-    return texto.contains('list=') || texto.contains('/playlist');
-  }
+  ///
+  /// A proposito no mira en que modo estamos: pegar el enlace en el buscador
+  /// es lo natural, y obligar a cambiar antes de modo no hay quien lo adivine.
+  bool get _esLista =>
+      _esEnlace && (_texto.contains('list=') || _texto.contains('/playlist'));
+
+  /// Lo que hace el boton grande segun lo que haya escrito.
+  Future<void> _accionPrincipal() => _esLista ? _importarLista() : _descargar();
 
   Future<void> _importarLista() async {
     FocusScope.of(context).unfocus();
@@ -183,7 +195,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final List<Resultado> pistas = await Nucleo.importarLista(_entrada.text.trim());
+      final List<Resultado> pistas = await Nucleo.importarLista(_texto);
       if (!mounted) return;
       setState(() {
         _resultados = pistas;
@@ -230,8 +242,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
                   icono: _esLista
                       ? Icons.playlist_add_rounded
                       : Icons.arrow_downward_rounded,
-                  alPulsar:
-                      _ocupado ? null : (_esLista ? _importarLista : _descargar),
+                  alPulsar: _ocupado ? null : _accionPrincipal,
                 ),
             ],
           ),
@@ -251,9 +262,8 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
             textInputAction: _buscando ? TextInputAction.search : TextInputAction.done,
             onSubmitted: _ocupado
                 ? null
-                : (_) => _buscando
-                    ? _buscar()
-                    : (_esLista ? _importarLista() : _descargar()),
+                // Un enlace nunca se busca: se descarga o se trae entero.
+                : (_) => (_buscando && !_esEnlace) ? _buscar() : _accionPrincipal(),
             decoration: InputDecoration(
               hintText: _buscando ? 'Busca una cancion o video' : 'Pega la URL',
               prefixIcon: Icon(_buscando ? Icons.search_rounded : Icons.link_rounded),

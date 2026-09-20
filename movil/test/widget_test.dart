@@ -90,17 +90,15 @@ void main() {
     expect(find.text('Descargar seleccion'), findsOneWidget);
   });
 
-  testWidgets('pegar un enlace de lista ofrece traerla entera',
+  testWidgets('pegar un enlace de lista en el buscador ofrece traerla entera',
       (WidgetTester tester) async {
+    // Regresion: antes habia que cambiar a modo URL primero, y pegarlo en el
+    // buscador acababa en "Sin resultados".
     await abrir(tester);
-
-    // Se cambia al modo URL con el boton de enlace.
-    await tester.tap(find.byIcon(Icons.link_rounded).last);
-    await tester.pumpAndSettle();
 
     await tester.enterText(
       find.byType(TextField),
-      'https://www.youtube.com/playlist?list=PLabc',
+      'https://music.youtube.com/playlist?list=PLabc',
     );
     await tester.pumpAndSettle();
     expect(find.text('Traer la lista'), findsOneWidget);
@@ -108,6 +106,22 @@ void main() {
     await tester.tap(find.text('Traer la lista'));
     await tester.pumpAndSettle();
     expect(find.text('Cancion uno'), findsOneWidget);
+  });
+
+  testWidgets('buscar con un enlace pegado no busca, lo resuelve',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://www.youtube.com/playlist?list=PLabc',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancion uno'), findsOneWidget);
+    expect(llamadas.any((MethodCall c) => c.method == 'importarLista'), isTrue);
+    expect(llamadas.any((MethodCall c) => c.method == 'buscar'), isFalse);
   });
 
   testWidgets('el panel de opciones se abre y ofrece lo del nucleo',
