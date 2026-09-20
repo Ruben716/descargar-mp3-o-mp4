@@ -13,6 +13,7 @@ import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
+import 'package:descargador_movil/portadas.dart';
 import 'package:descargador_movil/reproductor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -48,6 +49,7 @@ void main() {
     EstadoReproductor.instancia.reiniciar();
     ControlDescarga.instancia.reiniciar();
     Listas.instancia.reiniciar();
+    Nucleo.olvidarCaratulas();
     await Catalogo.instancia.usarEnMemoria();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
@@ -1085,6 +1087,99 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
+  });
+
+  // --- Que abrir la app no cueste una vida --------------------------------
+
+  int peticionesDePortada() =>
+      llamadas.where((MethodCall c) => c.method == 'caratula').length;
+
+  testWidgets('una portada no se vuelve a pedir en cada reconstruccion',
+      (WidgetTester tester) async {
+    // Regresion: la peticion salia dentro de build(), asi que cada
+    // reconstruccion cruzaba a Kotlin, leia MediaStore y recomprimia el JPEG.
+    const Elemento pista = Elemento(
+      nombre: 'Una [x].mp3',
+      uri: 'content://audio/1',
+      duracion: 100,
+      tamano: 10,
+      audio: true,
+    );
+
+    await tester.pumpWidget(const MaterialApp(home: PortadaLocal(elemento: pista)));
+    await tester.pumpAndSettle();
+    expect(peticionesDePortada(), 1);
+
+    // Se reconstruye desde cero y ya no hace falta volver a pedirla.
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: PortadaLocal(elemento: pista, lado: 120)),
+    ));
+    await tester.pumpAndSettle();
+    expect(peticionesDePortada(), 1);
+  });
+
+  testWidgets('varias filas de la misma pista comparten una sola peticion',
+      (WidgetTester tester) async {
+    const Elemento pista = Elemento(
+      nombre: 'Una [x].mp3',
+      uri: 'content://audio/1',
+      duracion: 100,
+      tamano: 10,
+      audio: true,
+    );
+
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: Column(
+          children: <Widget>[
+            PortadaLocal(elemento: pista),
+            PortadaLocal(elemento: pista),
+            PortadaLocal(elemento: pista),
+          ],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(peticionesDePortada(), 1);
+  });
+
+  testWidgets('al arrancar no se prepara la biblioteca entera',
+      (WidgetTester tester) async {
+    // El IndexedStack construia las tres pestanias a la vez y cada una pedia
+    // las portadas de lo suyo antes de que se viera nada.
+    biblioteca = _conCanciones;
+    await abrirInicio(tester);
+
+    expect(find.byType(FilaPista), findsNothing,
+        reason: 'la biblioteca no se construye hasta que se abre');
+    // Inicio ensenia la misma pista en «continuar» y en el carrusel, pero solo
+    // se pide una portada por cancion distinta.
+    expect(peticionesDePortada(), 3);
+
+    await tester.tap(find.text('Biblioteca').last);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(FilaPista), findsWidgets);
+    // Y al abrirla no se vuelve a pedir ninguna: ya estaban guardadas.
+    expect(peticionesDePortada(), 3);
+  });
+
+  testWidgets('borrar una descarga olvida su portada', (WidgetTester tester) async {
+    const Elemento pista = Elemento(
+      nombre: 'Una [x].mp3',
+      uri: 'content://audio/1',
+      duracion: 100,
+      tamano: 10,
+      audio: true,
+    );
+    await tester.pumpWidget(const MaterialApp(home: PortadaLocal(elemento: pista)));
+    await tester.pumpAndSettle();
+    expect(Nucleo.caratulaConocida(pista.uri), isTrue);
+
+    Nucleo.olvidarCaratula(pista.uri);
+
+    expect(Nucleo.caratulaConocida(pista.uri), isFalse);
   });
 }
 

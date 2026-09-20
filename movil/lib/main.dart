@@ -62,11 +62,27 @@ class _InicioState extends State<Inicio> {
     };
   }
 
+  /// Las pestanias ya abiertas alguna vez.
+  ///
+  /// El IndexedStack construye a la vez todas las que le des, y cada pantalla
+  /// pide las portadas de lo que ensenia: al arrancar salian las tres de
+  /// golpe y se codificaban decenas de imagenes antes del primer fotograma.
+  /// Las que no se han visitado esperan, y una vez abiertas se quedan para
+  /// conservar su estado.
+  final Set<int> _vistas = <int>{0};
+
   void _irA(int pestana) {
-    setState(() => _pestana = pestana);
+    setState(() {
+      _pestana = pestana;
+      _vistas.add(pestana);
+    });
     if (pestana == 0) _inicio.currentState?.recargar();
     if (pestana == 2) _biblioteca.currentState?.recargar();
   }
+
+  /// Construye la pestania solo si ya se abrio alguna vez.
+  Widget _siSeHaVisto(int indice, Widget Function() construir) =>
+      _vistas.contains(indice) ? construir() : const SizedBox.shrink();
 
   @override
   Widget build(BuildContext context) {
@@ -76,13 +92,16 @@ class _InicioState extends State<Inicio> {
         child: IndexedStack(
           index: _pestana,
           children: <Widget>[
-            PantallaInicio(
-              key: _inicio,
-              alIrADescargar: () => _irA(1),
-              alIrABiblioteca: () => _irA(2),
+            _siSeHaVisto(
+              0,
+              () => PantallaInicio(
+                key: _inicio,
+                alIrADescargar: () => _irA(1),
+                alIrABiblioteca: () => _irA(2),
+              ),
             ),
-            const PantallaDescarga(),
-            PantallaBiblioteca(key: _biblioteca),
+            _siSeHaVisto(1, () => const PantallaDescarga()),
+            _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
           ],
         ),
       ),

@@ -140,8 +140,38 @@ class Nucleo {
     }
   }
 
-  static Future<Uint8List?> caratula(String uri) async {
-    if (_caratulas.containsKey(uri)) return _caratulas[uri];
+  /// Peticiones a medio hacer, para que varias filas de la misma pista no
+  /// pidan la portada por separado.
+  ///
+  /// El recuerdo no basta: se escribe al volver, y hasta entonces todas las
+  /// filas que se pinten ven el hueco vacio y cruzan el canal cada una.
+  static final Map<String, Future<Uint8List?>> _enCurso = <String, Future<Uint8List?>>{};
+
+  /// Si ya se pidio, aunque fuera para saber que no tiene portada.
+  static bool caratulaConocida(String uri) => _caratulas.containsKey(uri);
+
+  /// Lo ya recordado, sin esperar. Distinguir "no tiene" de "aun no se pidio"
+  /// es cosa de [caratulaConocida].
+  static Uint8List? caratulaGuardada(String uri) => _caratulas[uri];
+
+  /// Al borrar una descarga, su portada deja de valer.
+  static void olvidarCaratula(String uri) {
+    _caratulas.remove(uri);
+    _enCurso.remove(uri);
+  }
+
+  @visibleForTesting
+  static void olvidarCaratulas() {
+    _caratulas.clear();
+    _enCurso.clear();
+  }
+
+  static Future<Uint8List?> caratula(String uri) {
+    if (_caratulas.containsKey(uri)) return Future<Uint8List?>.value(_caratulas[uri]);
+    return _enCurso[uri] ??= _pedirCaratula(uri);
+  }
+
+  static Future<Uint8List?> _pedirCaratula(String uri) async {
     try {
       final Map<String, dynamic> datos =
           await _pedir('caratula', <String, dynamic>{'uri': uri});
@@ -152,6 +182,8 @@ class Nucleo {
     } catch (_) {
       _caratulas[uri] = null;
       return null;
+    } finally {
+      _enCurso.remove(uri);
     }
   }
 }

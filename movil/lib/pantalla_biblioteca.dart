@@ -139,6 +139,8 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
 
     try {
       await Nucleo.eliminar(elemento.uri);
+      // La portada guardada ya no vale para nada y ocupa memoria.
+      Nucleo.olvidarCaratula(elemento.uri);
       await EstadoReproductor.instancia.olvidarSiEs(elemento.uri);
       await _listas.olvidar(elemento.uri);
       // Sin esto el catalogo seguiria creyendo que la tenemos y no se

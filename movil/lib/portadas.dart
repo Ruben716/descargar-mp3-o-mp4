@@ -44,20 +44,27 @@ class PortadaLocal extends StatelessWidget {
   final double lado;
   final double radio;
 
+  Widget _marco(Uint8List? datos) => _Marco(
+    lado: lado,
+    radio: radio,
+    icono: elemento.audio ? Icons.music_note : Icons.movie_creation,
+    hijo: datos == null
+        ? null
+        : Image.memory(datos, fit: BoxFit.cover, gaplessPlayback: true),
+  );
+
   @override
   Widget build(BuildContext context) {
+    // Si ya se conoce, se pinta directamente. Pasar por un FutureBuilder aqui
+    // volveria a lanzar la peticion en cada reconstruccion, que es justo lo
+    // que dejaba la app pillada al arrancar.
+    if (Nucleo.caratulaConocida(elemento.uri)) {
+      return _marco(Nucleo.caratulaGuardada(elemento.uri));
+    }
     return FutureBuilder<Uint8List?>(
       future: Nucleo.caratula(elemento.uri),
-      builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) {
-        return _Marco(
-          lado: lado,
-          radio: radio,
-          icono: elemento.audio ? Icons.music_note : Icons.movie_creation,
-          hijo: imagen.data == null
-              ? null
-              : Image.memory(imagen.data!, fit: BoxFit.cover, gaplessPlayback: true),
-        );
-      },
+      builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) =>
+          _marco(imagen.data),
     );
   }
 }
