@@ -125,7 +125,8 @@ class _Registro:
 def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
               formato_audio: str, bitrate: str = "192", subtitulos: str = "",
               fragmento: str = "", sin_patrocinios: bool = False,
-              normalizar: bool = False, etiquetas_limpias: bool = True) -> str:
+              normalizar: bool = False, etiquetas_limpias: bool = True,
+              cookies: str = "") -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -146,7 +147,9 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )
-        motor = YtDlpDownloader(_anotar, registro)
+        # Las cookies solo llegan cuando Kotlin tuvo que sacarlas de un
+        # WebView porque la web se planto con un muro anti-robots.
+        motor = YtDlpDownloader(_anotar, registro, cookies or None)
         resultado = DownloadVideo(motor).execute(url, Path(carpeta), opciones)
         _AVANCE["status"] = "listo"
         return _respuesta({"ok": True, "archivos": [str(r) for r in resultado.files]})

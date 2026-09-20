@@ -16,6 +16,9 @@ import android.util.Base64
 import android.util.Rational
 import android.util.Size
 import android.system.Os
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.chaquo.python.PyObject
@@ -205,20 +208,17 @@ class MainActivity : AudioServiceActivity() {
         asegurarFfmpeg(puente)
         ServicioDescarga.arrancar(this)
         try {
-            val crudo = puente.callAttr(
-                "descargar",
-                ajustes.url,
-                carpetaTrabajo().absolutePath,
-                ajustes.soloAudio,
-                ajustes.calidad,
-                ajustes.formatoAudio,
-                ajustes.bitrate,
-                ajustes.subtitulos,
-                ajustes.fragmento,
-                ajustes.sinPatrocinios,
-                ajustes.normalizar,
-                ajustes.etiquetasLimpias,
-            ).toString()
+            var crudo = pedirDescarga(puente, ajustes, "")
+            if (esMuroAntiRobots(crudo)) {
+                // La web se planto: se le deja abrir la pagina a un navegador
+                // de verdad y se reintenta con lo que ella misma le entrego.
+                val cookies = cookiesDeNavegador(ajustes.url)
+                val dominio = dominioDe(ajustes.url)
+                val archivo = if (dominio == null) null else archivoDeCookies(cookies, dominio)
+                if (archivo != null) {
+                    crudo = pedirDescarga(puente, ajustes, archivo.absolutePath)
+                }
+            }
 
             val datos = JSONObject(crudo)
             if (!datos.optBoolean("ok")) return crudo
@@ -585,6 +585,118 @@ class MainActivity : AudioServiceActivity() {
             entrada.delete()
             salida.delete()
         }
+    }
+
+    /**
+     * Cookies que la web le entrega a un navegador de verdad.
+     *
+     * Hay webs (TikTok) que sirven un muro anti-robots de medio kilobyte en vez
+     * de la pagina, porque la peticion no viene de un navegador. yt-dlp lo
+     * resolveria imitando su huella, pero eso pide curl_cffi y para Android no
+     * existe. El WebView del sistema si es Chromium de verdad, asi que se le
+     * deja abrir la pagina y se recoge lo que la web le dio.
+     *
+     * No es iniciar sesion: son las cookies que se reparten a cualquier
+     * visitante. Nunca se pide usuario ni contrasenia.
+     */
+    private fun cookiesDeNavegador(url: String): String {
+        val listo = java.util.concurrent.CountDownLatch(1)
+        var recogidas = ""
+        runOnUiThread {
+            try {
+                val vista = WebView(this)
+                vista.settings.javaScriptEnabled = true
+                vista.settings.domStorageEnabled = true
+                val galletas = CookieManager.getInstance()
+                galletas.setAcceptCookie(true)
+                galletas.setAcceptThirdPartyCookies(vista, true)
+                vista.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(vistaWeb: WebView?, cargada: String?) {
+                        recogidas = galletas.getCookie(cargada ?: url).orEmpty()
+                        galletas.flush()
+                        vistaWeb?.destroy()
+                        listo.countDown()
+                    }
+                }
+                vista.loadUrl(url)
+            } catch (error: Throwable) {
+                listo.countDown()
+            }
+        }
+        // Si la pagina se atasca no se espera indefinidamente: sin cookies se
+        // sigue como antes y el fallo sera el de siempre, no uno peor.
+        listo.await(25, java.util.concurrent.TimeUnit.SECONDS)
+        return recogidas
+    }
+
+    /**
+     * Deja las cookies en el formato Netscape que entiende yt-dlp.
+     *
+     * Es un archivo de texto con siete columnas separadas por tabuladores. El
+     * dominio va con punto delante para que valga tambien en los subdominios.
+     */
+    private fun archivoDeCookies(cookies: String, dominio: String): File? {
+        val pares = cookies.split(';')
+            .mapNotNull { trozo ->
+                val corte = trozo.indexOf('=')
+                if (corte <= 0) null else trozo.take(corte).trim() to trozo.substring(corte + 1).trim()
+            }
+            .filter { it.first.isNotEmpty() }
+        if (pares.isEmpty()) return null
+
+        val caduca = (System.currentTimeMillis() / 1000) + 86_400
+        val destino = File(cacheDir, "cookies_${dominio.replace('.', '_')}.txt")
+        return try {
+            destino.bufferedWriter().use { salida ->
+                salida.write("# Netscape HTTP Cookie File\n")
+                for ((nombre, valor) in pares) {
+                    salida.write(".$dominio\tTRUE\t/\tTRUE\t$caduca\t$nombre\t$valor\n")
+                }
+            }
+            destino
+        } catch (error: Throwable) {
+            null
+        }
+    }
+
+    /** El dominio principal de una URL, para etiquetar sus cookies. */
+    private fun dominioDe(url: String): String? {
+        val anfitrion = try {
+            Uri.parse(url).host
+        } catch (error: Throwable) {
+            null
+        } ?: return null
+        val partes = anfitrion.split('.')
+        return if (partes.size >= 2) partes.takeLast(2).joinToString(".") else anfitrion
+    }
+
+    private fun pedirDescarga(puente: PyObject, ajustes: Ajustes, cookies: String): String =
+        puente.callAttr(
+            "descargar",
+            ajustes.url,
+            carpetaTrabajo().absolutePath,
+            ajustes.soloAudio,
+            ajustes.calidad,
+            ajustes.formatoAudio,
+            ajustes.bitrate,
+            ajustes.subtitulos,
+            ajustes.fragmento,
+            ajustes.sinPatrocinios,
+            ajustes.normalizar,
+            ajustes.etiquetasLimpias,
+            cookies,
+        ).toString()
+
+    /** Si el fallo huele a que la web sirvio un muro en vez de la pagina. */
+    private fun esMuroAntiRobots(crudo: String): Boolean {
+        val datos = try {
+            JSONObject(crudo)
+        } catch (error: Throwable) {
+            return false
+        }
+        if (datos.optBoolean("ok")) return false
+        val error = datos.optString("error").lowercase()
+        return error.contains("unexpected response") || error.contains("challenge")
     }
 
     private fun nombreDe(uri: Uri): String? {

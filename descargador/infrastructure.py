@@ -175,8 +175,14 @@ class YtDlpDownloader:
         self,
         on_progress: Callable[[DownloadProgress], None] | None = None,
         registro: object | None = None,
+        cookies: str | None = None,
     ):
         self._on_progress = on_progress
+        #: Archivo de cookies en formato Netscape, cuando hace falta.
+        #:
+        #: No es para iniciar sesión: hay webs que sirven un muro anti-robots
+        #: a quien no llega con las cookies que dan a cualquier visitante.
+        self._cookies = cookies
         #: Receptor opcional del log detallado del motor (debug/warning/error).
         #: Sirve para diagnosticar fallos donde no hay consola, como el móvil.
         self._registro = registro
@@ -439,6 +445,8 @@ class YtDlpDownloader:
                 options |= {"progress_hooks": [self._notificar], "noprogress": True, "quiet": True}
             if self._registro is not None:
                 options |= {"logger": self._registro, "verbose": True}
+            if self._cookies:
+                options["cookiefile"] = self._cookies
 
             with YoutubeDL(options) as engine:
                 info = engine.extract_info(request.url, download=False, process=False)
