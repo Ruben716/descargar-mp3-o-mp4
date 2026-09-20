@@ -193,6 +193,89 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(recibe("EmbedThumbnail"), [])
 
 
+class RedAndroidTests(unittest.TestCase):
+    """El manejador que saca las peticiones por la red del sistema.
+
+    Vive en el puente del móvil, no en el núcleo: es lo único del proyecto que
+    depende de Android. Se carga por su ruta y no por sys.path para no colar
+    sin querer la copia del núcleo que Gradle sincroniza al lado.
+    """
+
+    modulo: ClassVar = None
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+
+        ruta = Path("movil/android/app/src/main/python/red_android.py")
+        spec = importlib.util.spec_from_file_location("red_android_prueba", ruta)
+        assert spec and spec.loader
+        cls.modulo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.modulo)
+
+    def tearDown(self):
+        self.modulo.desactivar()
+
+    def _peticion(self, url="https://ejemplo.com/v"):
+        from yt_dlp.networking import Request
+
+        return Request(url)
+
+    def _manejador(self):
+        # yt-dlp le pasa su propio registro al construirlo; aquí basta uno mudo.
+        return self.modulo.RedAndroidRH(logger=Mock())
+
+    def test_apagado_se_aparta_para_que_siga_el_de_siempre(self):
+        from yt_dlp.networking.exceptions import UnsupportedRequest
+
+        manejador = self._manejador()
+        with self.assertRaises(UnsupportedRequest):
+            manejador.validate(self._peticion())
+
+    def test_encendido_devuelve_lo_que_dio_la_red_del_sistema(self):
+        recibido = {}
+
+        def backend(url, metodo, cabeceras, datos):
+            recibido.update(url=url, metodo=metodo)
+            return 200, url, {"Content-Type": "text/html"}, b"<html>hola</html>"
+
+        self.modulo.activar(backend)
+        respuesta = self._manejador().send(self._peticion())
+
+        self.assertEqual(recibido["url"], "https://ejemplo.com/v")
+        self.assertEqual(recibido["metodo"], "GET")
+        self.assertEqual(respuesta.status, 200)
+        self.assertEqual(respuesta.read(), b"<html>hola</html>")
+
+    def test_un_error_del_servidor_se_cuenta_como_error(self):
+        from yt_dlp.networking.exceptions import HTTPError
+
+        def backend(url, metodo, cabeceras, datos):
+            return 404, url, {}, b"no esta"
+
+        self.modulo.activar(backend)
+        with self.assertRaises(HTTPError) as caso:
+            self._manejador().send(self._peticion())
+        self.assertEqual(caso.exception.status, 404)
+
+    def test_si_la_red_del_sistema_falla_se_traduce_a_error_de_transporte(self):
+        from yt_dlp.networking.exceptions import TransportError
+
+        def backend(url, metodo, cabeceras, datos):
+            raise OSError("sin red")
+
+        self.modulo.activar(backend)
+        with self.assertRaises(TransportError):
+            self._manejador().send(self._peticion())
+
+    def test_encender_y_apagar_deja_el_estado_donde_estaba(self):
+        self.assertFalse(self.modulo.activo())
+        self.modulo.activar(lambda *_: (200, "", {}, b""))
+        self.assertTrue(self.modulo.activo())
+        self.modulo.desactivar()
+        self.assertFalse(self.modulo.activo())
+
+
 class EditarEtiquetasTests(unittest.TestCase):
     def test_el_nombre_recoge_artista_y_titulo_sin_perder_el_identificador(self):
         # El identificador entre corchetes es con lo que se reconoce la pista

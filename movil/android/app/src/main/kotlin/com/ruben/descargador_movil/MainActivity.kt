@@ -208,16 +208,19 @@ class MainActivity : AudioServiceActivity() {
         asegurarFfmpeg(puente)
         ServicioDescarga.arrancar(this)
         try {
-            var crudo = pedirDescarga(puente, ajustes, "")
+            var crudo = pedirDescarga(puente, ajustes, "", false)
             if (esMuroAntiRobots(crudo)) {
-                // La web se planto: se le deja abrir la pagina a un navegador
-                // de verdad y se reintenta con lo que ella misma le entrego.
-                val cookies = cookiesDeNavegador(ajustes.url)
+                // La web reconocio que quien pedia no era un navegador. Se
+                // reintenta saliendo por la red del sistema, cuya huella TLS si
+                // es la de Chrome, y con las cookies que la propia web le da a
+                // un navegador de verdad.
                 val dominio = dominioDe(ajustes.url)
-                val archivo = if (dominio == null) null else archivoDeCookies(cookies, dominio)
-                if (archivo != null) {
-                    crudo = pedirDescarga(puente, ajustes, archivo.absolutePath)
+                val cookies = if (dominio == null) {
+                    null
+                } else {
+                    archivoDeCookies(cookiesDeNavegador(ajustes.url), dominio)
                 }
+                crudo = pedirDescarga(puente, ajustes, cookies?.absolutePath.orEmpty(), true)
             }
 
             val datos = JSONObject(crudo)
@@ -670,7 +673,12 @@ class MainActivity : AudioServiceActivity() {
         return if (partes.size >= 2) partes.takeLast(2).joinToString(".") else anfitrion
     }
 
-    private fun pedirDescarga(puente: PyObject, ajustes: Ajustes, cookies: String): String =
+    private fun pedirDescarga(
+        puente: PyObject,
+        ajustes: Ajustes,
+        cookies: String,
+        nativo: Boolean,
+    ): String =
         puente.callAttr(
             "descargar",
             ajustes.url,
@@ -685,6 +693,7 @@ class MainActivity : AudioServiceActivity() {
             ajustes.normalizar,
             ajustes.etiquetasLimpias,
             cookies,
+            nativo,
         ).toString()
 
     /** Si el fallo huele a que la web sirvio un muro en vez de la pagina. */

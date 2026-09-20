@@ -126,7 +126,7 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
               formato_audio: str, bitrate: str = "192", subtitulos: str = "",
               fragmento: str = "", sin_patrocinios: bool = False,
               normalizar: bool = False, etiquetas_limpias: bool = True,
-              cookies: str = "") -> str:
+              cookies: str = "", nativo: bool = False) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -147,8 +147,10 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )
-        # Las cookies solo llegan cuando Kotlin tuvo que sacarlas de un
-        # WebView porque la web se planto con un muro anti-robots.
+        # Las cookies y la salida por Android solo llegan cuando Kotlin ya
+        # choco con un muro anti-robots; en lo normal no se tocan.
+        if nativo:
+            _encender_red_android()
         motor = YtDlpDownloader(_anotar, registro, cookies or None)
         resultado = DownloadVideo(motor).execute(url, Path(carpeta), opciones)
         _AVANCE["status"] = "listo"
@@ -163,6 +165,11 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             "error": f"{type(exc).__name__}: {exc}",
             "registro": registro.lineas,
         })
+    finally:
+        # Se apaga pase lo que pase: la siguiente descarga tiene que volver a
+        # salir por el camino de siempre.
+        if nativo:
+            _apagar_red_android()
 
 
 def buscar(texto: str, limite: int) -> str:
@@ -250,3 +257,41 @@ def etiquetar(origen: str, destino: str, titulo: str, artista: str, nombre: str)
         })
     except DownloadError as exc:
         return _respuesta({"ok": False, "error": str(exc)})
+
+
+def _backend_android(url: str, metodo: str, cabeceras: dict, datos):
+    """Manda la peticion por la red del sistema y traduce la respuesta."""
+    from com.ruben.descargador_movil import RedNativa  # type: ignore[import-not-found]
+
+    respuesta = RedNativa.pedir(url, metodo, json.dumps(cabeceras), datos)
+    return (
+        respuesta.estado,
+        respuesta.url,
+        json.loads(respuesta.cabeceras),
+        bytes(respuesta.cuerpo),
+    )
+
+
+def _encender_red_android() -> None:
+    """Hace que yt-dlp salga por Android en esta descarga.
+
+    Se importa aqui y no arriba porque el modulo arrastra yt_dlp, y cargarlo al
+    abrir la app retrasaria el arranque sin que casi nunca haga falta.
+    """
+    try:
+        import red_android
+
+        red_android.activar(_backend_android)
+    except Exception:
+        # Sin esto se sigue por el camino de siempre: peor el fallo de antes
+        # que quedarse sin descargar nada.
+        pass
+
+
+def _apagar_red_android() -> None:
+    try:
+        import red_android
+
+        red_android.desactivar()
+    except Exception:
+        pass
