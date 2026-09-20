@@ -10,6 +10,7 @@ import 'formato.dart';
 import 'hoja_cola.dart';
 import 'hoja_suenio.dart';
 import 'nucleo.dart';
+import 'panel_letras.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
@@ -29,6 +30,9 @@ class _ReproductorState extends State<Reproductor> {
   /// Sin ella se reiniciaria desde el principio cada vez.
   final GlobalKey _claveVideo = GlobalKey();
 
+  /// Si se ve la letra en lugar de la caratula.
+  bool _letras = false;
+
   @override
   Widget build(BuildContext context) {
     final Elemento elemento = widget.elemento;
@@ -36,7 +40,7 @@ class _ReproductorState extends State<Reproductor> {
       valueListenable: Nucleo.enVentanaFlotante,
       builder: (BuildContext context, bool flotando, _) {
         final Widget contenido = elemento.audio
-            ? _Audio(elemento: elemento)
+            ? _Audio(elemento: elemento, letras: _letras)
             : _Video(key: _claveVideo, elemento: elemento);
 
         // En la ventana flotante no cabe nada mas que la imagen: ni barra de
@@ -56,6 +60,15 @@ class _ReproductorState extends State<Reproductor> {
             ),
             actions: <Widget>[
               if (elemento.audio) ...<Widget>[
+                IconButton(
+                  tooltip: _letras ? 'Ver la caratula' : 'Ver la letra',
+                  onPressed: () => setState(() => _letras = !_letras),
+                  icon: Icon(
+                    _letras ? Icons.lyrics_rounded : Icons.lyrics_outlined,
+                    size: 22,
+                    color: _letras ? Tema.acento : null,
+                  ),
+                ),
                 const _BotonTemporizador(),
                 IconButton(
                   tooltip: 'Ver la cola',
@@ -119,9 +132,12 @@ class _Fondo extends StatelessWidget {
 }
 
 class _Audio extends StatefulWidget {
-  const _Audio({required this.elemento});
+  const _Audio({required this.elemento, required this.letras});
 
   final Elemento elemento;
+
+  /// Si en el hueco de la caratula va la letra.
+  final bool letras;
 
   @override
   State<_Audio> createState() => _AudioState();
@@ -145,28 +161,32 @@ class _AudioState extends State<_Audio> {
       padding: const EdgeInsets.fromLTRB(28, 16, 28, 28),
       child: Column(
         children: <Widget>[
-          const Spacer(),
-          Hero(
-            tag: widget.elemento.uri,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    blurRadius: 48,
-                    offset: const Offset(0, 20),
-                  ),
-                ],
-              ),
-              child: PortadaLocal(
-                elemento: widget.elemento,
-                lado: MediaQuery.of(context).size.width - 96,
-                radio: 28,
+          if (widget.letras)
+            Expanded(child: PanelLetras(elemento: widget.elemento))
+          else ...<Widget>[
+            const Spacer(),
+            Hero(
+              tag: widget.elemento.uri,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.6),
+                      blurRadius: 48,
+                      offset: const Offset(0, 20),
+                    ),
+                  ],
+                ),
+                child: PortadaLocal(
+                  elemento: widget.elemento,
+                  lado: MediaQuery.of(context).size.width - 96,
+                  radio: 28,
+                ),
               ),
             ),
-          ),
-          const Spacer(),
+            const Spacer(),
+          ],
           Text(
             _sinExtension(widget.elemento.nombre),
             maxLines: 2,

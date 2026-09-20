@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/main.dart';
@@ -7,6 +8,7 @@ import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/fila_pista.dart';
 import 'package:descargador_movil/formato.dart';
+import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
@@ -624,6 +626,143 @@ void main() {
     // "Amame" con tilde iria detras de la Z si se comparase en crudo.
     expect(orden.first, startsWith('Amame'));
     expect(orden.last, startsWith('Corazon'));
+  });
+
+  // --- Letras -------------------------------------------------------------
+
+  test('la consulta se queda con el artista y el tema, sin el ruido', () {
+    expect(
+      Letras.consultaDe('Bad Bunny - Titi Me Pregunto (Video Oficial) | Un Verano [x1].mp3'),
+      'Bad Bunny Titi Me Pregunto',
+    );
+    expect(
+      Letras.consultaDe('Soda Stereo - De Musica Ligera (Official Video) [4K] [x2].mp3'),
+      'Soda Stereo De Musica Ligera',
+    );
+  });
+
+  test('un LRC se convierte en lineas con su instante', () {
+    const String lrc = '[ar:Soda Stereo]\n'
+        '[00:23.62] Ella durmio al calor de las masas\n'
+        '[00:31.28] Y yo desperte queriendo sonarla\n'
+        'sin marca, se ignora\n';
+
+    final List<LineaLetra> lineas = Letras.analizarLrc(lrc);
+
+    expect(lineas.length, 2);
+    expect(lineas.first.desde, const Duration(seconds: 23, milliseconds: 620));
+    expect(lineas.first.texto, 'Ella durmio al calor de las masas');
+    expect(lineas.last.desde, const Duration(seconds: 31, milliseconds: 280));
+  });
+
+  test('una linea con varias marcas sale repetida en cada una', () {
+    // Pasa con los estribillos: el LRC no repite el texto, repite el tiempo.
+    final List<LineaLetra> lineas =
+        Letras.analizarLrc('[00:10.00][01:20.50] El estribillo');
+
+    expect(lineas.length, 2);
+    expect(lineas.map((LineaLetra l) => l.texto).toSet(), <String>{'El estribillo'});
+    expect(lineas.first.desde, const Duration(seconds: 10));
+    expect(lineas.last.desde, const Duration(minutes: 1, seconds: 20, milliseconds: 500));
+  });
+
+  test('antes de la primera linea no se resalta ninguna', () {
+    final Letra letra = Letra(
+      lineas: Letras.analizarLrc('[00:23.00] Empieza aqui'),
+      texto: '',
+    );
+
+    expect(letra.lineaEn(Duration.zero), -1);
+    expect(letra.lineaEn(const Duration(seconds: 25)), 0);
+  });
+
+  test('entre versiones gana la que dura lo que nuestro archivo', () {
+    // El mismo tema tiene version de album, remix y directo; la buena es la
+    // que coincide en duracion con lo que tenemos bajado.
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{'duration': 180.0, 'syncedLyrics': '[00:01.00] corta'},
+      <String, dynamic>{'duration': 291.0, 'syncedLyrics': '[00:01.00] la buena'},
+      <String, dynamic>{'duration': 420.0, 'syncedLyrics': '[00:01.00] larga'},
+    ];
+
+    final Map<String, dynamic>? elegida = Letras.mejorCandidata(candidatas, 289);
+
+    expect(elegida!['syncedLyrics'], contains('la buena'));
+  });
+
+  test('a igualdad de cercania se prefiere la sincronizada', () {
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{'duration': 200.0, 'plainLyrics': 'sin tiempos'},
+      <String, dynamic>{'duration': 200.0, 'syncedLyrics': '[00:01.00] con tiempos'},
+    ];
+
+    final Map<String, dynamic>? elegida = Letras.mejorCandidata(candidatas, 200);
+
+    expect(elegida!.containsKey('syncedLyrics'), isTrue);
+  });
+
+  test('una candidata sin letra no se elige', () {
+    final List<dynamic> candidatas = <dynamic>[
+      <String, dynamic>{'duration': 200.0, 'instrumental': true},
+    ];
+
+    expect(Letras.mejorCandidata(candidatas, 200), isNull);
+  });
+
+  test('la letra guardada vuelve tal cual, y "no habia" tambien se guarda', () async {
+    final Catalogo catalogo = Catalogo.instancia;
+    expect(await catalogo.letraDe('content://audio/1'), isNull);
+
+    await catalogo.guardarLetra(
+      'content://audio/1',
+      lrc: '[00:05.00] Una linea',
+      texto: 'Una linea',
+    );
+    expect((await catalogo.letraDe('content://audio/1'))!.lrc, contains('Una linea'));
+
+    // Guardar vacio no es lo mismo que no haber buscado: sin distinguirlo se
+    // repetiria la consulta fallida cada vez que se abre la cancion.
+    await catalogo.guardarLetra('content://audio/2', lrc: '', texto: '');
+    expect(await catalogo.letraDe('content://audio/2'), isNotNull);
+  });
+
+  test('un catalogo de la version vieja conserva lo descargado al actualizar',
+      () async {
+    // Lo mas delicado del cambio: en el telefono ya hay una base de la v1 con
+    // las descargas dentro. Si la migracion estuviese mal, se perderian y todo
+    // se volveria a bajar.
+    final Directory temporal = await Directory.systemTemp.createTemp('tumbao');
+    final String ruta = '${temporal.path}/catalogo.db';
+
+    // Una base tal y como la dejo la version anterior: sin tabla de letras.
+    final Database vieja = await openDatabase(
+      ruta,
+      version: 1,
+      onCreate: (Database bd, int _) => bd.execute(
+        'CREATE TABLE descargas (id TEXT NOT NULL, audio INTEGER NOT NULL, '
+        'uri TEXT NOT NULL, fecha INTEGER NOT NULL, PRIMARY KEY (id, audio))',
+      ),
+    );
+    await vieja.insert('descargas', <String, Object>{
+      'id': 'abc123',
+      'audio': 1,
+      'uri': 'content://audio/7',
+      'fecha': 0,
+    });
+    await vieja.close();
+
+    final Database nueva = await Catalogo.abrirEn(ruta);
+    try {
+      expect(await nueva.getVersion(), 2);
+      final List<Map<String, Object?>> filas = await nueva.query('descargas');
+      expect(filas.length, 1, reason: 'lo descargado no se toca');
+      expect(filas.first['uri'], 'content://audio/7');
+      // Y la tabla nueva ya esta, lista para usarse.
+      expect(await nueva.query('letras'), isEmpty);
+    } finally {
+      await nueva.close();
+      await temporal.delete(recursive: true);
+    }
   });
 }
 

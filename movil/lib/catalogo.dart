@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 /// Registro de lo ya descargado, en SQLite.
@@ -12,6 +13,11 @@ class Catalogo {
   static final Catalogo instancia = Catalogo._();
 
   static const String _tabla = 'descargas';
+  static const String _tablaLetras = 'letras';
+
+  /// Version actual del esquema. Subirla exige atender [_migrar].
+  static const int _version = 2;
+
   static const String _esquema = '''
     CREATE TABLE descargas (
       id TEXT NOT NULL,
@@ -22,6 +28,31 @@ class Catalogo {
     )
   ''';
 
+  /// La letra se guarda para que a la segunda no haga falta internet.
+  ///
+  /// `lrc` vacio es una respuesta valida y significa "se busco y no habia":
+  /// sin distinguirlo, cada vez que se abriese esa cancion se repetiria la
+  /// consulta que ya sabemos que no da nada.
+  static const String _esquemaLetras = '''
+    CREATE TABLE letras (
+      uri TEXT PRIMARY KEY,
+      lrc TEXT NOT NULL,
+      texto TEXT NOT NULL,
+      fecha INTEGER NOT NULL
+    )
+  ''';
+
+  static Future<void> _crear(Database bd) async {
+    await bd.execute(_esquema);
+    await bd.execute(_esquemaLetras);
+  }
+
+  static Future<void> _migrar(Database bd, int desde, int hasta) async {
+    // De la 1 a la 2 solo se anade la tabla de letras; lo descargado se queda
+    // donde estaba, que es justo lo que no se puede perder.
+    if (desde < 2) await bd.execute(_esquemaLetras);
+  }
+
   /// Se guarda la apertura, no la base ya abierta.
   ///
   /// Con varias descargas a la vez las tres llegan aqui antes de que ninguna
@@ -31,10 +62,19 @@ class Catalogo {
 
   Future<Database> get _abierta => _apertura ??= _abrir();
 
-  Future<Database> _abrir() async => openDatabase(
-    '${await getDatabasesPath()}/catalogo.db',
-    version: 1,
-    onCreate: (Database bd, int _) => bd.execute(_esquema),
+  Future<Database> _abrir() async => abrirEn('${await getDatabasesPath()}/catalogo.db');
+
+  /// Abre la base con el esquema y las migraciones de siempre.
+  ///
+  /// Es publica para que las pruebas puedan comprobar que una base vieja de
+  /// verdad sobrevive a la actualizacion, que es donde se perderia lo
+  /// descargado si algo estuviese mal.
+  @visibleForTesting
+  static Future<Database> abrirEn(String ruta) => openDatabase(
+    ruta,
+    version: _version,
+    onCreate: (Database bd, int _) => _crear(bd),
+    onUpgrade: _migrar,
   );
 
   /// El identificador del video dentro de la URL.
@@ -94,16 +134,48 @@ class Catalogo {
     return (filas.first['n'] as int?) ?? 0;
   }
 
+  // --- Letras -------------------------------------------------------------
+
+  /// Lo guardado para esa pista, o `null` si nunca se busco.
+  ///
+  /// Devolver una letra vacia no es lo mismo que devolver `null`: lo primero
+  /// dice que se busco y no habia, y evita repetir la consulta cada vez.
+  Future<({String lrc, String texto})?> letraDe(String uri) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaLetras,
+      columns: <String>['lrc', 'texto'],
+      where: 'uri = ?',
+      whereArgs: <Object>[uri],
+      limit: 1,
+    );
+    if (filas.isEmpty) return null;
+    return (
+      lrc: filas.first['lrc'] as String? ?? '',
+      texto: filas.first['texto'] as String? ?? '',
+    );
+  }
+
+  Future<void> guardarLetra(String uri, {required String lrc, required String texto}) async {
+    if (uri.isEmpty) return;
+    await (await _abierta).insert(
+      _tablaLetras,
+      <String, Object>{
+        'uri': uri,
+        'lrc': lrc,
+        'texto': texto,
+        'fecha': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
   /// Solo para las pruebas: base en memoria y sin filas.
   ///
   /// Se abre una sola vez y luego se vacia. Cerrarla entre prueba y prueba
   /// bloqueaba la base cuando aun quedaban operaciones en marcha.
   Future<void> usarEnMemoria() async {
-    _apertura ??= openDatabase(
-      inMemoryDatabasePath,
-      version: 1,
-      onCreate: (Database bd, int _) => bd.execute(_esquema),
-    );
+    _apertura ??= abrirEn(inMemoryDatabasePath);
     await (await _abierta).delete(_tabla);
+    await (await _abierta).delete(_tablaLetras);
   }
 }
