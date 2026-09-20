@@ -140,6 +140,33 @@ void main() {
     expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
   });
 
+  testWidgets('la lista tambien se crea bajando en MP3', (WidgetTester tester) async {
+    await abrir(tester);
+
+    // Se cambia a musica antes de traer la lista.
+    await tester.tap(find.text('Musica'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://music.youtube.com/playlist?list=PLabc',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Traer la lista'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Todo en MP3'), findsOneWidget);
+    await tester.tap(find.text('Todo en MP3'));
+    await tester.pumpAndSettle();
+
+    // Crear la lista no depende del formato: aqui igual que en video.
+    expect(Listas.instancia.nombres, contains('Mis temas'));
+    expect(Listas.instancia.contiene('Mis temas', 'content://audio/99'), isTrue);
+    final List<MethodCall> descargas =
+        llamadas.where((MethodCall c) => c.method == 'descargar').toList();
+    expect((descargas.first.arguments as Map<dynamic, dynamic>)['soloAudio'], isTrue);
+  });
+
   testWidgets('los resultados de una busqueda no ofrecen descargar todo',
       (WidgetTester tester) async {
     await abrir(tester);
