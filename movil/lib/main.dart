@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'control_descarga.dart';
 import 'mini_reproductor.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
@@ -33,6 +34,14 @@ class _InicioState extends State<Inicio> {
   int _pestana = 0;
 
   @override
+  void initState() {
+    super.initState();
+    // La descarga puede empezar en cualquier pantalla, asi que el aviso de
+    // "ya esta" se engancha una sola vez aqui arriba.
+    ControlDescarga.instancia.alTerminar = () => _biblioteca.currentState?.recargar();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
@@ -40,8 +49,7 @@ class _InicioState extends State<Inicio> {
         child: IndexedStack(
           index: _pestana,
           children: <Widget>[
-            // Al terminar una descarga la biblioteca se refresca sola.
-            PantallaDescarga(alDescargar: () => _biblioteca.currentState?.recargar()),
+            const PantallaDescarga(),
             PantallaBiblioteca(key: _biblioteca),
           ],
         ),

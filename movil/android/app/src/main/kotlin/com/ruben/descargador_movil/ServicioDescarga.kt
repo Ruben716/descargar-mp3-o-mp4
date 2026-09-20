@@ -3,6 +3,7 @@ package com.ruben.descargador_movil
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -84,7 +85,11 @@ class ServicioDescarga : Service() {
 
     companion object {
         private const val CANAL = "descargas"
+        private const val CANAL_LISTAS = "descargas_completadas"
         private const val NOTIFICACION = 1
+
+        /** Cada aviso necesita su propio id o el siguiente pisaria al anterior. */
+        private var siguienteAviso = 100
 
         fun arrancar(contexto: Context) {
             contexto.startForegroundService(Intent(contexto, ServicioDescarga::class.java))
@@ -92,6 +97,44 @@ class ServicioDescarga : Service() {
 
         fun detener(contexto: Context) {
             contexto.stopService(Intent(contexto, ServicioDescarga::class.java))
+        }
+
+        /**
+         * Avisa de que una descarga termino.
+         *
+         * Va en un canal aparte del progreso: este si debe sonar y asomarse,
+         * porque es lo que el usuario esta esperando.
+         */
+        fun avisarCompletada(contexto: Context, nombre: String, esAudio: Boolean) {
+            val gestor = contexto.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            gestor.createNotificationChannel(
+                NotificationChannel(
+                    CANAL_LISTAS,
+                    "Descargas completadas",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ).apply { description = "Avisa cuando una descarga termina" },
+            )
+
+            val abrir = PendingIntent.getActivity(
+                contexto,
+                0,
+                Intent(contexto, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+
+            val aviso = NotificationCompat.Builder(contexto, CANAL_LISTAS)
+                .setContentTitle(if (esAudio) "Musica descargada" else "Video descargado")
+                .setContentText(nombre)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(nombre))
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentIntent(abrir)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+
+            gestor.notify(siguienteAviso++, aviso)
         }
     }
 }

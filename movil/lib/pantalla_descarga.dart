@@ -1,20 +1,17 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
+import 'control_descarga.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_ajustes.dart';
 import 'nucleo.dart';
+import 'pantalla_previa.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
 /// Pantalla principal: buscar o pegar una URL, ajustar y descargar.
 class PantallaDescarga extends StatefulWidget {
-  const PantallaDescarga({required this.alDescargar, super.key});
-
-  /// Avisa para que la biblioteca se refresque sin tener que recargarla a mano.
-  final VoidCallback alDescargar;
+  const PantallaDescarga({super.key});
 
   @override
   State<PantallaDescarga> createState() => PantallaDescargaState();
@@ -22,34 +19,36 @@ class PantallaDescarga extends StatefulWidget {
 
 class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingObserver {
   final TextEditingController _entrada = TextEditingController();
+  final ControlDescarga _control = ControlDescarga.instancia;
+  final EstadoReproductor _reproductor = EstadoReproductor.instancia;
 
   bool _buscando = true;
-  Ajustes _ajustes = const Ajustes(url: '');
   List<Resultado> _resultados = <Resultado>[];
   Resultado? _elegido;
-
-  bool _ocupado = false;
-  String _estado = '';
-  double? _porcentaje;
-  String _mensaje = '';
+  bool _buscandoAhora = false;
+  String _aviso = '';
   bool _fallo = false;
-  Timer? _reloj;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    EstadoReproductor.instancia.addListener(_vigilarReproductor);
+    _control.addListener(_refrescar);
+    _reproductor.addListener(_vigilarReproductor);
     _recogerCompartido();
+  }
+
+  void _refrescar() {
+    if (mounted) setState(() {});
   }
 
   /// Si falla escuchar una vista previa hay que decirlo: antes se quedaba
   /// callado y parecia que el boton no hacia nada.
   void _vigilarReproductor() {
-    final String? fallo = EstadoReproductor.instancia.consumirError();
+    final String? fallo = _reproductor.consumirError();
     if (fallo == null || !mounted) return;
     setState(() {
-      _mensaje = 'No se pudo reproducir la vista previa.\n\n$fallo';
+      _aviso = 'No se pudo reproducir la vista previa.\n\n$fallo';
       _fallo = true;
     });
   }
@@ -81,9 +80,10 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     final String texto = _entrada.text.trim();
     if (texto.isEmpty) return;
     FocusScope.of(context).unfocus();
+    _control.limpiarMensaje();
     setState(() {
-      _ocupado = true;
-      _mensaje = '';
+      _buscandoAhora = true;
+      _aviso = '';
       _fallo = false;
       _resultados = <Resultado>[];
     });
@@ -93,19 +93,19 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       setState(() {
         _resultados = encontrados;
         if (encontrados.isEmpty) {
-          _mensaje = 'Sin resultados.';
+          _aviso = 'Sin resultados.';
           _fallo = true;
         }
       });
     } catch (error) {
       if (mounted) {
         setState(() {
-          _mensaje = '$error';
+          _aviso = '$error';
           _fallo = true;
         });
       }
     } finally {
-      if (mounted) setState(() => _ocupado = false);
+      if (mounted) setState(() => _buscandoAhora = false);
     }
   }
 
@@ -113,80 +113,27 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     final String url = _elegido?.url ?? _entrada.text.trim();
     if (url.isEmpty) {
       setState(() {
-        _mensaje = 'Elige un resultado o pega una URL.';
+        _aviso = 'Elige un resultado o pega una URL.';
         _fallo = true;
       });
       return;
     }
     FocusScope.of(context).unfocus();
     setState(() {
-      _ocupado = true;
-      _porcentaje = null;
-      _estado = 'Preparando...';
-      _mensaje = '';
+      _aviso = '';
       _fallo = false;
     });
-    _vigilar();
-
-    try {
-      await Nucleo.descargar(_ajustes.copiar(url: url));
-      if (!mounted) return;
-      setState(() {
-        _mensaje = 'Guardado en tu biblioteca.';
-        _fallo = false;
-      });
-      widget.alDescargar();
-    } on ErrorNucleo catch (error) {
-      if (!mounted) return;
-      final String detalle = error.registro.isEmpty
-          ? ''
-          : '\n\n--- registro del motor ---\n${error.registro.join('\n')}';
-      setState(() {
-        _mensaje = '${error.mensaje}$detalle';
-        _fallo = true;
-      });
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _mensaje = '$error';
-          _fallo = true;
-        });
-      }
-    } finally {
-      _reloj?.cancel();
-      if (mounted) {
-        setState(() {
-          _ocupado = false;
-          _estado = '';
-          _porcentaje = null;
-        });
-      }
-    }
+    await _control.iniciar(url);
   }
 
-  /// Python publica el avance y aqui se consulta mientras dure la descarga.
-  void _vigilar() {
-    _reloj?.cancel();
-    _reloj = Timer.periodic(const Duration(milliseconds: 500), (Timer reloj) async {
-      if (!_ocupado) {
-        reloj.cancel();
-        return;
-      }
-      try {
-        final Avance avance = await Nucleo.progreso();
-        if (!mounted) return;
-        setState(() {
-          _porcentaje = avance.porcentaje >= 0 ? avance.porcentaje / 100 : null;
-          _estado = switch (avance.estado) {
-            'downloading' => '${formatoTamano(avance.velocidad)}/s',
-            'finished' => 'Uniendo con FFmpeg...',
-            _ => 'Preparando...',
-          };
-        });
-      } catch (_) {
-        // Una consulta perdida no debe romper la descarga en curso.
-      }
-    });
+  /// Escuchar abre la vista previa: asi se ve la miniatura y el avance, no
+  /// solo se oye desde una barra diminuta.
+  Future<void> _escuchar(Resultado resultado) async {
+    _control.limpiarMensaje();
+    _reproductor.previsualizar(resultado);
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => PantallaPrevia(resultado: resultado)),
+    );
   }
 
   Future<void> _abrirAjustes() async {
@@ -197,19 +144,21 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => HojaAjustes(inicial: _ajustes),
+      builder: (_) => HojaAjustes(inicial: _control.ajustes),
     );
-    if (nuevos != null) setState(() => _ajustes = nuevos);
+    if (nuevos != null) _control.cambiarAjustes(nuevos);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    EstadoReproductor.instancia.removeListener(_vigilarReproductor);
-    _reloj?.cancel();
+    _control.removeListener(_refrescar);
+    _reproductor.removeListener(_vigilarReproductor);
     _entrada.dispose();
     super.dispose();
   }
+
+  bool get _ocupado => _control.activa || _buscandoAhora;
 
   @override
   Widget build(BuildContext context) {
@@ -227,8 +176,8 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
               const SizedBox(height: 14),
               _controles(),
               const SizedBox(height: 14),
-              if (_ocupado && _estado.isNotEmpty)
-                _TarjetaProgreso(porcentaje: _porcentaje, estado: _estado)
+              if (_control.activa)
+                _TarjetaProgreso(porcentaje: _control.porcentaje, estado: _control.estado)
               else
                 BotonDegradado(
                   texto: _elegido == null ? 'Descargar' : 'Descargar seleccion',
@@ -305,10 +254,11 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
                 icon: Icon(Icons.music_note_outlined, size: 18),
               ),
             ],
-            selected: <bool>{_ajustes.soloAudio},
+            selected: <bool>{_control.ajustes.soloAudio},
             onSelectionChanged: _ocupado
                 ? null
-                : (Set<bool> e) => setState(() => _ajustes = _ajustes.copiar(soloAudio: e.first)),
+                : (Set<bool> e) =>
+                    _control.cambiarAjustes(_control.ajustes.copiar(soloAudio: e.first)),
           ),
         ),
         const SizedBox(width: 10),
@@ -322,8 +272,10 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 
   Widget _cuerpo() {
-    if (_mensaje.isNotEmpty && _resultados.isEmpty) {
-      return _Aviso(mensaje: _mensaje, fallo: _fallo);
+    final String mensaje = _aviso.isNotEmpty ? _aviso : _control.mensaje;
+    final bool fallo = _aviso.isNotEmpty ? _fallo : _control.fallo;
+    if (mensaje.isNotEmpty && _resultados.isEmpty) {
+      return _Aviso(mensaje: mensaje, fallo: fallo);
     }
     if (_resultados.isEmpty) {
       return _Vacio(buscando: _buscando);
@@ -337,6 +289,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
           resultado: r,
           marcado: identical(r, _elegido),
           alPulsar: () => setState(() => _elegido = identical(r, _elegido) ? null : r),
+          alEscuchar: () => _escuchar(r),
         );
       },
     );
@@ -348,11 +301,13 @@ class _TarjetaResultado extends StatelessWidget {
     required this.resultado,
     required this.marcado,
     required this.alPulsar,
+    required this.alEscuchar,
   });
 
   final Resultado resultado;
   final bool marcado;
   final VoidCallback alPulsar;
+  final VoidCallback alEscuchar;
 
   @override
   Widget build(BuildContext context) {
@@ -363,10 +318,7 @@ class _TarjetaResultado extends StatelessWidget {
         decoration: BoxDecoration(
           color: marcado ? Tema.acento.withValues(alpha: 0.16) : Tema.superficie,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: marcado ? Tema.acento : Colors.transparent,
-            width: 1.5,
-          ),
+          border: Border.all(color: marcado ? Tema.acento : Colors.transparent, width: 1.5),
         ),
         child: Material(
           color: Colors.transparent,
@@ -428,7 +380,15 @@ class _TarjetaResultado extends StatelessWidget {
                       ],
                     ),
                   ),
-                  _BotonEscucha(resultado: resultado),
+                  IconButton(
+                    tooltip: 'Escuchar sin descargar',
+                    onPressed: alEscuchar,
+                    icon: const Icon(
+                      Icons.play_circle_outline_rounded,
+                      size: 32,
+                      color: Colors.white60,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -549,7 +509,7 @@ class _Vacio extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               buscando
-                  ? 'Busca por nombre y elige\nde la lista.'
+                  ? 'Busca por nombre y escucha\nantes de descargar.'
                   : 'Pega una URL, o compartela\ndesde YouTube.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: Colors.white54, height: 1.5),
@@ -557,40 +517,6 @@ class _Vacio extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-
-/// Escucha el resultado sin descargarlo, para comprobar que es el que se busca.
-class _BotonEscucha extends StatelessWidget {
-  const _BotonEscucha({required this.resultado});
-
-  final Resultado resultado;
-
-  @override
-  Widget build(BuildContext context) {
-    final EstadoReproductor estado = EstadoReproductor.instancia;
-    return ListenableBuilder(
-      listenable: estado,
-      builder: (BuildContext context, _) {
-        final bool esta = estado.actual?.fuente == resultado.url;
-        if (esta && estado.preparando) {
-          return const Padding(
-            padding: EdgeInsets.all(14),
-            child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4)),
-          );
-        }
-        return IconButton(
-          tooltip: 'Escuchar sin descargar',
-          onPressed: () => estado.previsualizar(resultado),
-          icon: Icon(
-            esta && estado.sonando ? Icons.pause_circle_rounded : Icons.play_circle_outline_rounded,
-            size: 32,
-            color: esta ? Tema.acento : Colors.white60,
-          ),
-        );
-      },
     );
   }
 }

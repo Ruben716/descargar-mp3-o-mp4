@@ -1,4 +1,6 @@
 import 'package:descargador_movil/main.dart';
+import 'package:descargador_movil/control_descarga.dart';
+import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +24,10 @@ void main() {
   setUp(() {
     llamadas.clear();
     SharedPreferences.setMockInitialValues(<String, Object>{});
+    // El reproductor y la descarga son unicos para toda la app: sin esto
+    // una prueba heredaria lo que dejo la anterior.
+    EstadoReproductor.instancia.reiniciar();
+    ControlDescarga.instancia.reiniciar();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
       llamadas.add(llamada);
@@ -105,15 +111,26 @@ void main() {
     expect(find.textContaining('Aqui no hay nada todavia'), findsOneWidget);
   });
 
-  testWidgets('cada resultado ofrece escucharlo sin descargar',
+  testWidgets('escuchar un resultado abre su vista previa',
       (WidgetTester tester) async {
     await abrir(tester);
     await tester.enterText(find.byType(TextField), 'cancion');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
-    // Un boton de escucha por resultado, aparte del de descargar.
+    // Un boton de escucha por resultado.
     expect(find.byIcon(Icons.play_circle_outline_rounded), findsNWidgets(2));
+
+    await tester.tap(find.byIcon(Icons.play_circle_outline_rounded).first);
+    // pumpAndSettle no sirve aqui: mientras prepara la pista hay un indicador
+    // circular girando y nunca quedaria en reposo.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    // La vista previa se ve: titulo, autor y aviso de que no esta bajado.
+    expect(find.text('VISTA PREVIA'), findsOneWidget);
+    expect(find.text('Todavia no esta en tu telefono'), findsOneWidget);
+    expect(find.textContaining('Descargar'), findsWidgets);
   });
 
   testWidgets('cancelar el dialogo de nueva lista no rompe nada',

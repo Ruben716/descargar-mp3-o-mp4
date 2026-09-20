@@ -169,6 +169,7 @@ class MainActivity : FlutterActivity() {
             for (i in 0 until origen.length()) {
                 val archivo = File(origen.getString(i))
                 guardados.put(exportarABiblioteca(archivo, ajustes.soloAudio) ?: archivo.absolutePath)
+                ServicioDescarga.avisarCompletada(this, archivo.name, ajustes.soloAudio)
             }
             return JSONObject().put("ok", true).put("archivos", guardados).toString()
         } finally {

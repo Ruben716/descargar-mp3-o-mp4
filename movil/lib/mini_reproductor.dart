@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'estado_reproductor.dart';
 import 'portadas.dart';
+import 'pantalla_previa.dart';
 import 'reproductor.dart';
 import 'tema.dart';
 
@@ -43,14 +44,13 @@ class _Barra extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          // Una vista previa no tiene pantalla propia: todavia no es un archivo.
-          onTap: pista.elemento == null
-              ? null
-              : () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => Reproductor(elemento: pista.elemento!),
-                    ),
-                  ),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => pista.elemento != null
+                  ? Reproductor(elemento: pista.elemento!)
+                  : PantallaPrevia(resultado: pista.resultado!),
+            ),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[

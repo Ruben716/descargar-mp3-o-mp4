@@ -10,6 +10,7 @@ class Pista {
     required this.fuente,
     this.cabeceras = const <String, String>{},
     this.elemento,
+    this.resultado,
   });
 
   final String titulo;
@@ -18,6 +19,9 @@ class Pista {
 
   /// Nulo cuando es una vista previa: eso todavia no existe en el telefono.
   final Elemento? elemento;
+
+  /// Solo en una vista previa: guarda miniatura y autor para poder pintarla.
+  final Resultado? resultado;
 
   bool get esPrevia => elemento == null;
 }
@@ -79,7 +83,7 @@ class EstadoReproductor extends ChangeNotifier {
     }
     _preparando = true;
     _error = null;
-    _actual = Pista(titulo: resultado.titulo, fuente: resultado.url);
+    _actual = Pista(titulo: resultado.titulo, fuente: resultado.url, resultado: resultado);
     notifyListeners();
     try {
       final Previsualizacion pista = await Nucleo.previsualizar(resultado.url);
@@ -88,6 +92,7 @@ class EstadoReproductor extends ChangeNotifier {
           titulo: resultado.titulo,
           fuente: resultado.url,
           cabeceras: pista.cabeceras,
+          resultado: resultado,
         ),
         directa: pista.url,
       );
@@ -145,6 +150,18 @@ class EstadoReproductor extends ChangeNotifier {
     await motor.stop();
     _actual = null;
     _error = null;
+    notifyListeners();
+  }
+
+  /// Vuelve al estado inicial sin tocar el motor de audio.
+  ///
+  /// Al ser un unico objeto para toda la app, lo que quede de una pantalla se
+  /// arrastra a la siguiente; esto permite empezar de cero, y es lo que usan
+  /// las pruebas para no depender del orden en que se ejecutan.
+  void reiniciar() {
+    _actual = null;
+    _error = null;
+    _preparando = false;
     notifyListeners();
   }
 
