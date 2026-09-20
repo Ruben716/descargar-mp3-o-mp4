@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_ajustes.dart';
 import 'nucleo.dart';
@@ -414,6 +415,7 @@ class _TarjetaResultado extends StatelessWidget {
                       ],
                     ),
                   ),
+                  _BotonEscucha(resultado: resultado),
                 ],
               ),
             ),
@@ -542,6 +544,40 @@ class _Vacio extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Escucha el resultado sin descargarlo, para comprobar que es el que se busca.
+class _BotonEscucha extends StatelessWidget {
+  const _BotonEscucha({required this.resultado});
+
+  final Resultado resultado;
+
+  @override
+  Widget build(BuildContext context) {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    return ListenableBuilder(
+      listenable: estado,
+      builder: (BuildContext context, _) {
+        final bool esta = estado.actual?.fuente == resultado.url;
+        if (esta && estado.preparando) {
+          return const Padding(
+            padding: EdgeInsets.all(14),
+            child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4)),
+          );
+        }
+        return IconButton(
+          tooltip: 'Escuchar sin descargar',
+          onPressed: () => estado.previsualizar(resultado),
+          icon: Icon(
+            esta && estado.sonando ? Icons.pause_circle_rounded : Icons.play_circle_outline_rounded,
+            size: 32,
+            color: esta ? Tema.acento : Colors.white60,
+          ),
+        );
+      },
     );
   }
 }

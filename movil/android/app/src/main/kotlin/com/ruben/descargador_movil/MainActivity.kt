@@ -97,7 +97,18 @@ class MainActivity : FlutterActivity() {
                             puente.callAttr("buscar", texto, limite).toString()
                         }
                     }
+                    "previsualizar" -> {
+                        val url = llamada.argument<String>("url").orEmpty()
+                        val soloAudio = llamada.argument<Boolean>("soloAudio") ?: true
+                        enHilo(respuesta) { puente ->
+                            puente.callAttr("previsualizar", url, soloAudio).toString()
+                        }
+                    }
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
+                    "eliminar" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        enHilo(respuesta) { _ -> eliminar(uri) }
+                    }
                     "caratula" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { _ -> caratula(uri) }
@@ -177,6 +188,23 @@ class MainActivity : FlutterActivity() {
             "Movies/Descargador/", false, salida,
         )
         return JSONObject().put("ok", true).put("elementos", salida).toString()
+    }
+
+    /**
+     * Borra un archivo de la biblioteca.
+     *
+     * Funciona sin pedir permiso porque los inserto esta misma app y por tanto
+     * es su duenia; borrar lo de otras aplicaciones exigiria confirmacion.
+     */
+    private fun eliminar(uri: String): String {
+        return try {
+            val borrados = contentResolver.delete(Uri.parse(uri), null, null)
+            JSONObject().put("ok", borrados > 0)
+                .put("error", if (borrados > 0) "" else "No se pudo borrar el archivo.")
+                .toString()
+        } catch (error: Throwable) {
+            JSONObject().put("ok", false).put("error", "${error.message}").toString()
+        }
     }
 
     /**

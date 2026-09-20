@@ -1,8 +1,10 @@
 import 'package:descargador_movil/main.dart';
+import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Respuestas del canal nativo. Las pruebas no arrancan Python ni tocan la red.
 const MethodChannel _canal = MethodChannel('com.ruben.descargador/nucleo');
@@ -12,10 +14,14 @@ const String _busqueda = '{"ok":true,"resultados":['
     '{"titulo":"Cancion dos","autor":"Otro","duracion":100,"url":"https://y/2","miniatura":""}]}';
 
 void main() {
+  // El almacenamiento del telefono tampoco existe en las pruebas.
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   final List<MethodCall> llamadas = <MethodCall>[];
 
   setUp(() {
     llamadas.clear();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
       llamadas.add(llamada);
@@ -24,6 +30,9 @@ void main() {
         'biblioteca' => '{"ok":true,"elementos":[]}',
         'buscar' => _busqueda,
         'caratula' => '{"ok":true,"imagen":""}',
+        'previsualizar' =>
+          '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
+        'eliminar' => '{"ok":true}',
         'descargar' => '{"ok":true,"archivos":["Music/Descargador/x.mp3"]}',
         _ => '{"ok":true}',
       };
@@ -94,6 +103,34 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Aqui no hay nada todavia'), findsOneWidget);
+  });
+
+  testWidgets('cada resultado ofrece escucharlo sin descargar',
+      (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    // Un boton de escucha por resultado, aparte del de descargar.
+    expect(find.byIcon(Icons.play_circle_outline_rounded), findsNWidgets(2));
+  });
+
+  test('una lista recuerda sus pistas y las olvida al borrar la descarga',
+      () async {
+    final Listas listas = Listas.instancia;
+    await listas.crear('Prueba');
+    await listas.alternar('Prueba', 'content://audio/1');
+    expect(listas.contiene('Prueba', 'content://audio/1'), isTrue);
+
+    // Un nombre repetido no crea una segunda lista.
+    expect(await listas.crear('Prueba'), isFalse);
+
+    // Al eliminar el archivo debe desaparecer de todas las listas.
+    await listas.olvidar('content://audio/1');
+    expect(listas.contiene('Prueba', 'content://audio/1'), isFalse);
+    await listas.borrar('Prueba');
+    expect(listas.nombres, isNot(contains('Prueba')));
   });
 
   test('los ajustes viajan al nucleo con los nombres que espera Kotlin', () {

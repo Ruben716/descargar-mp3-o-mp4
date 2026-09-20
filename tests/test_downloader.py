@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from descargador.application import DownloadVideo, InspectVideo, SearchVideos
+from descargador.application import (
+    DownloadVideo,
+    InspectVideo,
+    SearchVideos,
+    StreamVideo,
+)
 from descargador.cli import (
     acciones_ajustes,
     describir_ajustes,
@@ -20,6 +25,7 @@ from descargador.domain import (
     DownloadProgress,
     DownloadRequest,
     DownloadResult,
+    PlaybackSource,
     SearchQuery,
     VideoInfo,
     parse_section,
@@ -165,6 +171,39 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(conteniendo.url, "https://www.youtube.com/watch?v=abc123")
         directa = YtDlpDownloader._resultado({"id": "x", "url": "https://y/ver"})
         self.assertEqual(directa.url, "https://y/ver")
+
+
+class StreamTests(unittest.TestCase):
+    """Escuchar antes de descargar, para comprobar que es lo que se busca."""
+
+    def test_selection_is_always_a_single_http_stream(self):
+        """Dos flujos separados no se pueden reproducir: harian falta FFmpeg y union."""
+        audio = YtDlpDownloader._seleccion_directa(DownloadOptions(audio_only=True))
+        video = YtDlpDownloader._seleccion_directa(DownloadOptions())
+        for seleccion in (audio, video):
+            self.assertNotIn("+", seleccion)
+            self.assertIn("protocol^=http", seleccion)
+        self.assertTrue(audio.startswith("ba"))
+        self.assertIn("ext=mp4", video)
+
+    def test_use_case_asks_for_audio_by_default(self):
+        adaptador = Mock()
+        adaptador.stream.return_value = PlaybackSource("https://cdn/pista", title="Una")
+        pista = StreamVideo(adaptador).execute("https://example.com/v")
+        self.assertTrue(adaptador.stream.call_args.args[0].options.audio_only)
+        self.assertEqual(pista.title, "Una")
+        adaptador.download.assert_not_called()
+
+    def test_use_case_validates_the_url_before_the_adapter(self):
+        adaptador = Mock()
+        with self.assertRaises(DownloadError):
+            StreamVideo(adaptador).execute("no-es-una-url")
+        adaptador.stream.assert_not_called()
+
+    def test_headers_travel_as_pairs_so_the_source_is_comparable(self):
+        una = PlaybackSource("https://cdn/p", (("User-Agent", "x"),))
+        otra = PlaybackSource("https://cdn/p", (("User-Agent", "x"),))
+        self.assertEqual(una, otra)
 
 
 class RetryTests(unittest.TestCase):

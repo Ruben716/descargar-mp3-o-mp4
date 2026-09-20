@@ -14,6 +14,7 @@ from .domain import (
     DownloadRequest,
     DownloadResult,
     MediaFormat,
+    PlaybackSource,
     SearchQuery,
     VideoInfo,
 )
@@ -153,6 +154,48 @@ class YtDlpDownloader:
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo consultar el video: {exc}") from exc
+
+    # -- reproduccion directa ---------------------------------------------
+    def stream(self, request: DownloadRequest) -> PlaybackSource:
+        """Devuelve una pista que puede sonar ya, sin bajar el archivo.
+
+        Fuerza un formato unico y por HTTP: si dejara que eligiera video y
+        audio por separado, yt-dlp devolveria dos flujos para unir con FFmpeg
+        y no habria una sola URL que reproducir.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        opciones = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "format": self._seleccion_directa(request.options),
+            "js_runtimes": _runtimes_js(),
+        }
+        try:
+            with YoutubeDL(opciones) as engine:
+                info = engine.extract_info(request.url, download=False)
+            if not info:
+                raise DownloadError("No se obtuvo nada que reproducir.")
+            directa = info.get("url")
+            if not directa:
+                raise DownloadError("Este video no ofrece una pista reproducible directa.")
+            cabeceras = tuple((k, str(v)) for k, v in (info.get("http_headers") or {}).items())
+            return PlaybackSource(
+                url=str(directa),
+                headers=cabeceras,
+                title=info.get("title") or "",
+            )
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(f"No se pudo preparar la reproducción: {exc}") from exc
+
+    @staticmethod
+    def _seleccion_directa(opts: DownloadOptions) -> str:
+        """Un unico flujo por HTTP, que es lo unico que se puede reproducir."""
+        if opts.audio_only:
+            return "ba[protocol^=http]/ba/b[protocol^=http]/b"
+        return "b[ext=mp4][protocol^=http]/b[protocol^=http]/b"
 
     # -- busqueda ---------------------------------------------------------
     def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]:

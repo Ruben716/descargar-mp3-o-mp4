@@ -54,6 +54,19 @@ class Nucleo {
         .toList();
   }
 
+  /// Pista reproducible al vuelo, para oir antes de decidir si se descarga.
+  static Future<Previsualizacion> previsualizar(String url, {bool soloAudio = true}) async {
+    final Map<String, dynamic> datos = await _pedir(
+      'previsualizar',
+      <String, dynamic>{'url': url, 'soloAudio': soloAudio},
+    );
+    return Previsualizacion.desdeJson(datos);
+  }
+
+  /// Borra una descarga de la biblioteca del telefono.
+  static Future<void> eliminar(String uri) =>
+      _pedir('eliminar', <String, dynamic>{'uri': uri});
+
   static Future<String?> urlCompartida() => _canal.invokeMethod<String>('urlCompartida');
 
   static final Map<String, Uint8List?> _caratulas = <String, Uint8List?>{};
@@ -109,6 +122,23 @@ class Resultado {
   final double duracion;
   final String url;
   final String miniatura;
+}
+
+class Previsualizacion {
+  const Previsualizacion({required this.url, required this.titulo, required this.cabeceras});
+
+  factory Previsualizacion.desdeJson(Map<String, dynamic> j) => Previsualizacion(
+        url: j['url']?.toString() ?? '',
+        titulo: j['titulo']?.toString() ?? '',
+        cabeceras: ((j['cabeceras'] as Map<String, dynamic>?) ?? <String, dynamic>{})
+            .map((String k, dynamic v) => MapEntry<String, String>(k, v.toString())),
+      );
+
+  final String url;
+  final String titulo;
+
+  /// YouTube exige el mismo User-Agent con el que se pidio el enlace.
+  final Map<String, String> cabeceras;
 }
 
 class Elemento {

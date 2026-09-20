@@ -8,7 +8,12 @@ import shutil
 import sys
 from pathlib import Path
 
-from descargador.application import DownloadVideo, InspectVideo, SearchVideos
+from descargador.application import (
+    DownloadVideo,
+    InspectVideo,
+    SearchVideos,
+    StreamVideo,
+)
 from descargador.domain import (
     DownloadError,
     DownloadOptions,
@@ -162,6 +167,22 @@ def buscar(texto: str, limite: int) -> str:
                 }
                 for r in resultados
             ],
+        })
+    except DownloadError as exc:
+        return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def previsualizar(url: str, solo_audio: bool) -> str:
+    """Pista reproducible al vuelo, para oir antes de decidir si se descarga."""
+    try:
+        pista = StreamVideo(YtDlpDownloader()).execute(url, audio_only=bool(solo_audio))
+        return _respuesta({
+            "ok": True,
+            "url": pista.url,
+            "titulo": pista.title,
+            "cabeceras": dict(pista.headers),
         })
     except DownloadError as exc:
         return _respuesta({"ok": False, "error": str(exc)})

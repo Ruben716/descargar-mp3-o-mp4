@@ -92,8 +92,8 @@ class _AudioState extends State<_Audio> {
   @override
   void initState() {
     super.initState();
-    if (_estado.actual?.uri != widget.elemento.uri) {
-      _estado.reproducir(widget.elemento);
+    if (!_estado.esActual(widget.elemento.uri)) {
+      _estado.reproducirElemento(widget.elemento);
     }
   }
 

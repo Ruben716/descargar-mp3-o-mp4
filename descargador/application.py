@@ -5,6 +5,7 @@ from .domain import (
     DownloadOptions,
     DownloadRequest,
     DownloadResult,
+    PlaybackSource,
     SearchQuery,
     VideoDownloader,
     VideoInfo,
@@ -37,3 +38,14 @@ class SearchVideos:
 
     def execute(self, text: str, limit: int = 10) -> tuple[VideoInfo, ...]:
         return self.downloader.search(SearchQuery(text, limit))
+
+
+class StreamVideo:
+    """Obtiene una pista reproducible sin descargar nada."""
+
+    def __init__(self, downloader: VideoDownloader):
+        self.downloader = downloader
+
+    def execute(self, url: str, *, audio_only: bool = True) -> PlaybackSource:
+        opciones = DownloadOptions(audio_only=audio_only)
+        return self.downloader.stream(DownloadRequest(url, Path("."), opciones))

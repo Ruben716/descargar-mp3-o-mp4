@@ -133,6 +133,20 @@ class VideoInfo:
 
 
 @dataclass(frozen=True)
+class PlaybackSource:
+    """Pista reproducible en directo, sin descargar nada.
+
+    Sirve para comprobar que un resultado es el que se busca antes de gastar
+    datos en bajarlo. Las cabeceras viajan como pares para que siga siendo
+    inmutable y comparable.
+    """
+
+    url: str
+    headers: tuple[tuple[str, str], ...] = ()
+    title: str = ""
+
+
+@dataclass(frozen=True)
 class SearchQuery:
     """Búsqueda por texto. Escribir URLs en un móvil es un suplicio."""
 
@@ -159,3 +173,5 @@ class VideoDownloader(Protocol):
     def inspect(self, request: DownloadRequest) -> VideoInfo: ...
 
     def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]: ...
+
+    def stream(self, request: DownloadRequest) -> PlaybackSource: ...
