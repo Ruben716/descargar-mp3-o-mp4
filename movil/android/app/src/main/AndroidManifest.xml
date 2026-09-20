@@ -64,9 +64,13 @@
             </intent-filter>
         </receiver>
 
+        <!-- stopWithTask="false": por defecto Android detiene el servicio al
+             quitar la app de recientes, y con el se llevaba la descarga a
+             medias. Asi sigue hasta terminar. -->
         <service
             android:name=".ServicioDescarga"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="dataSync"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

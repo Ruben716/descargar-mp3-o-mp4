@@ -44,6 +44,7 @@ void main() {
         'previsualizar' =>
           '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
         'eliminar' => '{"ok":true}',
+        'avisarLote' => '{"ok":true}',
         'descargar' => '{"ok":true,"archivos":["content://audio/99"]}',
         _ => '{"ok":true}',
       };
@@ -129,12 +130,18 @@ void main() {
     await tester.tap(find.text('Todo en video'));
     await tester.pumpAndSettle();
 
-    // Una descarga por pista, y solo la ultima avisa.
+    // Una descarga por pista, ninguna avisa por su cuenta y hay un solo aviso
+    // al final con el total: si no, una lista larga soltaria cientos.
     final List<MethodCall> descargas =
         llamadas.where((MethodCall c) => c.method == 'descargar').toList();
     expect(descargas.length, 2);
-    expect((descargas.first.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
-    expect((descargas.last.arguments as Map<dynamic, dynamic>)['avisar'], isTrue);
+    for (final MethodCall c in descargas) {
+      expect((c.arguments as Map<dynamic, dynamic>)['avisar'], isFalse);
+    }
+    final List<MethodCall> avisos =
+        llamadas.where((MethodCall c) => c.method == 'avisarLote').toList();
+    expect(avisos.length, 1);
+    expect((avisos.single.arguments as Map<dynamic, dynamic>)['cantidad'], 2);
 
     // Y queda una lista en la app con lo descargado.
     expect(Listas.instancia.nombres, contains('Mis temas'));
@@ -290,6 +297,16 @@ void main() {
     expect(listas.contiene('Prueba', 'content://audio/1'), isFalse);
     await listas.borrar('Prueba');
     expect(listas.nombres, isNot(contains('Prueba')));
+  });
+
+  test('una descarga suelta si avisa por si misma', () async {
+    ControlDescarga.instancia.reiniciar();
+    await ControlDescarga.instancia.iniciar('https://y/1');
+
+    final MethodCall descarga =
+        llamadas.lastWhere((MethodCall c) => c.method == 'descargar');
+    expect((descarga.arguments as Map<dynamic, dynamic>)['avisar'], isTrue);
+    expect(llamadas.any((MethodCall c) => c.method == 'avisarLote'), isFalse);
   });
 
   test('la repeticion cicla entre las tres opciones', () async {

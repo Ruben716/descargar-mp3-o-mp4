@@ -90,6 +90,14 @@ class ControlDescarga extends ChangeNotifier {
   /// Descarga una lista entera, una detras de otra.
   ///
   /// Un fallo suelto no detiene el resto: al final se dice cuantas salieron.
+  /// Cuantas pistas se bajan a la vez.
+  ///
+  /// Medido: casi todo el tiempo de una pista se va en preguntarle a
+  /// YouTube por los formatos, no en transferir. Solapar esas esperas hace
+  /// el lote unas dos veces mas rapido. Tres es un termino prudente: mas
+  /// arriesga que YouTube empiece a rechazar peticiones.
+  static const int simultaneas = 3;
+
   Future<void> iniciarVarios(List<String> urls, {String nombreLista = ''}) async {
     if (_activa || urls.isEmpty) return;
     _activa = true;
@@ -108,34 +116,38 @@ class ControlDescarga extends ChangeNotifier {
     String ultimoError = '';
     // Los URI de biblioteca de lo que se va guardando, para recrear la lista.
     final List<String> guardados = <String>[];
+    final List<String> pendientes = List<String>.from(urls);
+    final bool esLote = urls.length > 1;
 
-    try {
-      for (int i = 0; i < urls.length; i++) {
-        if (_cancelado) break;
-        _indice = i + 1;
-        notifyListeners();
+    Future<void> trabajador() async {
+      while (!_cancelado && pendientes.isNotEmpty) {
+        final String url = pendientes.removeAt(0);
         try {
-          // Solo avisa la ultima: con una lista larga saldrian cientos.
+          // En un lote no avisa cada pista: al final se manda uno solo.
           guardados.addAll(
-            await Nucleo.descargar(
-              ajustes.copiar(url: urls[i]),
-              avisar: i == urls.length - 1,
-            ),
+            await Nucleo.descargar(ajustes.copiar(url: url), avisar: !esLote),
           );
           correctas++;
           alTerminar?.call();
         } on ErrorNucleo catch (error) {
           fallidas++;
-          ultimoError = error.registro.isEmpty
-              ? error.mensaje
-              : '${error.mensaje}\n\n--- registro del motor ---\n'
-                  '${error.registro.join('\n')}';
+          ultimoError = error.mensaje;
         } catch (error) {
           fallidas++;
           ultimoError = '$error';
         }
+        _indice++;
+        notifyListeners();
       }
+    }
+
+    try {
+      final int cuantos = urls.length < simultaneas ? urls.length : simultaneas;
+      await Future.wait(List<Future<void>>.generate(cuantos, (_) => trabajador()));
       await _recrearLista(nombreLista, guardados);
+      if (esLote && correctas > 0) {
+        await Nucleo.avisarLote(correctas, audio: ajustes.soloAudio);
+      }
       _resumen(correctas, fallidas, ultimoError);
     } finally {
       _reloj?.cancel();
@@ -201,6 +213,14 @@ class ControlDescarga extends ChangeNotifier {
       }
       try {
         final Avance avance = await Nucleo.progreso();
+        if (enLote) {
+          // Con varias a la vez el porcentaje de una sola no significa nada:
+          // manda el recuento de pistas.
+          _porcentaje = null;
+          _estado = 'Hasta $simultaneas a la vez';
+          notifyListeners();
+          return;
+        }
         _porcentaje = avance.porcentaje >= 0 ? avance.porcentaje / 100 : null;
         _estado = switch (avance.estado) {
           'downloading' => _velocidad(avance.velocidad),

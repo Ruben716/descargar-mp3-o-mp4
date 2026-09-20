@@ -136,5 +136,12 @@ class ServicioDescarga : Service() {
 
             gestor.notify(siguienteAviso++, aviso)
         }
+
+        /** Un solo aviso para todo un lote, en vez de uno por pista. */
+        fun avisarLote(contexto: Context, cantidad: Int, esAudio: Boolean) {
+            if (cantidad <= 0) return
+            val que = if (esAudio) "canciones" else "videos"
+            avisarCompletada(contexto, "$cantidad $que en tu biblioteca", esAudio)
+        }
     }
 }

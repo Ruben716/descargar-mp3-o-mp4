@@ -124,6 +124,12 @@ class MainActivity : AudioServiceActivity() {
                             puente.callAttr("importar_lista", url).toString()
                         }
                     }
+                    "avisarLote" -> {
+                        val cantidad = llamada.argument<Int>("cantidad") ?: 0
+                        val esAudio = llamada.argument<Boolean>("audio") ?: false
+                        ServicioDescarga.avisarLote(this, cantidad, esAudio)
+                        respuesta.success("{\"ok\": true}")
+                    }
                     "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
@@ -365,7 +371,13 @@ class MainActivity : AudioServiceActivity() {
             } catch (error: Throwable) {
                 """{"ok": false, "error": "Kotlin: ${error.message}"}"""
             }
-            runOnUiThread { respuesta.success(salida) }
+            // Si la app se cerro mientras descargaba ya no hay a quien
+            // responder, pero el trabajo si termino: no debe tumbar el hilo.
+            try {
+                runOnUiThread { respuesta.success(salida) }
+            } catch (error: Throwable) {
+                // Nadie escuchando; la descarga quedo guardada igualmente.
+            }
         }
     }
 

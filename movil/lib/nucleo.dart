@@ -63,6 +63,10 @@ class Nucleo {
         .toList();
   }
 
+  /// Un solo aviso al terminar un lote, en vez de uno por pista.
+  static Future<void> avisarLote(int cantidad, {required bool audio}) =>
+      _pedir('avisarLote', <String, dynamic>{'cantidad': cantidad, 'audio': audio});
+
   static Future<Avance> progreso() async => Avance.desdeJson(await _pedir('progreso'));
 
   static Future<List<Elemento>> biblioteca() async {
