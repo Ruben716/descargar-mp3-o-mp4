@@ -67,7 +67,16 @@ void main() {
         .setMockMethodCallHandler(_canal, null);
   });
 
+  /// Abre la app y salta a Descargar, que ya no es la primera pestania.
   Future<void> abrir(WidgetTester tester) async {
+    await tester.pumpWidget(const AplicacionDescargador());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Descargar').last);
+    await tester.pumpAndSettle();
+  }
+
+  /// Abre la app y se queda en Inicio.
+  Future<void> abrirInicio(WidgetTester tester) async {
     await tester.pumpWidget(const AplicacionDescargador());
     await tester.pumpAndSettle();
   }
@@ -196,6 +205,24 @@ void main() {
     expect(find.text('Opciones'), findsOneWidget);
     expect(find.text('SUBTITULOS'), findsOneWidget);
     expect(find.text('Quitar patrocinios'), findsOneWidget);
+  });
+
+  testWidgets('la app abre en inicio y guia cuando no hay nada',
+      (WidgetTester tester) async {
+    await abrirInicio(tester);
+
+    expect(find.text('Empieza tu biblioteca'), findsOneWidget);
+    expect(find.text('Buscar musica'), findsOneWidget);
+  });
+
+  testWidgets('desde inicio se llega a descargar', (WidgetTester tester) async {
+    await abrirInicio(tester);
+
+    await tester.tap(find.text('Buscar musica'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
   });
 
   testWidgets('la biblioteca separa canciones, videos y listas',

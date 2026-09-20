@@ -6,6 +6,7 @@ import 'mini_reproductor.dart';
 import 'nucleo.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
+import 'pantalla_inicio.dart';
 import 'tema.dart';
 
 Future<void> main() async {
@@ -44,15 +45,25 @@ class Inicio extends StatefulWidget {
 }
 
 class _InicioState extends State<Inicio> {
+  final GlobalKey<PantallaInicioState> _inicio = GlobalKey<PantallaInicioState>();
   final GlobalKey<PantallaBibliotecaState> _biblioteca = GlobalKey<PantallaBibliotecaState>();
   int _pestana = 0;
 
   @override
   void initState() {
     super.initState();
-    // La descarga puede empezar en cualquier pantalla, asi que el aviso de
-    // "ya esta" se engancha una sola vez aqui arriba.
-    ControlDescarga.instancia.alTerminar = () => _biblioteca.currentState?.recargar();
+    // La descarga puede empezar en cualquier pantalla, asi que refrescar lo que
+    // depende de ella se engancha una sola vez aqui arriba.
+    ControlDescarga.instancia.alTerminar = () {
+      _biblioteca.currentState?.recargar();
+      _inicio.currentState?.recargar();
+    };
+  }
+
+  void _irA(int pestana) {
+    setState(() => _pestana = pestana);
+    if (pestana == 0) _inicio.currentState?.recargar();
+    if (pestana == 2) _biblioteca.currentState?.recargar();
   }
 
   @override
@@ -63,6 +74,11 @@ class _InicioState extends State<Inicio> {
         child: IndexedStack(
           index: _pestana,
           children: <Widget>[
+            PantallaInicio(
+              key: _inicio,
+              alIrADescargar: () => _irA(1),
+              alIrABiblioteca: () => _irA(2),
+            ),
             const PantallaDescarga(),
             PantallaBiblioteca(key: _biblioteca),
           ],
@@ -75,11 +91,13 @@ class _InicioState extends State<Inicio> {
           const MiniReproductor(),
           NavigationBar(
             selectedIndex: _pestana,
-            onDestinationSelected: (int i) {
-              setState(() => _pestana = i);
-              if (i == 1) _biblioteca.currentState?.recargar();
-            },
+            onDestinationSelected: _irA,
             destinations: const <NavigationDestination>[
+              NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home_rounded),
+                label: 'Inicio',
+              ),
               NavigationDestination(
                 icon: Icon(Icons.download_outlined),
                 selectedIcon: Icon(Icons.download_rounded),
