@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import 'estado_reproductor.dart';
 import 'portadas.dart';
-import 'pantalla_previa.dart';
 import 'reproductor.dart';
 import 'tema.dart';
 
-/// Barra fija con lo que esta sonando, sea de la biblioteca o una vista previa.
+/// Barra fija con lo que esta sonando de la biblioteca.
+///
+/// Las vistas previas no aparecen aqui: viven en su propia pantalla y se paran
+/// al salir de ella, que es lo que se espera de una previsualizacion.
 class MiniReproductor extends StatelessWidget {
   const MiniReproductor({super.key});
 
@@ -20,9 +22,9 @@ class MiniReproductor extends StatelessWidget {
         return AnimatedSize(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          child: actual == null
+          child: actual?.elemento == null
               ? const SizedBox(width: double.infinity)
-              : _Barra(pista: actual, estado: estado),
+              : _Barra(pista: actual!, estado: estado),
         );
       },
     );
@@ -45,11 +47,7 @@ class _Barra extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => pista.elemento != null
-                  ? Reproductor(elemento: pista.elemento!)
-                  : PantallaPrevia(resultado: pista.resultado!),
-            ),
+            MaterialPageRoute<void>(builder: (_) => Reproductor(elemento: pista.elemento!)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -58,63 +56,23 @@ class _Barra extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 child: Row(
                   children: <Widget>[
-                    if (pista.elemento != null)
-                      PortadaLocal(elemento: pista.elemento!, lado: 44, radio: 12)
-                    else
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          gradient: Tema.degradado,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(Icons.graphic_eq_rounded, color: Colors.black54),
-                      ),
+                    PortadaLocal(elemento: pista.elemento!, lado: 44, radio: 12),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            pista.titulo,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                          ),
-                          if (pista.esPrevia)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 2),
-                              child: Text(
-                                'VISTA PREVIA · NO DESCARGADO',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  letterSpacing: 0.8,
-                                  fontWeight: FontWeight.w800,
-                                  color: Tema.acentoCalido,
-                                ),
-                              ),
-                            ),
-                        ],
+                      child: Text(
+                        pista.titulo,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
                       ),
                     ),
-                    if (estado.preparando)
-                      const Padding(
-                        padding: EdgeInsets.all(14),
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2.4),
-                        ),
-                      )
-                    else
-                      IconButton(
-                        onPressed: estado.alternar,
-                        icon: Icon(
-                          estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                          size: 30,
-                        ),
+                    IconButton(
+                      onPressed: estado.alternar,
+                      icon: Icon(
+                        estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        size: 30,
                       ),
+                    ),
                     IconButton(
                       onPressed: estado.cerrar,
                       icon: const Icon(Icons.close_rounded, size: 20, color: Colors.white54),
@@ -130,7 +88,7 @@ class _Barra extends StatelessWidget {
                       ? 0
                       : (instante.data ?? Duration.zero).inMilliseconds / total.inMilliseconds;
                   return LinearProgressIndicator(
-                    value: estado.preparando ? null : avance.clamp(0, 1),
+                    value: avance.clamp(0, 1),
                     minHeight: 2.5,
                     backgroundColor: Colors.white12,
                   );

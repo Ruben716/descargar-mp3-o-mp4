@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'control_descarga.dart';
@@ -126,11 +128,15 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     await _control.iniciar(url);
   }
 
-  /// Escuchar abre la vista previa: asi se ve la miniatura y el avance, no
-  /// solo se oye desde una barra diminuta.
+  /// Abre la vista previa, que reproduce el video de verdad.
+  ///
+  /// Antes de irse calla lo que sonara de la biblioteca: dos audios a la vez
+  /// no se entienden.
   Future<void> _escuchar(Resultado resultado) async {
     _control.limpiarMensaje();
-    _reproductor.previsualizar(resultado);
+    // Sin esperar: abrir la pantalla no depende de que el audio anterior
+    // termine de pararse, y si eso tardara se quedaria el toque sin respuesta.
+    unawaited(_reproductor.cerrar());
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => PantallaPrevia(resultado: resultado)),
     );

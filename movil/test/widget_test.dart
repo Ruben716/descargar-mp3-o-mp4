@@ -123,9 +123,11 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.play_circle_outline_rounded).first);
     // pumpAndSettle no sirve aqui: mientras prepara la pista hay un indicador
-    // circular girando y nunca quedaria en reposo.
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
+    // circular girando y nunca quedaria en reposo. Se bombea a mano lo
+    // suficiente para que la navegacion asincrona termine.
+    for (int i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 150));
+    }
 
     // La vista previa se ve: titulo, autor y aviso de que no esta bajado.
     expect(find.text('VISTA PREVIA'), findsOneWidget);

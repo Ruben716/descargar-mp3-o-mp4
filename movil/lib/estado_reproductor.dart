@@ -8,22 +8,12 @@ class Pista {
   const Pista({
     required this.titulo,
     required this.fuente,
-    this.cabeceras = const <String, String>{},
     this.elemento,
-    this.resultado,
   });
 
   final String titulo;
   final String fuente;
-  final Map<String, String> cabeceras;
-
-  /// Nulo cuando es una vista previa: eso todavia no existe en el telefono.
   final Elemento? elemento;
-
-  /// Solo en una vista previa: guarda miniatura y autor para poder pintarla.
-  final Resultado? resultado;
-
-  bool get esPrevia => elemento == null;
 }
 
 /// Reproduccion de audio compartida por toda la app.
@@ -33,6 +23,16 @@ class Pista {
 class EstadoReproductor extends ChangeNotifier {
   EstadoReproductor._() {
     motor.playerStateStream.listen((_) => notifyListeners());
+    // Un fallo mientras suena no llega por el await de setUrl: viaja por este
+    // flujo. Sin escucharlo, el reproductor se quedaba mudo sin explicacion.
+    motor.playbackEventStream.listen(
+      (_) {},
+      onError: (Object fallo, StackTrace _) {
+        _error = 'Reproduccion: $fallo';
+        _preparando = false;
+        notifyListeners();
+      },
+    );
   }
 
   static final EstadoReproductor instancia = EstadoReproductor._();
@@ -72,56 +72,14 @@ class EstadoReproductor extends ChangeNotifier {
     ));
   }
 
-  /// Escucha un resultado de busqueda sin descargarlo.
-  ///
-  /// La URL del stream la resuelve el nucleo con yt-dlp y caduca en un rato,
-  /// asi que se pide justo antes de sonar y no se guarda.
-  Future<void> previsualizar(Resultado resultado) async {
-    if (_actual?.fuente == resultado.url && _actual!.esPrevia) {
-      await alternar();
-      return;
-    }
-    _preparando = true;
-    _error = null;
-    _actual = Pista(titulo: resultado.titulo, fuente: resultado.url, resultado: resultado);
-    notifyListeners();
-    try {
-      final Previsualizacion pista = await Nucleo.previsualizar(resultado.url);
-      await _poner(
-        Pista(
-          titulo: resultado.titulo,
-          fuente: resultado.url,
-          cabeceras: pista.cabeceras,
-          resultado: resultado,
-        ),
-        directa: pista.url,
-      );
-    } on ErrorNucleo catch (error) {
-      final String detalle = error.registro.isEmpty
-          ? ''
-          : '\n\n--- registro del motor ---\n${error.registro.join('\n')}';
-      _error = '${error.mensaje}$detalle';
-      _actual = null;
-    } catch (error) {
-      _error = '$error';
-      _actual = null;
-    } finally {
-      _preparando = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> _poner(Pista pista, {String? directa}) async {
+  Future<void> _poner(Pista pista) async {
     _actual = pista;
     _error = null;
     notifyListeners();
     try {
-      // Con cabeceras, just_audio sirve el audio por un proxy local; sin
-      // ellas va directo. Para un archivo del telefono ese rodeo sobra.
-      await motor.setUrl(
-        directa ?? pista.fuente,
-        headers: pista.cabeceras.isEmpty ? null : pista.cabeceras,
-      );
+      // Sin cabeceras just_audio va directo al archivo; con ellas levantaria
+      // un proxy local que aqui no hace ninguna falta.
+      await motor.setUrl(pista.fuente);
       await motor.play();
     } catch (error) {
       _error = '$error';
@@ -147,7 +105,12 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   Future<void> cerrar() async {
-    await motor.stop();
+    try {
+      await motor.stop();
+    } catch (_) {
+      // Parar nunca debe romper a quien llama: si el motor esta en mal estado
+      // igualmente queremos olvidar la pista y seguir.
+    }
     _actual = null;
     _error = null;
     notifyListeners();

@@ -157,12 +157,7 @@ class YtDlpDownloader:
 
     # -- reproduccion directa ---------------------------------------------
     def stream(self, request: DownloadRequest) -> PlaybackSource:
-        """Devuelve una pista que puede sonar ya, sin bajar el archivo.
-
-        Fuerza un formato unico y por HTTP: si dejara que eligiera video y
-        audio por separado, yt-dlp devolveria dos flujos para unir con FFmpeg
-        y no habria una sola URL que reproducir.
-        """
+        """Devuelve una pista que puede sonar ya, sin bajar el archivo."""
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
             "quiet": True,
@@ -170,22 +165,22 @@ class YtDlpDownloader:
             "noplaylist": True,
             "color": "no_color",
             "socket_timeout": 30,
-            "format": self._seleccion_directa(request.options),
             "js_runtimes": _runtimes_js(),
         }
         if self._registro is not None:
             opciones |= {"logger": self._registro, "verbose": True}
         try:
+            # Sin procesar: la pista la elige _elegir_pista sobre la lista
+            # completa, así que la selección de formato de yt-dlp sobra, y
+            # cuando no logra satisfacerla aborta la extracción entera.
             with YoutubeDL(opciones) as engine:
-                info = engine.extract_info(request.url, download=False)
+                info = engine.extract_info(request.url, download=False, process=False)
             if not info:
                 raise DownloadError("No se obtuvo nada que reproducir.")
-            directa = info.get("url")
-            if not directa:
-                raise DownloadError("Este video no ofrece una pista reproducible directa.")
-            cabeceras = tuple((k, str(v)) for k, v in (info.get("http_headers") or {}).items())
+            pista = self._elegir_pista(info, request.options.audio_only)
+            cabeceras = tuple((k, str(v)) for k, v in (pista.get("http_headers") or {}).items())
             return PlaybackSource(
-                url=str(directa),
+                url=str(pista["url"]),
                 headers=cabeceras,
                 title=info.get("title") or "",
             )
@@ -193,11 +188,44 @@ class YtDlpDownloader:
             raise DownloadError(f"No se pudo preparar la reproducción: {exc}") from exc
 
     @staticmethod
-    def _seleccion_directa(opts: DownloadOptions) -> str:
-        """Un unico flujo por HTTP, que es lo unico que se puede reproducir."""
-        if opts.audio_only:
-            return "ba[protocol^=http]/ba/b[protocol^=http]/b"
-        return "b[ext=mp4][protocol^=http]/b[protocol^=http]/b"
+    def _elegir_pista(info: dict, audio_only: bool) -> dict:
+        """Escoge un único flujo reproducible entre todos los formatos.
+
+        Para video se prefiere el manifiesto HLS: YouTube ya casi nunca ofrece
+        un formato con imagen y sonido juntos, y el manifiesto los combina para
+        que los resuelva el propio reproductor. Si no lo hay, se busca un
+        formato combinado y, como último recurso, se cae al audio: mejor oírlo
+        que no obtener nada.
+        """
+        formatos = info.get("formats") or []
+        if not audio_only:
+            for formato in formatos:
+                if formato.get("manifest_url"):
+                    return {
+                        "url": formato["manifest_url"],
+                        "http_headers": formato.get("http_headers"),
+                    }
+            combinados = [
+                f for f in formatos
+                if f.get("url")
+                and f.get("vcodec") not in (None, "none")
+                and f.get("acodec") not in (None, "none")
+            ]
+            if combinados:
+                return max(combinados, key=lambda f: f.get("height") or 0)
+
+        audios = [
+            f for f in formatos
+            if f.get("url")
+            and f.get("acodec") not in (None, "none")
+            and f.get("vcodec") in (None, "none")
+            and str(f.get("protocol") or "").startswith("http")
+        ]
+        if audios:
+            return max(audios, key=lambda f: f.get("abr") or 0)
+        if info.get("url"):
+            return info
+        raise DownloadError("Este video no ofrece una pista reproducible directa.")
 
     # -- busqueda ---------------------------------------------------------
     def search(self, query: SearchQuery) -> tuple[VideoInfo, ...]:

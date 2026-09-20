@@ -3,6 +3,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from descargador.application import (
@@ -176,15 +177,40 @@ class SearchTests(unittest.TestCase):
 class StreamTests(unittest.TestCase):
     """Escuchar antes de descargar, para comprobar que es lo que se busca."""
 
-    def test_selection_is_always_a_single_http_stream(self):
-        """Dos flujos separados no se pueden reproducir: harian falta FFmpeg y union."""
-        audio = YtDlpDownloader._seleccion_directa(DownloadOptions(audio_only=True))
-        video = YtDlpDownloader._seleccion_directa(DownloadOptions())
-        for seleccion in (audio, video):
-            self.assertNotIn("+", seleccion)
-            self.assertIn("protocol^=http", seleccion)
-        self.assertTrue(audio.startswith("ba"))
-        self.assertIn("ext=mp4", video)
+    #: Un video actual de YouTube: pistas sueltas y un manifiesto HLS que las une.
+    FORMATOS: ClassVar[dict] = {
+        "formats": [
+            {"format_id": "233", "url": "https://cdn/a.m3u8", "vcodec": "none",
+             "acodec": None, "protocol": "m3u8_native", "manifest_url": "https://cdn/maestro.m3u8"},
+            {"format_id": "140", "url": "https://cdn/audio", "vcodec": "none",
+             "acodec": "mp4a", "protocol": "https", "abr": 128},
+            {"format_id": "251", "url": "https://cdn/mejor", "vcodec": "none",
+             "acodec": "opus", "protocol": "https", "abr": 160},
+            {"format_id": "137", "url": "https://cdn/video", "vcodec": "avc1",
+             "acodec": "none", "protocol": "https"},
+        ],
+    }
+
+    def test_video_prefers_the_hls_manifest(self):
+        """YouTube ya casi nunca da imagen y sonido juntos; el manifiesto si."""
+        pista = YtDlpDownloader._elegir_pista(self.FORMATOS, audio_only=False)
+        self.assertEqual(pista["url"], "https://cdn/maestro.m3u8")
+
+    def test_audio_takes_the_best_bitrate_over_http(self):
+        pista = YtDlpDownloader._elegir_pista(self.FORMATOS, audio_only=True)
+        self.assertEqual(pista["url"], "https://cdn/mejor")
+
+    def test_video_falls_back_to_a_combined_format(self):
+        combinado = {"formats": [
+            {"url": "https://cdn/360", "vcodec": "avc1", "acodec": "mp4a", "height": 360},
+            {"url": "https://cdn/720", "vcodec": "avc1", "acodec": "mp4a", "height": 720},
+        ]}
+        pista = YtDlpDownloader._elegir_pista(combinado, audio_only=False)
+        self.assertEqual(pista["url"], "https://cdn/720")
+
+    def test_without_anything_playable_it_says_so(self):
+        with self.assertRaises(DownloadError):
+            YtDlpDownloader._elegir_pista({"formats": []}, audio_only=False)
 
     def test_use_case_asks_for_audio_by_default(self):
         adaptador = Mock()
