@@ -43,6 +43,8 @@ from descargador.infrastructure import (
     INTENTOS_TRANSITORIOS,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
+    _portada_deezer,
+    _portada_itunes,
     buscar_portada,
     escribir_etiquetas,
     incrusta_caratula,
@@ -296,6 +298,57 @@ class PortadaOficialTests(unittest.TestCase):
                    return_value=self._RespuestaFalsa(cuerpo)):
             direccion = buscar_portada("Un Grupo", "Un Tema")
         self.assertEqual(direccion, "https://x/a/1200x1200bb.jpg")
+
+    @staticmethod
+    def _tabla(*proveedores):
+        """Sustituye la lista de proveedores; la tabla guarda las funciones ya
+        resueltas, asi que parchear sus nombres sueltos no la cambiaria."""
+        return patch(
+            "descargador.infrastructure.PROVEEDORES_PORTADA",
+            tuple((f"falso{i}", f) for i, f in enumerate(proveedores)),
+        )
+
+    def test_se_pregunta_por_orden_y_se_para_en_el_primero(self):
+        # Primero el que da la imagen mas grande; a los demas ni se les pregunta.
+        uno = Mock(return_value="https://a/1")
+        dos = Mock(return_value="https://b/2")
+        with self._tabla(uno, dos):
+            self.assertEqual(buscar_portada("Un Grupo", "Un Tema"), "https://a/1")
+        uno.assert_called_once_with("Un Grupo", "Un Tema", 1200)
+        dos.assert_not_called()
+
+    def test_si_el_primero_no_la_tiene_se_prueba_el_siguiente(self):
+        # Medido con casos reales: los remixes y las sesiones largas no estan
+        # en el catalogo de Apple pero si en el siguiente proveedor.
+        dos = Mock(return_value="https://b/2")
+        tres = Mock()
+        with self._tabla(Mock(return_value=None), dos, tres):
+            self.assertEqual(buscar_portada("Un Grupo", "Un Remix"), "https://b/2")
+        dos.assert_called_once()
+        tres.assert_not_called()
+
+    def test_un_proveedor_caido_no_corta_la_cadena(self):
+        # Si uno se cae hay que seguir preguntando, no quedarse sin portada.
+        with self._tabla(Mock(side_effect=RuntimeError("uf")), Mock(return_value="https://b/2")):
+            self.assertEqual(buscar_portada("Un Grupo", "Un Tema"), "https://b/2")
+
+    def test_si_no_la_tiene_ninguno_se_queda_el_fotograma(self):
+        # Devolver None es lo que deja la cancion con la imagen del video.
+        with self._tabla(Mock(return_value=None), Mock(return_value=None)):
+            self.assertIsNone(buscar_portada("Nadie", "Nada"))
+
+    def test_cada_proveedor_lee_su_propia_respuesta(self):
+        # Cada catalogo contesta con una forma distinta; lo que importa es que
+        # de todas salga una direccion de imagen.
+        casos = (
+            (_portada_itunes, b'{"results": [{"artworkUrl100": "https://x/a/100x100bb.jpg"}]}'),
+            (_portada_deezer, b'{"data": [{"album": {"cover_xl": "https://y/b.jpg"}}]}'),
+        )
+        for buscar, cuerpo in casos:
+            red = patch("descargador.infrastructure.urlopen",
+                        return_value=self._RespuestaFalsa(cuerpo))
+            with self.subTest(proveedor=buscar.__name__), red:
+                self.assertTrue(buscar("Un Grupo", "Un Tema", 1200))
 
     def test_sin_resultados_no_se_inventa_una_portada(self):
         with patch("descargador.infrastructure.urlopen",

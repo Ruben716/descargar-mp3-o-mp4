@@ -693,36 +693,108 @@ def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str
             "No se pudieron escribir las etiquetas: " + (detalle[-1] if detalle else "falló FFmpeg"))
 
 
-def buscar_portada(artista: str, titulo: str, *, lado: int = 1200) -> str | None:
-    """Dirección de la carátula oficial, o None si no se encuentra.
+#: Quién dice ser la app al pedir. MusicBrainz exige identificarse de verdad.
+AGENTE = "descargador (proyecto academico)"
 
-    Se pregunta al catálogo de iTunes, que es público y no pide clave ni
-    cuenta. Devuelve la miniatura pequeña, así que se le cambia la medida en la
-    propia dirección: el mismo archivo existe hasta en 1200 píxeles.
+
+def _json_remoto(direccion: str) -> dict:
+    """Pide un JSON y devuelve {} si algo sale mal.
+
+    Quedarse sin carátula no puede tumbar una descarga que ya salió bien, así
+    que aquí ningún fallo sube: se responde vacío y el siguiente proveedor lo
+    intenta.
     """
-    consulta = " ".join(p for p in (artista, titulo) if p.strip()).strip()
-    if not consulta:
-        return None
-    direccion = "https://itunes.apple.com/search?" + urlencode({
-        "term": consulta,
-        "entity": "song",
-        "limit": 1,
-    })
     try:
-        peticion = Request(direccion, headers={"User-Agent": "descargador"})
+        peticion = Request(direccion, headers={"User-Agent": AGENTE})
         with urlopen(peticion, timeout=20) as respuesta:
             datos = json.loads(respuesta.read().decode("utf-8"))
     except (OSError, ValueError):
-        # Quedarse sin carátula no puede tumbar una descarga que ya salió bien.
-        return None
+        return {}
+    return datos if isinstance(datos, dict) else {}
 
+
+def _portada_itunes(artista: str, titulo: str, lado: int) -> str | None:
+    """El catálogo de Apple. El que mejor resolución da: 1200 píxeles."""
+    datos = _json_remoto("https://itunes.apple.com/search?" + urlencode({
+        "term": f"{artista} {titulo}".strip(),
+        "entity": "song",
+        "limit": 1,
+    }))
     resultados = datos.get("results") or []
     if not resultados:
         return None
+    # Devuelve una miniatura de 100, pero la misma imagen existe en grande
+    # cambiándole la medida a la propia dirección.
     pequena = str(resultados[0].get("artworkUrl100") or "")
-    if not pequena:
+    return pequena.replace("100x100bb", f"{lado}x{lado}bb") if pequena else None
+
+
+def _portada_deezer(artista: str, titulo: str, lado: int) -> str | None:
+    """Deezer. Menos resolución que Apple, pero encuentra bastante más.
+
+    Medido: da la cara con los remixes y las sesiones largas, que es justo
+    donde el catálogo de Apple se queda en blanco.
+    """
+    datos = _json_remoto("https://api.deezer.com/search?" + urlencode({
+        "q": f"{artista} {titulo}".strip(),
+        "limit": 1,
+    }))
+    resultados = datos.get("data") or []
+    if not resultados:
         return None
-    return pequena.replace("100x100bb", f"{lado}x{lado}bb")
+    album = resultados[0].get("album") or {}
+    return str(album.get("cover_xl") or "") or None
+
+
+def _portada_coverart(artista: str, titulo: str, lado: int) -> str | None:
+    """MusicBrainz y su archivo de carátulas, ambos abiertos.
+
+    Va el último de los tres porque falla más con lo comercial, pero recoge
+    ediciones y rarezas que los otros dos no tienen fichadas.
+    """
+    if not artista.strip():
+        return None
+    datos = _json_remoto("https://musicbrainz.org/ws/2/release?" + urlencode({
+        "query": f'artist:"{artista}" AND release:"{titulo}"',
+        "fmt": "json",
+        "limit": 1,
+    }))
+    ediciones = datos.get("releases") or []
+    if not ediciones:
+        return None
+    identificador = str(ediciones[0].get("id") or "")
+    if not identificador:
+        return None
+    return f"https://coverartarchive.org/release/{identificador}/front-{lado}"
+
+
+#: A quién se le pregunta por la carátula y en qué orden.
+#:
+#: Primero el que da la imagen más grande y, según se baja, los que encuentran
+#: más cosas. Se para en el primero que responda, así que en lo corriente solo
+#: se consulta uno. Si ninguno la tiene, la canción se queda con el fotograma
+#: del vídeo, que es como estaba antes.
+PROVEEDORES_PORTADA: tuple[tuple[str, Callable[[str, str, int], str | None]], ...] = (
+    ("itunes", _portada_itunes),
+    ("deezer", _portada_deezer),
+    ("coverart", _portada_coverart),
+)
+
+
+def buscar_portada(artista: str, titulo: str, *, lado: int = 1200) -> str | None:
+    """Dirección de la carátula oficial, o None si no la tiene nadie."""
+    if not f"{artista}{titulo}".strip():
+        return None
+    for _nombre, buscar in PROVEEDORES_PORTADA:
+        try:
+            direccion = buscar(artista, titulo, lado)
+        except Exception:
+            # Un proveedor que se porte raro no puede dejar sin probar a los
+            # que vienen detrás.
+            continue
+        if direccion:
+            return direccion
+    return None
 
 
 def descargar_portada(direccion: str, destino: Path) -> bool:
