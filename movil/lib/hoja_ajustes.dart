@@ -105,7 +105,7 @@ class _HojaAjustesState extends State<HojaAjustes> {
                     onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration(
                       labelText: 'Desde',
-                      hintText: '1:30',
+                      hintText: '2:45',
                     ),
                   ),
                 ),
@@ -117,7 +117,7 @@ class _HojaAjustesState extends State<HojaAjustes> {
                     onChanged: (_) => setState(() {}),
                     decoration: const InputDecoration(
                       labelText: 'Hasta',
-                      hintText: '2:45',
+                      hintText: '1:05:30',
                     ),
                   ),
                 ),
@@ -127,8 +127,9 @@ class _HojaAjustesState extends State<HojaAjustes> {
             Text(
               _fragmentoElegido.isEmpty
                   ? 'Vacio: se descarga entero'
-                  : 'Minutos y segundos, con dos puntos. Deja uno vacio para '
-                      'ir desde el principio o hasta el final.',
+                  : 'Minutos y segundos (2:45), o con horas si es largo '
+                      '(1:05:30). Deja uno vacio para ir desde el principio '
+                      'o hasta el final.',
               style: const TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
             ),
             const SizedBox(height: 24),

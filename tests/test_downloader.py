@@ -218,6 +218,14 @@ class FragmentoTests(unittest.TestCase):
             with self.subTest(guion=guion):
                 self.assertEqual(parse_section(f"00:30{guion}02:15"), (30.0, 135.0))
 
+    def test_las_horas_tambien_valen(self):
+        # Para un concierto o un set de dos horas hacen falta. Ya funcionaba,
+        # pero la pantalla decia «minutos y segundos» y nadie lo adivinaba.
+        self.assertEqual(parse_timestamp("1:05:30"), 3930.0)
+        self.assertEqual(parse_section("1:05:00-1:12:30"), (3900.0, 4350.0))
+        # Y cruzando la hora, que es donde se nota si el cálculo está bien.
+        self.assertEqual(parse_section("59:30-1:00:30"), (3570.0, 3630.0))
+
     def test_los_extremos_se_pueden_dejar_sueltos(self):
         self.assertEqual(parse_section("1:30-")[0], 90.0)
         self.assertEqual(parse_section("-2:00"), (0.0, 120.0))
