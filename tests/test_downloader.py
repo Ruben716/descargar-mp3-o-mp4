@@ -26,6 +26,7 @@ from descargador.cli import (
 from descargador.domain import (
     FORMATOS_SIN_NORMALIZAR,
     FUENTES_DE_LISTAS,
+    GUIONES,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -197,6 +198,34 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class FragmentoTests(unittest.TestCase):
+    """Acotar un trozo es de lo más fácil de escribir mal."""
+
+    def test_un_punto_en_vez_de_dos_puntos_no_pasa_en_silencio(self):
+        # Regresión: «0.30-2.15» se leía como 0,3 y 2,15 segundos, así que
+        # recortaba un trozo de dos segundos sin avisar. Parecía que la
+        # función no servía, y en realidad hacía lo que se le pedía.
+        for texto in ("0.30-2.15", "1,30-2,15"):
+            with self.subTest(texto=texto), self.assertRaises(DownloadError) as caso:
+                parse_section(texto)
+            self.assertIn("dos puntos", str(caso.exception))
+
+    def test_el_guion_largo_del_teclado_tambien_vale(self):
+        # Muchos teclados de móvil cambian solos el guion normal por uno largo.
+        for guion in GUIONES:
+            with self.subTest(guion=guion):
+                self.assertEqual(parse_section(f"00:30{guion}02:15"), (30.0, 135.0))
+
+    def test_los_extremos_se_pueden_dejar_sueltos(self):
+        self.assertEqual(parse_section("1:30-")[0], 90.0)
+        self.assertEqual(parse_section("-2:00"), (0.0, 120.0))
+
+    def test_sigue_valiendo_lo_de_siempre(self):
+        self.assertEqual(parse_section("00:30-02:15"), (30.0, 135.0))
+        self.assertEqual(parse_section("30-60"), (30.0, 60.0))
+        self.assertEqual(parse_section("00:30 - 02:15"), (30.0, 135.0))
 
 
 class MensajesTests(unittest.TestCase):

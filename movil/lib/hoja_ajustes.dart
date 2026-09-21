@@ -17,7 +17,32 @@ class HojaAjustes extends StatefulWidget {
 class _HojaAjustesState extends State<HojaAjustes> {
   late Ajustes _a = widget.inicial;
   late final TextEditingController _subs = TextEditingController(text: _a.subtitulos);
-  late final TextEditingController _fragmento = TextEditingController(text: _a.fragmento);
+  /// El fragmento se pide en dos campos y no en uno.
+  ///
+  /// Con uno solo habia que acordarse del formato «00:30-02:15», y escribirlo
+  /// con puntos daba un recorte de dos segundos sin avisar de nada. Partido en
+  /// dos no hay formato que recordar.
+  late final TextEditingController _desde =
+      TextEditingController(text: _partesFragmento.$1);
+  late final TextEditingController _hasta =
+      TextEditingController(text: _partesFragmento.$2);
+
+  (String, String) get _partesFragmento {
+    final int corte = _a.fragmento.indexOf('-');
+    if (corte < 0) return (_a.fragmento, '');
+    return (
+      _a.fragmento.substring(0, corte).trim(),
+      _a.fragmento.substring(corte + 1).trim(),
+    );
+  }
+
+  /// Lo que entiende el nucleo. Vacio si no se acoto nada.
+  String get _fragmentoElegido {
+    final String desde = _desde.text.trim();
+    final String hasta = _hasta.text.trim();
+    if (desde.isEmpty && hasta.isEmpty) return '';
+    return '$desde-$hasta';
+  }
 
   static const Map<String, int> _calidades = <String, int>{
     'La mejor': 0,
@@ -30,7 +55,8 @@ class _HojaAjustesState extends State<HojaAjustes> {
   @override
   void dispose() {
     _subs.dispose();
-    _fragmento.dispose();
+    _desde.dispose();
+    _hasta.dispose();
     super.dispose();
   }
 
@@ -68,18 +94,49 @@ class _HojaAjustesState extends State<HojaAjustes> {
             const SizedBox(height: 20),
             if (_a.soloAudio) ..._opcionesAudio() else ..._opcionesVideo(),
             const SizedBox(height: 14),
-            _Etiqueta('Fragmento'),
+            _Etiqueta('Recortar un trozo'),
             const SizedBox(height: 8),
-            TextField(
-              controller: _fragmento,
-              decoration: const InputDecoration(hintText: '00:30-02:15, o vacio para entero'),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _desde,
+                    keyboardType: TextInputType.datetime,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Desde',
+                      hintText: '1:30',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _hasta,
+                    keyboardType: TextInputType.datetime,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Hasta',
+                      hintText: '2:45',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _fragmentoElegido.isEmpty
+                  ? 'Vacio: se descarga entero'
+                  : 'Minutos y segundos, con dos puntos. Deja uno vacio para '
+                      'ir desde el principio o hasta el final.',
+              style: const TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
             ),
             const SizedBox(height: 24),
             BotonDegradado(
               texto: 'Aplicar',
               icono: Icons.check_rounded,
               alPulsar: () => Navigator.of(context).pop(
-                _a.copiar(subtitulos: _subs.text.trim(), fragmento: _fragmento.text.trim()),
+                _a.copiar(subtitulos: _subs.text.trim(), fragmento: _fragmentoElegido),
               ),
             ),
           ],

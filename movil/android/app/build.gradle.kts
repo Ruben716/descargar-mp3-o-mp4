@@ -36,11 +36,11 @@ android {
         release {
             // TODO: Add your own signing config for the release build.
             signingConfig = signingConfigs.getByName("debug")
-            // Sin esto, R8 se lleva por delante las clases que solo usa Python.
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
-            )
+            // Solo nuestras reglas. Con la configuracion «optimize» de
+            // Android, R8 se pone agresivo y descoloca a audio_service, que
+            // tira de reflexion: el telefono dejaba de ver la app como
+            // reproductor y desaparecian los controles de la notificacion.
+            proguardFiles("proguard-rules.pro")
         }
     }
 

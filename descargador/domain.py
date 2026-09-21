@@ -36,9 +36,23 @@ class DownloadError(Exception):
     """Error esperado que puede mostrarse al usuario."""
 
 
+#: Guiones que pueden separar el inicio del final: normal, medio y largo.
+#:
+#: Van por su código y no escritos tal cual porque a simple vista los tres son
+#: indistinguibles. Hacen falta los tres porque muchos teclados de móvil
+#: cambian solos el guion normal por uno largo, y antes eso se rechazaba.
+GUIONES = "-" + chr(0x2013) + chr(0x2014)
+
+
 def parse_timestamp(text: str) -> float:
     """Convierte 90, 1:30 o 01:02:03 en segundos."""
     partes = text.strip().split(":")
+    # Un punto casi siempre es un «1.30» queriendo decir un minuto y medio. Si
+    # se dejara pasar saldría un fragmento de 1,3 segundos sin avisar de nada,
+    # que es peor que un error: parece que la función no sirve.
+    if any("." in p or "," in p for p in partes):
+        raise DownloadError(
+            f"Marca de tiempo inválida: {text!r}. Separa los minutos con dos puntos: 1:30.")
     if not 1 <= len(partes) <= 3:
         raise DownloadError(f"Marca de tiempo inválida: {text!r}. Usa SS, MM:SS o HH:MM:SS.")
     try:
@@ -55,9 +69,10 @@ def parse_timestamp(text: str) -> float:
 
 def parse_section(text: str) -> tuple[float, float]:
     """Convierte '00:30-02:15' en (30.0, 135.0). Los extremos pueden omitirse."""
-    if "-" not in text:
+    separador = next((g for g in GUIONES if g in text), None)
+    if separador is None:
         raise DownloadError("Indica el fragmento como INICIO-FIN, por ejemplo 00:30-02:15.")
-    crudo_inicio, _, crudo_fin = text.partition("-")
+    crudo_inicio, _, crudo_fin = text.partition(separador)
     inicio = parse_timestamp(crudo_inicio) if crudo_inicio.strip() else 0.0
     fin = parse_timestamp(crudo_fin) if crudo_fin.strip() else float("inf")
     if fin <= inicio:

@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .domain import (
+    GUIONES,
     SPONSOR_CATEGORIES,
     DownloadError,
     DownloadOptions,
@@ -65,12 +66,6 @@ PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
 
 #: Prefijo de búsqueda del motor, por fuente. El Archive no tiene y va aparte.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
-
-#: Guiones que pueden separar artista y tema: normal, medio y largo.
-#:
-#: Van por su código y no escritos tal cual porque a simple vista los tres son
-#: indistinguibles, y una confusión aquí partiría el nombre donde no toca.
-GUIONES = "-" + chr(0x2013) + chr(0x2014)
 
 #: Colección del Internet Archive con conciertos que los grupos dejan compartir.
 #:
