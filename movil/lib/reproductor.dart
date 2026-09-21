@@ -78,14 +78,31 @@ class _ReproductorState extends State<Reproductor> {
           return ColoredBox(color: Colors.black, child: contenido);
         }
 
-        return Scaffold(
+        return ConPaletaDe(
+          uri: elemento.uri,
+          hijo: Builder(
+            builder: (BuildContext context) => _armazon(context, elemento, contenido),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _armazon(BuildContext context, Elemento elemento, Widget contenido) {
+    final Color tono = Theme.of(context).colorScheme.primary;
+    return Scaffold(
           extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
-            iconTheme: const IconThemeData(color: Colors.white),
+            iconTheme: IconThemeData(color: tono),
             title: Text(
-              elemento.audio ? 'Reproduciendo' : 'Video',
-              style: const TextStyle(fontSize: 14, color: Colors.white70),
+              elemento.audio ? 'REPRODUCIENDO' : 'VIDEO',
+              style: TextStyle(
+                fontSize: 11,
+                letterSpacing: 2,
+                fontWeight: FontWeight.w700,
+                color: tono.withValues(alpha: 0.7),
+              ),
             ),
             actions: <Widget>[
               if (elemento.audio) ...<Widget>[
@@ -95,7 +112,7 @@ class _ReproductorState extends State<Reproductor> {
                   icon: Icon(
                     _letras ? Icons.lyrics_rounded : Icons.lyrics_outlined,
                     size: 22,
-                    color: _letras ? Tema.acento : null,
+                    color: _letras ? tono : tono.withValues(alpha: 0.7),
                   ),
                 ),
                 const _BotonTemporizador(),
@@ -137,12 +154,7 @@ class _ReproductorState extends State<Reproductor> {
               ),
             ],
           ),
-          body: ConPaletaDe(
-            uri: elemento.uri,
-            hijo: _Fondo(elemento: elemento, hijo: contenido),
-          ),
-        );
-      },
+      body: _Fondo(elemento: elemento, hijo: contenido),
     );
   }
 }
@@ -198,49 +210,60 @@ class _AudioState extends State<_Audio> {
   @override
   Widget build(BuildContext context) {
     final AudioPlayer motor = _estado.motor;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 16, 28, 28),
-      child: Column(
-        children: <Widget>[
-          if (widget.letras)
-            Expanded(child: PanelLetras(elemento: widget.elemento))
-          else ...<Widget>[
-            const Spacer(),
-            Hero(
-              tag: widget.elemento.uri,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: <BoxShadow>[
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      blurRadius: 48,
-                      offset: const Offset(0, 20),
+    final ColorScheme colores = Theme.of(context).colorScheme;
+    final ({String artista, String tema}) partes =
+        partirNombre(nombreLimpio(widget.elemento.nombre));
+
+    return Column(
+      children: <Widget>[
+        const SizedBox(height: kToolbarHeight),
+        if (widget.letras)
+          Expanded(child: PanelLetras(elemento: widget.elemento))
+        else
+          // A sangre: la portada llega a los dos bordes, sin margen ni
+          // esquinas. Es lo que hace que mande en la pantalla.
+          Hero(
+            tag: widget.elemento.uri,
+            child: PortadaLocal(
+              elemento: widget.elemento,
+              lado: MediaQuery.of(context).size.width,
+              radio: 0,
+            ),
+          ),
+        // Centrado cuando cabe y con desplazamiento cuando no: un titulo
+        // largo en una pantalla corta desbordaria, y ya sabemos como queda.
+        Expanded(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text(
+                    partes.tema,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                      color: colores.primary,
+                    ),
+                  ),
+                  if (partes.artista.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text(
+                      partes.artista,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: colores.primary.withValues(alpha: 0.65),
+                      ),
                     ),
                   ],
-                ),
-                child: PortadaLocal(
-                  elemento: widget.elemento,
-                  lado: MediaQuery.of(context).size.width - 96,
-                  radio: 28,
-                ),
-              ),
-            ),
-            const Spacer(),
-          ],
-          Text(
-            _sinExtension(widget.elemento.nombre),
-            maxLines: 2,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            formatoTamano(widget.elemento.tamano),
-            style: const TextStyle(color: Colors.white54),
-          ),
-          const SizedBox(height: 28),
+                  const SizedBox(height: 18),
           StreamBuilder<Duration>(
             stream: motor.positionStream,
             builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
@@ -260,9 +283,13 @@ class _AudioState extends State<_Audio> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: <Widget>[
                         Text(formatoTiempo(actual.inSeconds),
-                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                            style: TextStyle(
+                                color: colores.primary.withValues(alpha: 0.7),
+                                fontSize: 12)),
                         Text(formatoTiempo(total.inSeconds),
-                            style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                            style: TextStyle(
+                                color: colores.primary.withValues(alpha: 0.7),
+                                fontSize: 12)),
                       ],
                     ),
                   ),
@@ -293,13 +320,15 @@ class _AudioState extends State<_Audio> {
               children: <Widget>[
                 IconButton(
                   iconSize: 30,
-                  color: _estado.hayAnterior ? Colors.white70 : Colors.white24,
+                  color: _estado.hayAnterior
+                      ? colores.primary.withValues(alpha: 0.85)
+                      : colores.primary.withValues(alpha: 0.25),
                   onPressed: _estado.anterior,
                   icon: const Icon(Icons.skip_previous_rounded),
                 ),
                 IconButton(
                   iconSize: 30,
-                  color: Colors.white70,
+                  color: colores.primary.withValues(alpha: 0.85),
                   onPressed: () => _estado.saltar(const Duration(seconds: -10)),
                   icon: const Icon(Icons.replay_10),
                 ),
@@ -311,21 +340,27 @@ class _AudioState extends State<_Audio> {
                 const SizedBox(width: 12),
                 IconButton(
                   iconSize: 30,
-                  color: Colors.white70,
+                  color: colores.primary.withValues(alpha: 0.85),
                   onPressed: () => _estado.saltar(const Duration(seconds: 10)),
                   icon: const Icon(Icons.forward_10),
                 ),
                 IconButton(
                   iconSize: 30,
-                  color: _estado.haySiguiente ? Colors.white70 : Colors.white24,
+                  color: _estado.haySiguiente
+                      ? colores.primary.withValues(alpha: 0.85)
+                      : colores.primary.withValues(alpha: 0.25),
                   onPressed: _estado.haySiguiente ? _estado.siguiente : null,
                   icon: const Icon(Icons.skip_next_rounded),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
