@@ -7,6 +7,20 @@ from urllib.parse import urlsplit
 #: Códecs que acepta el extractor de audio.
 AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "best")
 
+#: Dónde se puede buscar música.
+#:
+#: Solo están las que admiten búsqueda de verdad. Bandcamp queda fuera a
+#: propósito: no tiene buscador en el motor y su reproductor sirve 128 kb/s,
+#: así que no aportaría nada frente a YouTube; para comprar su FLAC hay que
+#: pasar por su web. Tidal, Qobuz y compañía llevan DRM y no se contemplan.
+FUENTES = ("youtube", "soundcloud", "archive")
+
+#: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
+#:
+#: El Archive guarda conciertos enteros: cada resultado es una lista de pistas,
+#: no un tema. Quien lo use tiene que tratarlo como tal.
+FUENTES_DE_LISTAS = ("archive",)
+
 #: Formatos donde no se puede garantizar la normalización de volumen.
 #:
 #: FFmpegExtractAudio copia el flujo tal cual cuando el códec de destino ya
@@ -173,6 +187,7 @@ class SearchQuery:
 
     text: str
     limit: int = 10
+    source: str = "youtube"
 
     def __post_init__(self):
         texto = self.text.strip()
@@ -180,6 +195,9 @@ class SearchQuery:
             raise DownloadError("Escribe algo que buscar.")
         if not 1 <= self.limit <= 25:
             raise DownloadError("El número de resultados debe estar entre 1 y 25.")
+        if self.source not in FUENTES:
+            opciones = ", ".join(FUENTES)
+            raise DownloadError(f"Fuente desconocida: {self.source!r}. Elige entre {opciones}.")
         object.__setattr__(self, "text", texto)
 
 

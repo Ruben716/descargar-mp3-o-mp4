@@ -33,9 +33,16 @@ class Nucleo {
 
   static Future<Map<String, dynamic>> diagnostico() => _pedir('diagnostico');
 
-  static Future<List<Resultado>> buscar(String texto, {int limite = 12}) async {
-    final Map<String, dynamic> datos =
-        await _pedir('buscar', <String, dynamic>{'texto': texto, 'limite': limite});
+  static Future<List<Resultado>> buscar(
+    String texto, {
+    int limite = 12,
+    String fuente = 'youtube',
+  }) async {
+    final Map<String, dynamic> datos = await _pedir('buscar', <String, dynamic>{
+      'texto': texto,
+      'limite': limite,
+      'fuente': fuente,
+    });
     return ((datos['resultados'] as List<dynamic>?) ?? <dynamic>[])
         .map((dynamic r) => Resultado.desdeJson(r as Map<String, dynamic>))
         .toList();
@@ -304,6 +311,30 @@ class Avance {
 }
 
 /// Lo que el usuario puede ajustar. Refleja DownloadOptions del dominio.
+/// De donde se puede buscar musica.
+///
+/// Espeja FUENTES del nucleo. Bandcamp queda fuera porque su reproductor sirve
+/// 128 kb/s y el FLAC esta detras del pago; Tidal y companiia llevan DRM.
+enum Fuente {
+  youtube('youtube', 'YouTube', 'Lo mas y lo mas nuevo'),
+  soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
+  archive('archive', 'Archive', 'Conciertos sin perdida');
+
+  const Fuente(this.clave, this.etiqueta, this.pista);
+
+  final String clave;
+  final String etiqueta;
+
+  /// Una linea de que esperar, que si no nadie adivina cual elegir.
+  final String pista;
+
+  /// Si sus resultados son grabaciones completas y no canciones sueltas.
+  ///
+  /// El Archive guarda conciertos enteros: cada resultado es una lista de
+  /// pistas, asi que se abre como tal en vez de bajarse de una pieza.
+  bool get daListas => this == Fuente.archive;
+}
+
 /// Formatos de audio en los que no se puede igualar el volumen.
 ///
 /// Espeja `FORMATOS_SIN_NORMALIZAR` del nucleo: al sacar el audio, FFmpeg

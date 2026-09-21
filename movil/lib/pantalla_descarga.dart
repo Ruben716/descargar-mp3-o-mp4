@@ -33,6 +33,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   String _nombreLista = '';
   String _aviso = '';
   bool _fallo = false;
+  Fuente _fuente = Fuente.youtube;
 
   @override
   void initState() {
@@ -100,7 +101,8 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final List<Resultado> encontrados = await Nucleo.buscar(texto);
+      final List<Resultado> encontrados =
+          await Nucleo.buscar(texto, fuente: _fuente.clave);
       if (!mounted) return;
       setState(() {
         _resultados = encontrados;
@@ -197,7 +199,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   /// Lo que hace el boton grande segun lo que haya escrito.
   Future<void> _accionPrincipal() => _esLista ? _importarLista() : _descargar();
 
-  Future<void> _importarLista() async {
+  Future<void> _importarLista({String? url}) async {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     setState(() {
@@ -207,7 +209,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final ListaTraida lista = await Nucleo.importarLista(_texto);
+      final ListaTraida lista = await Nucleo.importarLista(url ?? _texto);
       if (!mounted) return;
       setState(() {
         _resultados = lista.pistas;
@@ -241,6 +243,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               _buscador(),
+              if (_buscando) _fuentes(),
               const SizedBox(height: 10),
               _controles(),
               const SizedBox(height: 10),
@@ -269,6 +272,36 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         const SizedBox(height: 12),
         Expanded(child: _cuerpo()),
       ],
+    );
+  }
+
+  /// De donde se busca. Solo aparece buscando por nombre: con una URL
+  /// pegada la fuente la decide el propio enlace.
+  Widget _fuentes() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Wrap(
+        spacing: 8,
+        children: <Widget>[
+          for (final Fuente f in Fuente.values)
+            ChoiceChip(
+              selected: _fuente == f,
+              label: Text(f.etiqueta, style: const TextStyle(fontSize: 12)),
+              tooltip: f.pista,
+              selectedColor: Tema.acento.withValues(alpha: 0.25),
+              backgroundColor: Tema.superficie,
+              onSelected: _ocupado
+                  ? null
+                  : (_) => setState(() {
+                        _fuente = f;
+                        // Lo encontrado en otra fuente ya no viene al caso.
+                        _elegido = null;
+                        _importada = false;
+                        _resultados = <Resultado>[];
+                      }),
+            ),
+        ],
+      ),
     );
   }
 
@@ -408,7 +441,9 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         return _TarjetaResultado(
           resultado: r,
           marcado: identical(r, _elegido),
-          alPulsar: () => setState(() => _elegido = identical(r, _elegido) ? null : r),
+          alPulsar: () => _fuente.daListas && !_importada
+              ? _importarLista(url: r.url)
+              : setState(() => _elegido = identical(r, _elegido) ? null : r),
           alEscuchar: () => _escuchar(r),
         );
       },

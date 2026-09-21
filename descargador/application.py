@@ -38,8 +38,13 @@ class SearchVideos:
     def __init__(self, downloader: VideoDownloader):
         self.downloader = downloader
 
-    def execute(self, text: str, limit: int = 10) -> tuple[VideoInfo, ...]:
-        return self.downloader.search(SearchQuery(text, limit))
+    def execute(
+        self,
+        text: str,
+        limit: int = 10,
+        source: str = "youtube",
+    ) -> tuple[VideoInfo, ...]:
+        return self.downloader.search(SearchQuery(text, limit, source))
 
 
 class StreamVideo:

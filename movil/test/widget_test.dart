@@ -1483,6 +1483,78 @@ void main() {
     expect(find.textContaining('lo que de verdad paso'), findsOneWidget);
     expect(find.textContaining('mucho'), findsNothing);
   });
+
+  // --- De donde se busca ---------------------------------------------------
+
+  testWidgets('el buscador ofrece las tres fuentes', (WidgetTester tester) async {
+    await abrir(tester);
+
+    expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'SoundCloud'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Archive'), findsOneWidget);
+  });
+
+  testWidgets('la fuente elegida viaja al nucleo', (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'SoundCloud'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'algo');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    final MethodCall envio = llamadas.lastWhere((MethodCall c) => c.method == 'buscar');
+    expect(envio.arguments['fuente'], 'soundcloud');
+  });
+
+  testWidgets('por defecto se busca en YouTube', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField).first, 'algo');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    final MethodCall envio = llamadas.lastWhere((MethodCall c) => c.method == 'buscar');
+    expect(envio.arguments['fuente'], 'youtube');
+  });
+
+  testWidgets('cambiar de fuente limpia lo encontrado en la anterior',
+      (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField).first, 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    expect(find.text('Cancion uno'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Archive'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancion uno'), findsNothing);
+  });
+
+  test('solo el Archive devuelve grabaciones enteras', () {
+    // Sus resultados son conciertos: se abren como lista, no se bajan de una
+    // pieza. Espeja FUENTES_DE_LISTAS del nucleo.
+    expect(Fuente.archive.daListas, isTrue);
+    expect(Fuente.youtube.daListas, isFalse);
+    expect(Fuente.soundcloud.daListas, isFalse);
+  });
+
+  testWidgets('tocar un concierto del Archive trae sus pistas',
+      (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Archive'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'grateful dead');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+
+    // No se selecciona para bajarla suelta: se pide su lista de pistas.
+    expect(llamadas.any((MethodCall c) => c.method == 'importarLista'), isTrue);
+    expect(find.text('Descargar seleccion'), findsNothing);
+  });
 }
 
 /// Las mismas tres canciones de _conCanciones, ya como objetos.

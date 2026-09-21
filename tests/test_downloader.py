@@ -25,6 +25,7 @@ from descargador.cli import (
 )
 from descargador.domain import (
     FORMATOS_SIN_NORMALIZAR,
+    FUENTES_DE_LISTAS,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -39,6 +40,7 @@ from descargador.domain import (
 )
 from descargador.infrastructure import (
     INTENTOS_TRANSITORIOS,
+    PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
     escribir_etiquetas,
     incrusta_caratula,
@@ -191,6 +193,107 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class FuentesTests(unittest.TestCase):
+    """De dónde se busca. El adaptador no toca la red en estas pruebas."""
+
+    def test_por_defecto_se_busca_en_youtube(self):
+        self.assertEqual(SearchQuery("algo").source, "youtube")
+
+    def test_se_rechaza_una_fuente_que_no_existe(self):
+        for fuente in ("tidal", "spotify", "", "YouTube"):
+            with self.subTest(fuente=fuente), self.assertRaises(DownloadError):
+                SearchQuery("algo", source=fuente)
+
+    def test_cada_fuente_usa_el_prefijo_que_le_toca(self):
+        # Sin esto, buscar en SoundCloud acabaría preguntándole a YouTube.
+        self.assertEqual(PREFIJOS_BUSQUEDA["youtube"], "ytsearch")
+        self.assertEqual(PREFIJOS_BUSQUEDA["soundcloud"], "scsearch")
+        # El Archive no tiene buscador en el motor y va por su propia API.
+        self.assertNotIn("archive", PREFIJOS_BUSQUEDA)
+
+    def test_el_caso_de_uso_traslada_la_fuente_sin_interpretarla(self):
+        adaptador = Mock()
+        adaptador.search.return_value = ()
+        SearchVideos(adaptador).execute("algo", 5, "soundcloud")
+        adaptador.search.assert_called_once_with(SearchQuery("algo", 5, "soundcloud"))
+
+    def test_el_archive_es_el_unico_que_devuelve_grabaciones_enteras(self):
+        # Quien lo use tiene que tratar cada resultado como una lista.
+        self.assertEqual(FUENTES_DE_LISTAS, ("archive",))
+
+    def test_la_direccion_de_soundcloud_es_la_de_la_pista_y_no_la_de_su_api(self):
+        # Regresión: SoundCloud pone en «url» una dirección de su API que no
+        # sirve para volver a la pista; la buena viene en «webpage_url».
+        info = YtDlpDownloader._resultado({
+            "id": "214693515",
+            "title": "Una pista",
+            "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A214693515",
+            "webpage_url": "https://soundcloud.com/grupo/una-pista",
+        })
+        self.assertEqual(info.url, "https://soundcloud.com/grupo/una-pista")
+
+    def test_youtube_sigue_usando_su_direccion_de_siempre(self):
+        # Ahí «webpage_url» llega vacío, así que no puede ganarle a «url».
+        info = YtDlpDownloader._resultado({
+            "id": "abc123",
+            "title": "Un video",
+            "url": "https://www.youtube.com/watch?v=abc123",
+            "webpage_url": None,
+        })
+        self.assertEqual(info.url, "https://www.youtube.com/watch?v=abc123")
+
+    def test_la_consulta_al_archive_se_ciñe_al_titulo_y_al_interprete(self):
+        """Comprueba la consulta, no la red: se intercepta la llamada."""
+        pedido = {}
+
+        class RespuestaFalsa:
+            def read(self):
+                return b'{"response": {"docs": []}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        def espiar(peticion, timeout=None):
+            pedido["url"] = peticion.full_url
+            return RespuestaFalsa()
+
+        with patch("descargador.infrastructure.urlopen", side_effect=espiar):
+            YtDlpDownloader._buscar_en_archive(SearchQuery("grateful dead", source="archive"))
+
+        # A campo abierto salían conciertos de otros grupos.
+        self.assertIn("title%3A", pedido["url"])
+        self.assertIn("creator%3A", pedido["url"])
+        self.assertIn("format%3AFLAC", pedido["url"])
+
+    def test_lo_que_lucene_usa_como_operador_no_cambia_la_consulta(self):
+        pedido = {}
+
+        class RespuestaFalsa:
+            def read(self):
+                return b'{"response": {"docs": []}}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        def espiar(peticion, timeout=None):
+            pedido["url"] = peticion.full_url
+            return RespuestaFalsa()
+
+        with patch("descargador.infrastructure.urlopen", side_effect=espiar):
+            YtDlpDownloader._buscar_en_archive(
+                SearchQuery('AC/DC "live" -1977', source="archive"))
+
+        # Ni comillas, ni barras, ni signos que Lucene entienda como ordenes.
+        self.assertNotIn("%22", pedido["url"])
+        self.assertNotIn("%2F", pedido["url"])
 
 
 class RedAndroidTests(unittest.TestCase):

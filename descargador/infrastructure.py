@@ -1,4 +1,5 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
+import json
 import os
 import re
 import shutil
@@ -6,6 +7,8 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from .domain import (
     SPONSOR_CATEGORIES,
@@ -59,6 +62,15 @@ RECORTE_CUADRADO = "crop='min(iw,ih)':'min(iw,ih)'"
 
 #: Cómo se reparte «Artista - Tema» dentro del título.
 PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
+
+#: Prefijo de búsqueda del motor, por fuente. El Archive no tiene y va aparte.
+PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
+
+#: Colección del Internet Archive con conciertos que los grupos dejan compartir.
+#:
+#: Es la única fuente gratuita con audio sin pérdida de verdad: lo demás que se
+#: puede buscar sirve siempre algo ya comprimido con pérdida.
+COLECCION_ARCHIVE = "etree"
 
 
 def acciones_etiquetas() -> tuple:
@@ -295,6 +307,9 @@ class YtDlpDownloader:
         lentisimo. Esta es la unica ruta del adaptador que acepta una lista,
         porque una busqueda es precisamente eso.
         """
+        if query.source == "archive":
+            return self._buscar_en_archive(query)
+
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
             "quiet": True,
@@ -304,13 +319,64 @@ class YtDlpDownloader:
             "js_runtimes": _runtimes_js(),
             "extract_flat": "in_playlist",
         }
+        prefijo = PREFIJOS_BUSQUEDA[query.source]
         try:
             with YoutubeDL(opciones) as engine:
-                info = engine.extract_info(f"ytsearch{query.limit}:{query.text}", download=False)
+                info = engine.extract_info(
+                    f"{prefijo}{query.limit}:{query.text}", download=False)
             entradas = (info or {}).get("entries") or []
             return tuple(self._resultado(e) for e in entradas if e)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
+
+    @staticmethod
+    def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca conciertos con audio sin pérdida en el Internet Archive.
+
+        No pasa por el motor porque este no trae buscador para esa web: se le
+        pregunta a su propia API y se arman las direcciones. Cada resultado es
+        un concierto entero, no una canción, de ahí que la fuente figure en
+        FUENTES_DE_LISTAS.
+        """
+        # Se busca en el título y en el intérprete, no en todo el registro: a
+        # campo abierto salían conciertos de otros grupos solo porque la ficha
+        # mencionaba de pasada lo que se pedía. Los caracteres que Lucene usa
+        # como operadores se quitan para que el texto no cambie la consulta.
+        texto = re.sub(r'["\+\-!(){}\[\]^~*?:/]', " ", query.text).strip()
+        if not texto:
+            raise DownloadError("Escribe algo que buscar en el Archive.")
+        consulta = (
+            f"collection:{COLECCION_ARCHIVE} AND format:FLAC "
+            f"AND (title:({texto}) OR creator:({texto}))"
+        )
+        direccion = "https://archive.org/advancedsearch.php?" + urlencode(
+            {
+                "q": consulta,
+                # doseq para que los tres campos viajen como «fl[]» repetido,
+                # que es como los pide su API.
+                "fl[]": ["identifier", "title", "creator"],
+                "rows": query.limit,
+                "output": "json",
+            },
+            doseq=True,
+        )
+        try:
+            peticion = Request(direccion, headers={"User-Agent": "descargador"})
+            with urlopen(peticion, timeout=30) as respuesta:
+                datos = json.loads(respuesta.read().decode("utf-8"))
+            documentos = datos.get("response", {}).get("docs", [])
+        except (OSError, ValueError) as exc:
+            raise DownloadError(f"No se pudo buscar en el Archive: {exc}") from exc
+
+        return tuple(
+            VideoInfo(
+                title=str(doc.get("title") or doc["identifier"]),
+                uploader=str(doc.get("creator") or ""),
+                url=f"https://archive.org/details/{doc['identifier']}",
+            )
+            for doc in documentos
+            if doc.get("identifier")
+        )
 
     def playlist(self, url: str) -> Playlist:
         """Lee una lista de reproducción entera sin descargar nada.
@@ -349,7 +415,10 @@ class YtDlpDownloader:
             title=datos.get("title") or "(sin título)",
             uploader=datos.get("uploader") or datos.get("channel"),
             duration=datos.get("duration"),
-            url=datos.get("url") or f"https://www.youtube.com/watch?v={identificador}",
+            # webpage_url primero: SoundCloud pone en «url» la de su API, que no
+            # sirve para volver a la pista. YouTube lo deja vacío y usa «url».
+            url=(datos.get("webpage_url") or datos.get("url")
+                 or f"https://www.youtube.com/watch?v={identificador}"),
             thumbnail=YtDlpDownloader._miniatura(datos),
         )
 

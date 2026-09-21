@@ -110,8 +110,9 @@ class MainActivity : AudioServiceActivity() {
                     "buscar" -> {
                         val texto = llamada.argument<String>("texto").orEmpty()
                         val limite = llamada.argument<Int>("limite") ?: 10
+                        val fuente = llamada.argument<String>("fuente") ?: "youtube"
                         enHilo(respuesta) { puente ->
-                            puente.callAttr("buscar", texto, limite).toString()
+                            puente.callAttr("buscar", texto, limite, fuente).toString()
                         }
                     }
                     "previsualizar" -> {

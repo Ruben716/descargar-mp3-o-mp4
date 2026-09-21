@@ -172,10 +172,10 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             _apagar_red_android()
 
 
-def buscar(texto: str, limite: int) -> str:
+def buscar(texto: str, limite: int, fuente: str = "youtube") -> str:
     """Busca por nombre. En un movil es mas comodo que pegar una URL."""
     try:
-        resultados = SearchVideos(YtDlpDownloader()).execute(texto, int(limite))
+        resultados = SearchVideos(YtDlpDownloader()).execute(texto, int(limite), fuente)
         return _respuesta({
             "ok": True,
             "resultados": [
