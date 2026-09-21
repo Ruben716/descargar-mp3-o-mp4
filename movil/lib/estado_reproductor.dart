@@ -149,6 +149,9 @@ class EstadoReproductor extends ChangeNotifier {
       final ({List<Elemento> cola, int indice, Duration posicion})? sesion =
           sesionDesde(crudo, await Nucleo.biblioteca());
       if (sesion == null) return;
+      // Cuanto antes se deje, mejor: las caratulas van por el mismo canal que
+      // las que necesita lo que el usuario acaba de pedir, y le harian cola.
+      if (_ordenes != ordenes) return;
 
       // Las caratulas de la cola entera son lo que mas tarda, y es justo la
       // espera en la que el usuario da al play. Se piden antes de tocar nada
@@ -266,7 +269,7 @@ class EstadoReproductor extends ChangeNotifier {
   /// Reproduce desde una pista y deja el resto en cola detras.
   Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
     if (elementos.isEmpty) return;
-    _ordenes++;
+    final int ordenes = ++_ordenes;
     _cola = List<Elemento>.from(elementos);
     _actual = Pista(
       titulo: elementos[desde].nombre,
@@ -283,10 +286,21 @@ class EstadoReproductor extends ChangeNotifier {
       await motor.play();
       unawaited(_guardarSesion());
     } catch (error) {
-      _error = '$error';
-      _actual = null;
-      notifyListeners();
+      _fallo(error, ordenes);
     }
+  }
+
+  /// Cuenta el fallo, salvo que sea de una carga que ya no interesaba.
+  ///
+  /// Si el usuario pide otra cosa antes de que la anterior termine de cargar,
+  /// el motor abandona la primera con un «Loading interrupted». Eso no es una
+  /// averia: es justo lo que se le pidio. Anunciarlo tapaba la pantalla con un
+  /// error mientras la cancion nueva se preparaba debajo.
+  void _fallo(Object error, int ordenes) {
+    if (_ordenes != ordenes) return;
+    _error = '$error';
+    _actual = null;
+    notifyListeners();
   }
 
   /// Prepara la cola pidiendo las caratulas de ocho en ocho.
@@ -514,7 +528,7 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   Future<void> _poner(Pista pista) async {
-    _ordenes++;
+    final int ordenes = ++_ordenes;
     _actual = pista;
     _error = null;
     notifyListeners();
@@ -534,9 +548,7 @@ class EstadoReproductor extends ChangeNotifier {
       );
       await motor.play();
     } catch (error) {
-      _error = '$error';
-      _actual = null;
-      notifyListeners();
+      _fallo(error, ordenes);
     }
   }
 

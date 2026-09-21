@@ -169,7 +169,7 @@ class MainActivity : AudioServiceActivity() {
                     }
                     "caratula" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
-                        enHilo(respuesta) { _ -> caratula(uri) }
+                        enHiloSuelto(respuesta) { caratula(uri) }
                     }
                     // Consulta ligera: Flutter la repite mientras dura la descarga.
                     "progreso" -> enHilo(respuesta) { puente ->
@@ -450,6 +450,32 @@ class MainActivity : AudioServiceActivity() {
      * Python aqui hace red y disco, asi que nunca puede correr en el hilo
      * principal: Android lanzaria NetworkOnMainThreadException.
      */
+    /**
+     * Como [enHilo] pero sin pasar por Python.
+     *
+     * Importa el modulo «puente» cuesta lo suyo la primera vez, y hay trabajos
+     * que no lo necesitan para nada: la caratula sale de MediaStore. Pedirlo
+     * igualmente hacia que la primera cancion de cada sesion esperase a que
+     * arrancara el motor de descargas antes de empezar a sonar.
+     */
+    private fun enHiloSuelto(
+        respuesta: MethodChannel.Result,
+        trabajo: () -> String,
+    ) {
+        thread {
+            val salida = try {
+                trabajo()
+            } catch (error: Throwable) {
+                """{"ok": false, "error": "Kotlin: ${error.message}"}"""
+            }
+            try {
+                runOnUiThread { respuesta.success(salida) }
+            } catch (error: Throwable) {
+                // Nadie escuchando; no debe tumbar el hilo.
+            }
+        }
+    }
+
     private fun enHilo(
         respuesta: MethodChannel.Result,
         trabajo: (PyObject) -> String,

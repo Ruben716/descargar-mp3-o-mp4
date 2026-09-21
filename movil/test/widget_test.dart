@@ -47,11 +47,14 @@ void main() {
   String biblioteca = '{"ok":true,"elementos":[]}';
   /// Para dejar la lectura de la biblioteca a medias y colar algo por delante.
   Future<void>? frenoBiblioteca;
+  /// Lo mismo con las caratulas, que es donde espera la cancion que va a sonar.
+  Future<void>? frenoCaratula;
 
   setUp(() async {
     llamadas.clear();
     biblioteca = '{"ok":true,"elementos":[]}';
     frenoBiblioteca = null;
+    frenoCaratula = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // El reproductor y la descarga son unicos para toda la app: sin esto
     // una prueba heredaria lo que dejo la anterior.
@@ -66,6 +69,9 @@ void main() {
       llamadas.add(llamada);
       if (llamada.method == 'biblioteca' && frenoBiblioteca != null) {
         await frenoBiblioteca;
+      }
+      if (llamada.method == 'caratula' && frenoCaratula != null) {
+        await frenoCaratula;
       }
       return switch (llamada.method) {
         'urlCompartida' => null,
@@ -1314,6 +1320,30 @@ void main() {
 
     expect(estado.cola.map((Elemento e) => e.uri).toList(),
         <String>['content://audio/1', 'content://audio/2']);
+  });
+
+  test('una carga que el usuario deja atras no se anuncia como error', () async {
+    // El fallo que arregla: poner una cola larga espera a tener una caratula
+    // por cancion. Si en esa espera el usuario pedia otra cosa, el motor
+    // abandonaba la primera con un «Loading interrupted» y la pantalla lo
+    // sacaba como si algo se hubiera roto, justo encima de la que si iba a
+    // sonar.
+    biblioteca = _conCanciones;
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    final Completer<void> puerta = Completer<void>();
+    frenoCaratula = puerta.future;
+
+    // Todo dentro de la zona: en el escritorio no hay motor de audio y lo que
+    // protesta por lo bajo no es lo que se esta mirando aqui.
+    await runZonedGuarded(() async {
+      final Future<void> poniendo = estado.reproducirLista(_biblioteca3, 0);
+      await Future<void>.delayed(Duration.zero);
+      await estado.cerrar();
+      puerta.complete();
+      await poniendo;
+    }, (Object _, StackTrace _) {});
+
+    expect(estado.error, isNull, reason: 'la abandono el usuario, no fallo');
   });
 
   test('la velocidad pasa por todos sus valores y vuelve al principio', () {

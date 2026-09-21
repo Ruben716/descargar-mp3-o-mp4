@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -151,14 +152,29 @@ class Nucleo {
   /// La caratula guardada como archivo: la notificacion del sistema necesita
   /// una direccion, no unos bytes.
   static Future<Uri?> caratulaArchivo(String uri) async {
+    // El archivo de la vez anterior sigue ahi: si esta, no hay que pedir la
+    // imagen ni decodificarla. Importa al poner una cola larga, que pide una
+    // por cancion antes de que empiece a sonar nada.
+    final File? guardado = await _archivoCaratula(uri);
+    if (guardado != null && guardado.existsSync()) return guardado.uri;
+
     final Uint8List? imagen = await caratula(uri);
-    if (imagen == null) return null;
+    if (imagen == null || guardado == null) return null;
     try {
-      final Directory cache = await getTemporaryDirectory();
-      final String nombre = uri.hashCode.toRadixString(16);
-      final File destino = File('${cache.path}/caratula_$nombre.jpg');
-      if (!destino.existsSync()) await destino.writeAsBytes(imagen);
-      return destino.uri;
+      await guardado.writeAsBytes(imagen);
+      return guardado.uri;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// La carpeta temporal, preguntada una sola vez: tambien cruza el canal.
+  static Directory? _temporal;
+
+  static Future<File?> _archivoCaratula(String uri) async {
+    try {
+      final Directory cache = _temporal ??= await getTemporaryDirectory();
+      return File('${cache.path}/caratula_${uri.hashCode.toRadixString(16)}.jpg');
     } catch (_) {
       return null;
     }
@@ -182,6 +198,18 @@ class Nucleo {
   static void olvidarCaratula(String uri) {
     _caratulas.remove(uri);
     _enCurso.remove(uri);
+    // Tambien la copia en disco: si no, una pista nueva que cayera en el mismo
+    // sitio heredaria la portada de la que se borro.
+    unawaited(_borrarCaratulaGuardada(uri));
+  }
+
+  static Future<void> _borrarCaratulaGuardada(String uri) async {
+    try {
+      final File? guardado = await _archivoCaratula(uri);
+      if (guardado != null && guardado.existsSync()) await guardado.delete();
+    } catch (_) {
+      // Que sobre un archivo en la carpeta temporal no es problema de nadie.
+    }
   }
 
   @visibleForTesting
