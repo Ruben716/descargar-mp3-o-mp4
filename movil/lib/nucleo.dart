@@ -354,6 +354,7 @@ class Ajustes {
     this.sinPatrocinios = false,
     this.normalizar = false,
     this.etiquetasLimpias = true,
+    this.portadaOficial = true,
   });
 
   final String url;
@@ -371,6 +372,9 @@ class Ajustes {
   /// Separa artista y tema del titulo de YouTube y le quita las coletillas.
   final bool etiquetasLimpias;
 
+  /// Cambia el fotograma del video por la caratula oficial del tema.
+  final bool portadaOficial;
+
   Ajustes copiar({
     String? url,
     bool? soloAudio,
@@ -382,6 +386,7 @@ class Ajustes {
     bool? sinPatrocinios,
     bool? normalizar,
     bool? etiquetasLimpias,
+    bool? portadaOficial,
   }) =>
       Ajustes(
         url: url ?? this.url,
@@ -394,6 +399,7 @@ class Ajustes {
         sinPatrocinios: sinPatrocinios ?? this.sinPatrocinios,
         normalizar: normalizar ?? this.normalizar,
         etiquetasLimpias: etiquetasLimpias ?? this.etiquetasLimpias,
+        portadaOficial: portadaOficial ?? this.portadaOficial,
       );
 
   Map<String, dynamic> aMapa() => <String, dynamic>{
@@ -411,5 +417,7 @@ class Ajustes {
         // el nucleo rechazaria la descarga entera.
         'normalizar': soloAudio && normalizar && !formatosSinNormalizar.contains(formatoAudio),
         'etiquetasLimpias': etiquetasLimpias,
+        // Solo tiene sentido en audio: un video no lleva caratula dentro.
+        'portadaOficial': soloAudio && portadaOficial,
       };
 }

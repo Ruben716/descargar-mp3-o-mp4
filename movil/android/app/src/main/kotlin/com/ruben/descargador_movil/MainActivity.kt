@@ -103,6 +103,7 @@ class MainActivity : AudioServiceActivity() {
                             sinPatrocinios = llamada.argument<Boolean>("sinPatrocinios") ?: false,
                             normalizar = llamada.argument<Boolean>("normalizar") ?: false,
                             etiquetasLimpias = llamada.argument<Boolean>("etiquetasLimpias") ?: true,
+                            portadaOficial = llamada.argument<Boolean>("portadaOficial") ?: true,
                             avisar = llamada.argument<Boolean>("avisar") ?: true,
                         )
                         enHilo(respuesta) { puente -> descargar(puente, ajustes) }
@@ -197,6 +198,7 @@ class MainActivity : AudioServiceActivity() {
         val sinPatrocinios: Boolean,
         val normalizar: Boolean,
         val etiquetasLimpias: Boolean,
+        val portadaOficial: Boolean,
         /** En un lote solo avisa la ultima, o saldrian cientos de avisos. */
         val avisar: Boolean,
     )
@@ -695,6 +697,7 @@ class MainActivity : AudioServiceActivity() {
             ajustes.etiquetasLimpias,
             cookies,
             nativo,
+            ajustes.portadaOficial,
         ).toString()
 
     /** Si el fallo huele a que la web sirvio un muro en vez de la pagina. */

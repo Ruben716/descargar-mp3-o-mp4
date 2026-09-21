@@ -42,9 +42,12 @@ from descargador.infrastructure import (
     INTENTOS_TRANSITORIOS,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
+    buscar_portada,
     escribir_etiquetas,
     incrusta_caratula,
+    incrustar_portada,
     nombre_con_etiquetas,
+    partes_del_nombre,
 )
 
 
@@ -193,6 +196,93 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class PortadaOficialTests(unittest.TestCase):
+    """La carátula del disco en vez del fotograma del vídeo."""
+
+    class _RespuestaFalsa:
+        def __init__(self, cuerpo):
+            self._cuerpo = cuerpo
+
+        def read(self):
+            return self._cuerpo
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def test_se_pide_la_grande_y_no_la_miniatura(self):
+        # El catálogo devuelve una de 100 píxeles; la misma existe en 1200 sin
+        # más que cambiarle la medida a la dirección.
+        cuerpo = b'{"results": [{"artworkUrl100": "https://x/a/100x100bb.jpg"}]}'
+        with patch("descargador.infrastructure.urlopen",
+                   return_value=self._RespuestaFalsa(cuerpo)):
+            direccion = buscar_portada("Un Grupo", "Un Tema")
+        self.assertEqual(direccion, "https://x/a/1200x1200bb.jpg")
+
+    def test_sin_resultados_no_se_inventa_una_portada(self):
+        with patch("descargador.infrastructure.urlopen",
+                   return_value=self._RespuestaFalsa(b'{"results": []}')):
+            self.assertIsNone(buscar_portada("Nadie", "Nada"))
+
+    def test_sin_artista_ni_titulo_ni_se_pregunta(self):
+        with patch("descargador.infrastructure.urlopen") as red:
+            self.assertIsNone(buscar_portada("", "   "))
+        red.assert_not_called()
+
+    def test_un_fallo_de_red_deja_la_descarga_en_pie(self):
+        # La canción ya se bajó bien: quedarse sin la portada buena no puede
+        # convertirse en un error.
+        with patch("descargador.infrastructure.urlopen", side_effect=OSError("sin red")):
+            self.assertIsNone(buscar_portada("Un Grupo", "Un Tema"))
+
+    def test_la_portada_vieja_se_queda_fuera(self):
+        """Comprueba la orden de FFmpeg, no a FFmpeg."""
+        with tempfile.TemporaryDirectory() as carpeta:
+            audio = Path(carpeta) / "tema.mp3"
+            audio.write_bytes(b"audio")
+            imagen = Path(carpeta) / "arte.jpg"
+            imagen.write_bytes(b"imagen")
+            destino = Path(carpeta) / "sale.mp3"
+
+            def fingir(orden, **_):
+                destino.write_bytes(b"audio")
+                return subprocess.CompletedProcess(orden, 0, "", "")
+
+            with (
+                patch("descargador.infrastructure._preparar_ffmpeg", return_value="ffmpeg"),
+                patch("descargador.infrastructure.subprocess.run", side_effect=fingir) as corrio,
+            ):
+                incrustar_portada(audio, destino, imagen)
+
+            orden = corrio.call_args.args[0]
+            # Del original se coge solo el sonido: así la carátula anterior no
+            # sobrevive y no quedan dos dentro del mismo archivo.
+            self.assertIn("0:a", orden)
+            self.assertIn("1:v", orden)
+            self.assertIn("attached_pic", orden)
+            self.assertEqual(orden[orden.index("-c") + 1], "copy")
+
+    def test_sin_imagen_se_dice_claro(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            audio = Path(carpeta) / "tema.mp3"
+            audio.write_bytes(b"audio")
+            with self.assertRaises(DownloadError):
+                incrustar_portada(audio, Path(carpeta) / "sale.mp3", Path("no-existe.jpg"))
+
+    def test_el_artista_y_el_tema_salen_del_nombre_del_archivo(self):
+        self.assertEqual(
+            partes_del_nombre("Soda Stereo - De Musica Ligera [T_Fk].mp3"),
+            ("Soda Stereo", "De Musica Ligera"))
+        # Sin guion no hay artista, pero el tema sigue sirviendo para buscar.
+        self.assertEqual(partes_del_nombre("Un tema suelto [x].mp3"), ("", "Un tema suelto"))
+        # El guion que parte es el primero: el tema puede llevar los suyos.
+        self.assertEqual(
+            partes_del_nombre("Artista - Tema - con guion [id].mp3"),
+            ("Artista", "Tema - con guion"))
 
 
 class FuentesTests(unittest.TestCase):

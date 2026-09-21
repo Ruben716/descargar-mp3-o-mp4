@@ -108,6 +108,14 @@ class _HojaAjustesState extends State<HojaAjustes> {
         ),
         const SizedBox(height: 8),
         _igualarVolumen(),
+        SwitchListTile(
+          value: _a.portadaOficial,
+          onChanged: (bool v) => setState(() => _a = _a.copiar(portadaOficial: v)),
+          title: const Text('Caratula oficial'),
+          subtitle: const Text('La del disco en vez del fotograma del video'),
+          contentPadding: EdgeInsets.zero,
+          activeThumbColor: Tema.acento,
+        ),
       ];
 
   /// Igualar el volumen obliga a reconvertir, y hay formatos que se copian

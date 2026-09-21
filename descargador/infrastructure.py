@@ -66,6 +66,12 @@ PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
 #: Prefijo de búsqueda del motor, por fuente. El Archive no tiene y va aparte.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 
+#: Guiones que pueden separar artista y tema: normal, medio y largo.
+#:
+#: Van por su código y no escritos tal cual porque a simple vista los tres son
+#: indistinguibles, y una confusión aquí partiría el nombre donde no toca.
+GUIONES = "-" + chr(0x2013) + chr(0x2014)
+
 #: Colección del Internet Archive con conciertos que los grupos dejan compartir.
 #:
 #: Es la única fuente gratuita con audio sin pérdida de verdad: lo demás que se
@@ -654,6 +660,100 @@ def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str
         detalle = (resultado.stderr or "").strip().splitlines()
         raise DownloadError(
             "No se pudieron escribir las etiquetas: " + (detalle[-1] if detalle else "falló FFmpeg"))
+
+
+def buscar_portada(artista: str, titulo: str, *, lado: int = 1200) -> str | None:
+    """Dirección de la carátula oficial, o None si no se encuentra.
+
+    Se pregunta al catálogo de iTunes, que es público y no pide clave ni
+    cuenta. Devuelve la miniatura pequeña, así que se le cambia la medida en la
+    propia dirección: el mismo archivo existe hasta en 1200 píxeles.
+    """
+    consulta = " ".join(p for p in (artista, titulo) if p.strip()).strip()
+    if not consulta:
+        return None
+    direccion = "https://itunes.apple.com/search?" + urlencode({
+        "term": consulta,
+        "entity": "song",
+        "limit": 1,
+    })
+    try:
+        peticion = Request(direccion, headers={"User-Agent": "descargador"})
+        with urlopen(peticion, timeout=20) as respuesta:
+            datos = json.loads(respuesta.read().decode("utf-8"))
+    except (OSError, ValueError):
+        # Quedarse sin carátula no puede tumbar una descarga que ya salió bien.
+        return None
+
+    resultados = datos.get("results") or []
+    if not resultados:
+        return None
+    pequena = str(resultados[0].get("artworkUrl100") or "")
+    if not pequena:
+        return None
+    return pequena.replace("100x100bb", f"{lado}x{lado}bb")
+
+
+def descargar_portada(direccion: str, destino: Path) -> bool:
+    """Trae la imagen a disco. Devuelve si lo consiguió."""
+    try:
+        peticion = Request(direccion, headers={"User-Agent": "descargador"})
+        with urlopen(peticion, timeout=30) as respuesta:
+            imagen = respuesta.read()
+    except OSError:
+        return False
+    if not imagen:
+        return False
+    try:
+        destino.write_bytes(imagen)
+    except OSError:
+        return False
+    return True
+
+
+def incrustar_portada(origen: Path, destino: Path, imagen: Path) -> None:
+    """Pega la imagen dentro del audio, sustituyendo la que tuviera.
+
+    «-map 0:a» coge solo el sonido del original, de modo que la carátula vieja
+    se queda fuera; si no, quedarían las dos y cada reproductor enseñaría la
+    que le diera la gana. El audio pasa con «-c copy», sin recomprimir.
+    """
+    if not origen.is_file():
+        raise DownloadError("No se encontró el archivo al que poner la carátula.")
+    if not imagen.is_file():
+        raise DownloadError("No se encontró la imagen de la carátula.")
+    ffmpeg = _preparar_ffmpeg()
+    orden = [
+        ffmpeg, "-y", "-i", str(origen), "-i", str(imagen),
+        "-map", "0:a", "-map", "1:v", "-c", "copy",
+        "-id3v2_version", "3",
+        "-metadata:s:v", "title=Album cover",
+        "-metadata:s:v", "comment=Cover (front)",
+        "-disposition:v", "attached_pic",
+        str(destino),
+    ]
+    try:
+        resultado = subprocess.run(orden, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise DownloadError(f"No se pudo ejecutar FFmpeg: {exc}") from exc
+    if resultado.returncode != 0 or not destino.is_file():
+        detalle = (resultado.stderr or "").strip().splitlines()
+        raise DownloadError(
+            "No se pudo incrustar la carátula: " + (detalle[-1] if detalle else "falló FFmpeg"))
+
+
+def partes_del_nombre(nombre: str) -> tuple[str, str]:
+    """Artista y tema sacados del nombre de archivo.
+
+    Con las etiquetas limpias los archivos salen como «Artista - Tema [id]», y
+    eso basta para buscar la carátula. Sin guion no hay artista que sacar.
+    """
+    limpio = re.sub(r"\.[a-zA-Z0-9]{2,4}$", "", nombre)
+    limpio = re.sub(r"\s*\[[^\]]+\]\s*$", "", limpio).strip()
+    corte = re.search(rf"\s+[{GUIONES}]\s+", limpio)
+    if not corte:
+        return "", limpio
+    return limpio[: corte.start()].strip(), limpio[corte.end() :].strip()
 
 
 def nombre_con_etiquetas(nombre: str, *, titulo: str, artista: str) -> str:

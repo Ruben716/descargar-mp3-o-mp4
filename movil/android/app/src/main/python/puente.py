@@ -23,9 +23,13 @@ from descargador.domain import (
 )
 from descargador.infrastructure import (
     YtDlpDownloader,
+    buscar_portada,
     configurar_entorno,
+    descargar_portada,
     escribir_etiquetas,
+    incrustar_portada,
     nombre_con_etiquetas,
+    partes_del_nombre,
 )
 
 #: Ultimo avance publicado por el motor. Kotlin lo consulta mientras descarga.
@@ -126,7 +130,8 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
               formato_audio: str, bitrate: str = "192", subtitulos: str = "",
               fragmento: str = "", sin_patrocinios: bool = False,
               normalizar: bool = False, etiquetas_limpias: bool = True,
-              cookies: str = "", nativo: bool = False) -> str:
+              cookies: str = "", nativo: bool = False,
+              portada_oficial: bool = True) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -153,8 +158,12 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             _encender_red_android()
         motor = YtDlpDownloader(_anotar, registro, cookies or None)
         resultado = DownloadVideo(motor).execute(url, Path(carpeta), opciones)
+        archivos = list(resultado.files)
+        if solo_audio and portada_oficial:
+            _AVANCE["status"] = "portada"
+            archivos = [_ponerPortadaOficial(a) for a in archivos]
         _AVANCE["status"] = "listo"
-        return _respuesta({"ok": True, "archivos": [str(r) for r in resultado.files]})
+        return _respuesta({"ok": True, "archivos": [str(a) for a in archivos]})
     except DownloadError as exc:
         _AVANCE["status"] = "error"
         return _respuesta({"ok": False, "error": str(exc), "registro": registro.lineas})
@@ -298,3 +307,33 @@ def _apagar_red_android() -> None:
         red_android.desactivar()
     except Exception:
         pass
+
+
+def _ponerPortadaOficial(archivo: Path) -> Path:
+    """Cambia el fotograma de YouTube por la caratula oficial del tema.
+
+    Si algo falla se devuelve el archivo tal cual: la descarga ya salio bien y
+    quedarse sin la portada buena no es motivo para perderla.
+    """
+    try:
+        artista, titulo = partes_del_nombre(archivo.name)
+        direccion = buscar_portada(artista, titulo)
+        if not direccion:
+            return archivo
+
+        imagen = archivo.with_name(f"{archivo.stem}.portada.jpg")
+        if not descargar_portada(direccion, imagen):
+            return archivo
+
+        conPortada = archivo.with_name(f"{archivo.stem}.conportada{archivo.suffix}")
+        try:
+            incrustar_portada(archivo, conPortada, imagen)
+            # Se ocupa el sitio del original para que arriba no cambie nada.
+            archivo.unlink()
+            conPortada.rename(archivo)
+        finally:
+            imagen.unlink(missing_ok=True)
+            conPortada.unlink(missing_ok=True)
+        return archivo
+    except Exception:
+        return archivo
