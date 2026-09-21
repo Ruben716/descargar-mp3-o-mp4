@@ -46,6 +46,7 @@ from descargador.infrastructure import (
     escribir_etiquetas,
     incrusta_caratula,
     incrustar_portada,
+    mensaje_claro,
     nombre_con_etiquetas,
     partes_del_nombre,
 )
@@ -196,6 +197,42 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("loudnorm", " ".join(recibe("ExtractAudio")))
         self.assertEqual(recibe("Metadata"), [])
         self.assertEqual(recibe("EmbedThumbnail"), [])
+
+
+class MensajesTests(unittest.TestCase):
+    """Lo que escupe el motor está en inglés y no dice qué hacer."""
+
+    def test_una_pista_protegida_se_explica_y_se_ofrece_salida(self):
+        # Pasa con las subidas oficiales de los sellos en SoundCloud.
+        mensaje = mensaje_claro(Exception("ERROR: [soundcloud] 19166: This video is DRM protected"))
+        self.assertIn("protegida", mensaje)
+        self.assertIn("YouTube", mensaje)
+        self.assertNotIn("DRM protected", mensaje)
+
+    def test_los_fallos_conocidos_se_cuentan_en_castellano(self):
+        casos = {
+            "ERROR: [youtube] abc: Video unavailable": "disponible",
+            "ERROR: [youtube] abc: Private video": "privado",
+            "ERROR: Requested format is not available": "formato",
+            "OSError: No space left on device": "espacio",
+        }
+        for crudo, esperado in casos.items():
+            with self.subTest(crudo=crudo):
+                self.assertIn(esperado, mensaje_claro(Exception(crudo)))
+
+    def test_un_fallo_desconocido_se_cuenta_tal_cual(self):
+        # Inventarse una explicación para algo que no se conoce sería peor:
+        # el texto original al menos deja rastro para diagnosticarlo.
+        mensaje = mensaje_claro(Exception("algo que nunca habiamos visto"))
+        self.assertIn("algo que nunca habiamos visto", mensaje)
+
+    def test_una_pista_protegida_no_se_reintenta(self):
+        # Repetirlo tres veces no va a quitarle el candado.
+        motor = YtDlpDownloader()
+        fallo = Mock(side_effect=DownloadError("Esa pista está protegida por su sello"))
+        with patch.object(YtDlpDownloader, "_intentar", fallo), self.assertRaises(DownloadError):
+            motor.download(DownloadRequest("https://example.com/v", Path("out")))
+        self.assertEqual(fallo.call_count, 1)
 
 
 class PortadaOficialTests(unittest.TestCase):

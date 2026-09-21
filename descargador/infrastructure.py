@@ -178,6 +178,42 @@ def _preparar_ffmpeg() -> str:
     return str(alias)
 
 
+#: Fallos conocidos del motor y qué contarle a quien está delante.
+#:
+#: Lo que escupe yt-dlp está en inglés y habla de cosas que no le dicen nada a
+#: quien solo quería una canción. Aquí se traduce y, cuando hay salida, se
+#: sugiere: un mensaje que no dice qué hacer es medio mensaje.
+EXPLICACIONES: tuple[tuple[str, str], ...] = (
+    ("drm protected",
+     "Esa pista está protegida por su sello y no se puede descargar. "
+     "Prueba a buscar la misma canción en YouTube."),
+    ("requiring login",
+     "Ese contenido pide iniciar sesión, y esta aplicación no usa cuentas."),
+    ("sign in to confirm",
+     "La web pide iniciar sesión para comprobar que no eres un robot. "
+     "Inténtalo más tarde o busca la canción en otra fuente."),
+    ("private video", "Ese vídeo es privado."),
+    ("video unavailable", "Ese vídeo ya no está disponible."),
+    ("members-only", "Ese contenido es solo para miembros del canal."),
+    ("requested format is not available",
+     "No hay ningún formato descargable para ese enlace."),
+    ("no space left", "No queda espacio libre en el teléfono."),
+    ("unexpected response",
+     "La web respondió con una pantalla de verificación en vez de la página. "
+     "Suele arreglarse probando de nuevo en un rato."),
+)
+
+
+def mensaje_claro(error: Exception) -> str:
+    """Convierte un fallo del motor en algo que se entienda."""
+    crudo = str(error)
+    plano = crudo.lower()
+    for pista, explicacion in EXPLICACIONES:
+        if pista in plano:
+            return explicacion
+    return f"No se pudo completar la descarga: {crudo}"
+
+
 def incrusta_caratula(audio_only: bool) -> bool:
     """Indica si la carátula puede incrustarse sin abortar el postprocesado.
 
@@ -537,7 +573,7 @@ class YtDlpDownloader:
                 raise DownloadError("No se obtuvo ningún archivo. Comprueba la URL.")
             return DownloadResult(existentes)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
-            raise DownloadError(f"No se pudo completar la descarga: {exc}") from exc
+            raise DownloadError(mensaje_claro(exc)) from exc
 
     @staticmethod
     def _seleccion_formato(opts: DownloadOptions) -> str:
