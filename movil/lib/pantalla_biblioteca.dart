@@ -7,6 +7,7 @@ import 'fila_pista.dart';
 import 'formato.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'paleta.dart';
 import 'pantalla_artista.dart';
 import 'pantalla_lista.dart';
 import 'portadas.dart';
@@ -146,6 +147,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
       await Nucleo.eliminar(elemento.uri);
       // La portada guardada ya no vale para nada y ocupa memoria.
       Nucleo.olvidarCaratula(elemento.uri);
+      Paleta.olvidar(elemento.uri);
       await EstadoReproductor.instancia.olvidarSiEs(elemento.uri);
       await _listas.olvidar(elemento.uri);
       // Sin esto el catalogo seguiria creyendo que la tenemos y no se

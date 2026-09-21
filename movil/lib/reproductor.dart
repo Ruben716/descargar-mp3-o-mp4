@@ -11,6 +11,7 @@ import 'hoja_cola.dart';
 import 'hoja_ecualizador.dart';
 import 'hoja_suenio.dart';
 import 'nucleo.dart';
+import 'paleta.dart';
 import 'panel_letras.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -136,7 +137,10 @@ class _ReproductorState extends State<Reproductor> {
               ),
             ],
           ),
-          body: _Fondo(elemento: elemento, hijo: contenido),
+          body: ConPaletaDe(
+            uri: elemento.uri,
+            hijo: _Fondo(elemento: elemento, hijo: contenido),
+          ),
         );
       },
     );
@@ -167,16 +171,9 @@ class _Fondo extends StatelessWidget {
             );
           },
         ),
-        // Velo oscuro: sin el, el texto sobre la caratula no se lee.
-        const DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: <Color>[Color(0xCC08070C), Color(0xF208070C), Tema.fondo],
-            ),
-          ),
-        ),
+        // Velo: sin el, el texto sobre la caratula no se lee. Va tenido con
+        // el color de la propia portada en vez de con un gris.
+        const VeloDePaleta(),
         SafeArea(child: hijo),
       ],
     );
@@ -341,17 +338,22 @@ class _BotonGrande extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final ColorScheme colores = Theme.of(context).colorScheme;
     return GestureDetector(
       onTap: alPulsar,
       child: Container(
         width: 76,
         height: 76,
         decoration: BoxDecoration(
-          gradient: Tema.degradado,
+          gradient: LinearGradient(
+            colors: <Color>[colores.primary, colores.tertiary],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
           shape: BoxShape.circle,
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: Tema.acento.withValues(alpha: 0.45),
+              color: colores.primary.withValues(alpha: 0.45),
               blurRadius: 28,
               offset: const Offset(0, 10),
             ),
@@ -603,18 +605,19 @@ class _BotonAleatorio extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Color tono = Theme.of(context).colorScheme.primary;
     return TextButton.icon(
       onPressed: estado.alternarAleatorio,
       icon: Icon(
         Icons.shuffle_rounded,
         size: 20,
-        color: estado.aleatorio ? Tema.acento : Colors.white38,
+        color: estado.aleatorio ? tono : Colors.white38,
       ),
       label: Text(
         estado.aleatorio ? 'Aleatorio' : 'En orden',
         style: TextStyle(
           fontSize: 12,
-          color: estado.aleatorio ? Tema.acento : Colors.white38,
+          color: estado.aleatorio ? tono : Colors.white38,
         ),
       ),
     );
@@ -630,6 +633,7 @@ class _BotonVelocidad extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool normal = estado.velocidad == 1;
+    final Color tono = Theme.of(context).colorScheme.primary;
     // «1x» se escribe sin decimales; «1.25x» los necesita.
     final String etiqueta = estado.velocidad == estado.velocidad.roundToDouble()
         ? '${estado.velocidad.round()}x'
@@ -639,11 +643,11 @@ class _BotonVelocidad extends StatelessWidget {
       icon: Icon(
         Icons.speed_rounded,
         size: 20,
-        color: normal ? Colors.white38 : Tema.acento,
+        color: normal ? Colors.white38 : tono,
       ),
       label: Text(
         etiqueta,
-        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : Tema.acento),
+        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : tono),
       ),
     );
   }
@@ -658,6 +662,7 @@ class _BotonRepeticion extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool activa = estado.repeticion != LoopMode.off;
+    final Color tono = Theme.of(context).colorScheme.primary;
     return TextButton.icon(
       onPressed: estado.alternarRepeticion,
       icon: Icon(
@@ -665,7 +670,7 @@ class _BotonRepeticion extends StatelessWidget {
             ? Icons.repeat_one_rounded
             : Icons.repeat_rounded,
         size: 20,
-        color: activa ? Tema.acento : Colors.white38,
+        color: activa ? tono : Colors.white38,
       ),
       label: Text(
         switch (estado.repeticion) {
@@ -675,7 +680,7 @@ class _BotonRepeticion extends StatelessWidget {
         },
         style: TextStyle(
           fontSize: 12,
-          color: activa ? Tema.acento : Colors.white38,
+          color: activa ? tono : Colors.white38,
         ),
       ),
     );

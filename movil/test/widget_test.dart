@@ -14,6 +14,7 @@ import 'package:descargador_movil/letras.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/orden_aleatorio.dart';
 import 'package:descargador_movil/dialogo_etiquetas.dart';
+import 'package:descargador_movil/paleta.dart';
 import 'package:descargador_movil/pantalla_artista.dart';
 import 'package:descargador_movil/pantalla_biblioteca.dart';
 import 'package:descargador_movil/pantalla_descarga.dart';
@@ -54,6 +55,7 @@ void main() {
     ControlDescarga.instancia.reiniciar();
     Listas.instancia.reiniciar();
     Nucleo.olvidarCaratulas();
+    Paleta.vaciar();
     await Catalogo.instancia.usarEnMemoria();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
@@ -1554,6 +1556,56 @@ void main() {
     // No se selecciona para bajarla suelta: se pide su lista de pistas.
     expect(llamadas.any((MethodCall c) => c.method == 'importarLista'), isTrue);
     expect(find.text('Descargar seleccion'), findsNothing);
+  });
+
+  // --- El color sale de la portada ----------------------------------------
+
+  testWidgets('sin portada se usa la paleta del tema', (WidgetTester tester) async {
+    // El canal de prueba responde con una portada vacia.
+    final ColorScheme colores = await Paleta.de('content://audio/1');
+
+    expect(colores, Paleta.neutra);
+  });
+
+  testWidgets('la paleta no se recalcula en cada reconstruccion',
+      (WidgetTester tester) async {
+    // Sacar los colores de una imagen cuesta, y la pantalla se redibuja cada
+    // segundo mientras suena.
+    await Paleta.de('content://audio/1');
+    final int tras = llamadas.where((MethodCall c) => c.method == 'caratula').length;
+
+    await Paleta.de('content://audio/1');
+    await Paleta.de('content://audio/1');
+
+    expect(llamadas.where((MethodCall c) => c.method == 'caratula').length, tras);
+    expect(Paleta.guardada('content://audio/1'), isNotNull);
+  });
+
+  testWidgets('olvidar una pista tira su paleta', (WidgetTester tester) async {
+    await Paleta.de('content://audio/1');
+    expect(Paleta.guardada('content://audio/1'), isNotNull);
+
+    Paleta.olvidar('content://audio/1');
+
+    expect(Paleta.guardada('content://audio/1'), isNull);
+  });
+
+  testWidgets('la paleta viste lo que tiene debajo', (WidgetTester tester) async {
+    late ColorScheme visto;
+    await tester.pumpWidget(MaterialApp(
+      home: ConPaletaDe(
+        uri: 'content://audio/1',
+        hijo: Builder(
+          builder: (BuildContext context) {
+            visto = Theme.of(context).colorScheme;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(visto, Paleta.neutra);
   });
 }
 
