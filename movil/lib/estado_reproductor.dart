@@ -91,6 +91,17 @@ class EstadoReproductor extends ChangeNotifier {
   bool _sesionRestaurada = false;
   DateTime _ultimoGuardado = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Cuantas ordenes de reproduccion lleva dadas el usuario.
+  ///
+  /// Retomar la sesion tarda: hay que leer la biblioteca entera y pedir una
+  /// caratula por pista. Si mientras tanto el usuario toca una cancion, lo
+  /// retomado llegaba despues y le quitaba la suya de debajo: la pantalla
+  /// seguia con la que habia elegido, pero el motor se quedaba con la vieja y
+  /// parada, asi que no sonaba nada y el telefono anunciaba otra cancion.
+  /// Mirar la cola al entrar no bastaba, porque entre esa mirada y el momento
+  /// de tocar el motor hay varios «await» de por medio.
+  int _ordenes = 0;
+
   /// Apunta la cola y el punto exacto para poder seguir tras cerrar la app.
   Future<void> _guardarSesion() async {
     try {
@@ -129,6 +140,7 @@ class EstadoReproductor extends ChangeNotifier {
   Future<void> restaurarSesion() async {
     if (_sesionRestaurada || _cola.isNotEmpty) return;
     _sesionRestaurada = true;
+    final int ordenes = _ordenes;
     try {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
       final String? crudo = memoria.getString(claveSesion);
@@ -138,13 +150,19 @@ class EstadoReproductor extends ChangeNotifier {
           sesionDesde(crudo, await Nucleo.biblioteca());
       if (sesion == null) return;
 
+      // Las caratulas de la cola entera son lo que mas tarda, y es justo la
+      // espera en la que el usuario da al play. Se piden antes de tocar nada
+      // para poder rendirse sin haber movido ya la pantalla.
+      final List<AudioSource> fuentes = await _fuentes(sesion.cola);
+      if (_ordenes != ordenes) return;
+
       _cola = sesion.cola;
       final Elemento donde = sesion.cola[sesion.indice];
       _actual = Pista(titulo: donde.nombre, fuente: donde.uri, elemento: donde);
       notifyListeners();
 
       await motor.setAudioSources(
-        await _fuentes(sesion.cola),
+        fuentes,
         initialIndex: sesion.indice,
         initialPosition: sesion.posicion,
       );
@@ -248,6 +266,7 @@ class EstadoReproductor extends ChangeNotifier {
   /// Reproduce desde una pista y deja el resto en cola detras.
   Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
     if (elementos.isEmpty) return;
+    _ordenes++;
     _cola = List<Elemento>.from(elementos);
     _actual = Pista(
       titulo: elementos[desde].nombre,
@@ -495,6 +514,7 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   Future<void> _poner(Pista pista) async {
+    _ordenes++;
     _actual = pista;
     _error = null;
     notifyListeners();
@@ -558,6 +578,7 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   Future<void> cerrar() async {
+    _ordenes++;
     _cola = <Elemento>[];
     cancelarSuenio();
     unawaited(_guardarSesion());
@@ -583,6 +604,10 @@ class EstadoReproductor extends ChangeNotifier {
     _error = null;
     _preparando = false;
     _cola = <Elemento>[];
+    // Sin esto, una prueba que ya retomo la sesion dejaba la marca puesta y la
+    // siguiente se saltaba el retomado entero sin que se notara.
+    _sesionRestaurada = false;
+    _ordenes = 0;
     _artes.clear();
     _relojSuenio?.cancel();
     _relojSuenio = null;

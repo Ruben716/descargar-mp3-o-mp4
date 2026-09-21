@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -44,10 +45,13 @@ void main() {
   final List<MethodCall> llamadas = <MethodCall>[];
   // Lo que el telefono dice tener; alguna prueba necesita que no este vacio.
   String biblioteca = '{"ok":true,"elementos":[]}';
+  /// Para dejar la lectura de la biblioteca a medias y colar algo por delante.
+  Future<void>? frenoBiblioteca;
 
   setUp(() async {
     llamadas.clear();
     biblioteca = '{"ok":true,"elementos":[]}';
+    frenoBiblioteca = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // El reproductor y la descarga son unicos para toda la app: sin esto
     // una prueba heredaria lo que dejo la anterior.
@@ -60,6 +64,9 @@ void main() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
       llamadas.add(llamada);
+      if (llamada.method == 'biblioteca' && frenoBiblioteca != null) {
+        await frenoBiblioteca;
+      }
       return switch (llamada.method) {
         'urlCompartida' => null,
         'biblioteca' => biblioteca,
@@ -1255,6 +1262,58 @@ void main() {
 
     expect(estado.cola, isEmpty);
     expect(estado.actual, isNull);
+  });
+
+  test('lo que pida el usuario manda sobre la sesion que se esta retomando', () async {
+    // El fallo que arregla: retomar la sesion tarda -leer la biblioteca y una
+    // caratula por pista- y al terminar cargaba su cola a lo bruto. Si en esa
+    // espera el usuario tocaba una cancion, se la quitaba de debajo: la
+    // pantalla seguia mostrando la suya, el motor se quedaba con la vieja y
+    // parada, y el telefono anunciaba otra cancion distinta.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+        'uris': <String>['content://audio/1', 'content://audio/2'],
+        'indice': 0,
+        'posicion': 42000,
+      }),
+    });
+    biblioteca = _conCanciones;
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    // El freno deja el retomado parado leyendo la biblioteca, que es donde
+    // estaba cuando el usuario toco la pantalla.
+    final Completer<void> puerta = Completer<void>();
+    frenoBiblioteca = puerta.future;
+
+    final Future<void> retomando = estado.restaurarSesion();
+    await Future<void>.delayed(Duration.zero);
+    await estado.cerrar();
+    puerta.complete();
+    await runZonedGuarded(() => retomando, (Object _, StackTrace _) {});
+
+    expect(estado.cola, isEmpty, reason: 'lo retomado llego tarde y no manda');
+    expect(estado.actual, isNull);
+  });
+
+  test('sin nadie tocando nada, la sesion si se retoma', () async {
+    // La otra cara: el corte solo puede saltar cuando el usuario ha pedido
+    // algo, no siempre.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+        'uris': <String>['content://audio/1', 'content://audio/2'],
+        'indice': 1,
+        'posicion': 0,
+      }),
+    });
+    biblioteca = _conCanciones;
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    // En el escritorio no hay motor de audio y protesta al cargar la cola.
+    // Eso no es lo que se mira aqui: se mira que la cola llegue a ponerse.
+    await runZonedGuarded(estado.restaurarSesion, (Object _, StackTrace _) {});
+
+    expect(estado.cola.map((Elemento e) => e.uri).toList(),
+        <String>['content://audio/1', 'content://audio/2']);
   });
 
   test('la velocidad pasa por todos sus valores y vuelve al principio', () {
