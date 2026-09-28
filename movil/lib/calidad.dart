@@ -25,13 +25,27 @@ enum NivelCalidad {
 /// Si la app llamara «maxima calidad» a ese FLAC estaria mintiendo, asi que el
 /// sello dice de donde salio el sonido, no en que caja se guardo.
 class CalidadAudio {
-  const CalidadAudio({required this.codec, this.kbps, this.hz});
+  const CalidadAudio({
+    required this.codec,
+    this.kbps,
+    this.hz,
+    this.bits,
+    this.estimada = false,
+  });
 
   factory CalidadAudio.desdeJson(Map<String, dynamic> j) => CalidadAudio(
         codec: (j['codec'] ?? '').toString(),
         kbps: (j['kbps'] as num?)?.toDouble(),
         hz: (j['hz'] as num?)?.toInt(),
+        bits: (j['bits'] as num?)?.toInt(),
       );
+
+  /// Lo que da YouTube casi siempre, medido: Opus a unos 127 kb/s.
+  ///
+  /// Sirve para ordenar sus resultados sin comprobar uno por uno, que en el
+  /// telefono tarda. Se dice «~» delante para no darlo por comprobado.
+  static const CalidadAudio tipicaDeYoutube =
+      CalidadAudio(codec: 'opus', kbps: 127, hz: 48000, estimada: true);
 
   /// null si no hay nada que leer: una descarga antigua no lo sabe.
   static CalidadAudio? tal(Object? j) =>
@@ -42,6 +56,12 @@ class CalidadAudio {
   final String codec;
   final double? kbps;
   final int? hz;
+
+  /// Bits por muestra. Solo se sabe leyendo el archivo sin perdida ya bajado.
+  final int? bits;
+
+  /// Si es lo tipico de la fuente y no algo comprobado en este resultado.
+  final bool estimada;
 
   static const Set<String> _sinPerdida = <String>{'flac', 'alac', 'wav', 'pcm', 'aiff'};
 
@@ -59,7 +79,8 @@ class CalidadAudio {
 
   bool get sinPerdida => _sinPerdida.contains(codec);
 
-  bool get hiRes => sinPerdida && (hz ?? 0) > 48000;
+  /// Mas que un CD: 24 bits, o mas de 48 kHz. Solo cuando se sabe.
+  bool get hiRes => sinPerdida && ((bits ?? 0) > 16 || (hz ?? 0) > 48000);
 
   NivelCalidad get nivel {
     if (hiRes) return NivelCalidad.hiRes;
@@ -77,28 +98,52 @@ class CalidadAudio {
   /// Como se dice en pantalla: «AAC 160 kb/s», «FLAC · sin perdida».
   String get etiqueta {
     if (sinPerdida) {
-      final String alta = hiRes ? ' · ${(hz! / 1000).toStringAsFixed(hz! % 1000 == 0 ? 0 : 1)} kHz' : '';
-      return '$nombreCodec · sin perdida$alta';
+      final String detalle = <String>[
+        if (bits != null) '$bits bits',
+        if (hz != null) '${(hz! / 1000).toStringAsFixed(hz! % 1000 == 0 ? 0 : 1)} kHz',
+      ].join(' · ');
+      return detalle.isEmpty ? '$nombreCodec · sin perdida' : '$nombreCodec · $detalle';
     }
     final double? k = kbps;
-    return k == null ? nombreCodec : '$nombreCodec ${k.round()} kb/s';
+    if (k == null) return nombreCodec;
+    return '$nombreCodec ${estimada ? '~' : ''}${k.round()} kb/s';
+  }
+
+  /// Cuanto rinde cada codec frente a MP3 al mismo bitrate, a grandes rasgos.
+  ///
+  /// Es la equivalencia que suele salir en las pruebas de escucha: un Opus a
+  /// 128 suena como un MP3 a unos 190. Sin ella, un MP3 a 128 de Bandcamp
+  /// quedaria por encima del Opus a 127 de YouTube, y suena peor.
+  static const Map<String, double> _rinde = <String, double>{
+    'opus': 1.5,
+    'vorbis': 1.25,
+    'aac': 1.2,
+    'mp3': 1.0,
+  };
+
+  /// Una cifra para ordenar de mejor a peor: sin perdida siempre por encima.
+  double get puntos {
+    if (sinPerdida) return 10000 + (bits ?? 16) * 10 + (hz ?? 44100) / 1000;
+    return (kbps ?? 0) * (_rinde[codec] ?? 1.0);
   }
 
   /// Si esta es mejor que [otra]: primero lo sin perdida, luego el bitrate.
-  bool mejorQue(CalidadAudio otra) {
-    if (sinPerdida != otra.sinPerdida) return sinPerdida;
-    if (hiRes != otra.hiRes) return hiRes;
-    return (kbps ?? 0) > (otra.kbps ?? 0);
-  }
+  bool mejorQue(CalidadAudio otra) => puntos > otra.puntos;
 
-  Map<String, dynamic> aJson() => <String, dynamic>{'codec': codec, 'kbps': kbps, 'hz': hz};
+  Map<String, dynamic> aJson() =>
+      <String, dynamic>{'codec': codec, 'kbps': kbps, 'hz': hz, 'bits': bits};
 
   @override
   bool operator ==(Object other) =>
-      other is CalidadAudio && other.codec == codec && other.kbps == kbps && other.hz == hz;
+      other is CalidadAudio &&
+      other.codec == codec &&
+      other.kbps == kbps &&
+      other.hz == hz &&
+      other.bits == bits &&
+      other.estimada == estimada;
 
   @override
-  int get hashCode => Object.hash(codec, kbps, hz);
+  int get hashCode => Object.hash(codec, kbps, hz, bits, estimada);
 }
 
 /// El consejo al elegir formato, segun lo que hay en el origen.
@@ -131,7 +176,7 @@ class SelloCalidad extends StatelessWidget {
     final NivelCalidad nivel = calidad.nivel;
     final (String texto, Color color) = switch (nivel) {
       NivelCalidad.hiRes => ('HI-RES · ${calidad.etiqueta}', _oro),
-      NivelCalidad.sinPerdida => ('SIN PERDIDA · ${calidad.nombreCodec}', _oro),
+      NivelCalidad.sinPerdida => ('SIN PERDIDA · ${calidad.etiqueta.split(' · ').first}', _oro),
       NivelCalidad.alta => (calidad.etiqueta, _verde),
       NivelCalidad.buena => (calidad.etiqueta, Colors.white70),
       NivelCalidad.basica => (calidad.etiqueta, Colors.white38),

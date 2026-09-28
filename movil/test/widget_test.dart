@@ -1026,9 +1026,9 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      // Salta cuatro versiones de una vez, que es lo que le pasa a quien no
+      // Salta cinco versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 5);
+      expect(await nueva.getVersion(), 6);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -1143,6 +1143,49 @@ void main() {
         const Duration(seconds: 15)));
   });
 
+  test('el catalogo de la v5 gana los bits sin perder las calidades', () async {
+    // La v5 guardaba la calidad sin los bits. Al pasar a la 6 se anaden, y lo
+    // que ya estaba anotado tiene que seguir ahi.
+    final Directory temporal = await Directory.systemTemp.createTemp('tumbao');
+    final String ruta = '${temporal.path}/catalogo.db';
+    final Database vieja = await openDatabase(
+      ruta,
+      version: 5,
+      onCreate: (Database bd, int _) async {
+        await bd.execute(
+          'CREATE TABLE descargas (id TEXT NOT NULL, audio INTEGER NOT NULL, '
+          'uri TEXT NOT NULL, fecha INTEGER NOT NULL, PRIMARY KEY (id, audio))',
+        );
+        await bd.execute(
+          'CREATE TABLE letras (uri TEXT PRIMARY KEY, lrc TEXT NOT NULL, texto TEXT NOT NULL, '
+          'fecha INTEGER NOT NULL, desfase INTEGER NOT NULL DEFAULT 0)',
+        );
+        await bd.execute(
+          'CREATE TABLE escuchas (uri TEXT PRIMARY KEY, veces INTEGER NOT NULL, ultima INTEGER NOT NULL)',
+        );
+        await bd.execute(
+          'CREATE TABLE calidades (uri TEXT PRIMARY KEY, codec TEXT NOT NULL, kbps REAL, '
+          'hz INTEGER, fecha INTEGER NOT NULL)',
+        );
+      },
+    );
+    await vieja.insert('calidades', <String, Object>{
+      'uri': 'content://audio/1', 'codec': 'opus', 'kbps': 127.0, 'hz': 48000, 'fecha': 0,
+    });
+    await vieja.close();
+
+    final Database nueva = await Catalogo.abrirEn(ruta);
+    try {
+      expect(await nueva.getVersion(), 6);
+      final List<Map<String, Object?>> filas = await nueva.query('calidades');
+      expect(filas.single['codec'], 'opus', reason: 'lo anotado no se pierde');
+      expect(filas.single.containsKey('bits'), isTrue, reason: 'y la columna nueva ya esta');
+    } finally {
+      await nueva.close();
+      await temporal.delete(recursive: true);
+    }
+  });
+
   test('el catalogo de la v2 tambien se actualiza sin perder nada', () async {
     final Directory temporal = await Directory.systemTemp.createTemp('tumbao');
     final String ruta = '${temporal.path}/catalogo.db';
@@ -1171,7 +1214,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 5);
+      expect(await nueva.getVersion(), 6);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
@@ -1779,11 +1822,18 @@ void main() {
       expect(const CalidadAudio(codec: 'opus', kbps: 127, hz: 48000).etiqueta, 'Opus 127 kb/s');
       expect(const CalidadAudio(codec: 'aac', kbps: 160).etiqueta, 'AAC 160 kb/s');
       expect(const CalidadAudio(codec: 'flac').etiqueta, 'FLAC · sin perdida');
-      expect(const CalidadAudio(codec: 'flac', hz: 96000).etiqueta, 'FLAC · sin perdida · 96 kHz');
+      expect(const CalidadAudio(codec: 'flac', hz: 96000).etiqueta, 'FLAC · 96 kHz');
+      // Lo que salio del archivo del remix de Audius: 24 bits a 48 kHz.
+      expect(const CalidadAudio(codec: 'wav', bits: 24, hz: 48000).etiqueta, 'WAV · 24 bits · 48 kHz');
+      // Lo tipico de una fuente no se da por comprobado.
+      expect(CalidadAudio.tipicaDeYoutube.etiqueta, 'Opus ~127 kb/s');
     });
 
     test('los niveles separan lo que se midio', () {
       expect(const CalidadAudio(codec: 'flac', hz: 96000).nivel, NivelCalidad.hiRes);
+      expect(const CalidadAudio(codec: 'wav', bits: 24, hz: 48000).nivel, NivelCalidad.hiRes,
+          reason: '24 bits ya es mas que un CD aunque la frecuencia sea la normal');
+      expect(const CalidadAudio(codec: 'wav', bits: 16, hz: 44100).nivel, NivelCalidad.sinPerdida);
       expect(const CalidadAudio(codec: 'flac', hz: 44100).nivel, NivelCalidad.sinPerdida);
       expect(const CalidadAudio(codec: 'aac', kbps: 160).nivel, NivelCalidad.alta);
       expect(const CalidadAudio(codec: 'opus', kbps: 127).nivel, NivelCalidad.buena);
@@ -1797,6 +1847,28 @@ void main() {
       expect(soundcloud.mejorQue(youtube), isTrue);
       expect(archive.mejorQue(soundcloud), isTrue);
       expect(youtube.mejorQue(soundcloud), isFalse);
+    });
+
+    test('un Opus a 127 suena mejor que un MP3 a 128, y asi se ordena', () {
+      const CalidadAudio mp3 = CalidadAudio(codec: 'mp3', kbps: 128);
+      expect(CalidadAudio.tipicaDeYoutube.mejorQue(mp3), isTrue);
+      expect(const CalidadAudio(codec: 'mp3', kbps: 320).mejorQue(CalidadAudio.tipicaDeYoutube), isTrue);
+    });
+
+    test('el formato se ajusta al origen, y se dice', () {
+      const Ajustes mp3 = Ajustes(url: '', soloAudio: true);
+      const CalidadAudio entero = CalidadAudio(codec: 'wav');
+      final ({Ajustes ajustes, String? motivo}) a = formatoSegunOrigen(mp3, entero);
+      expect(a.ajustes.formatoAudio, 'flac');
+      expect(a.motivo, contains('sin perdida'));
+
+      final ({Ajustes ajustes, String? motivo}) b = formatoSegunOrigen(
+          mp3.copiar(formatoAudio: 'wav'), CalidadAudio.tipicaDeYoutube);
+      expect(b.ajustes.formatoAudio, 'mp3');
+
+      // Sin saber el origen, o bajando video, no se toca nada.
+      expect(formatoSegunOrigen(mp3, null).motivo, isNull);
+      expect(formatoSegunOrigen(mp3.copiar(soloAudio: false), entero).motivo, isNull);
     });
 
     test('el consejo de formato no deja inflar ni desperdiciar', () {
@@ -2147,34 +2219,42 @@ void main() {
         .where((MethodCall c) => c.method == 'buscar')
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
-    expect(donde, <String>{'youtube', 'soundcloud', 'archive'});
+    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive'});
   });
 
-  testWidgets('en todas, cada resultado va bajo su fuente y se marca la mejor calidad',
+  /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
+  double alturaDe(WidgetTester tester, String fuente) => tester
+      .getTopLeft(find.descendant(of: find.byType(ListView), matching: find.text(fuente)).first)
+      .dy;
+
+  testWidgets('en todas sale una sola lista, de la mejor calidad a la peor',
       (WidgetTester tester) async {
-    // Lo que se midio de verdad: YouTube da Opus a 127 y SoundCloud, cuando
-    // no lleva DRM, AAC a 160. La mejor tiene que ser la de SoundCloud.
+    // Lo medido de verdad: Audius da el original en WAV cuando el artista lo
+    // deja; SoundCloud sin DRM, AAC 160; YouTube, Opus ~127.
+    respuestas['audius'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Grupo",'
+        '"duracion":180,"url":"https://audius.co/grupo/cancion-uno","miniatura":"",'
+        '"calidad":{"codec":"wav","kbps":null,"hz":null,"sinPerdida":true}}]}';
     respuestas['soundcloud'] = '{"ok":true,"resultados":['
         '{"titulo":"Cancion uno","autor":"Grupo","duracion":180,'
         '"url":"https://soundcloud.com/grupo/cancion-uno","miniatura":""}]}';
     calidades['https://soundcloud.com/grupo/cancion-uno'] =
         '{"ok":true,"codec":"aac","kbps":160.0,"hz":44100,"sinPerdida":false}';
+    comoElTelefono(tester);
     await abrir(tester);
 
     await tester.enterText(find.byType(TextField), 'cancion uno');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
-    expect(find.text('YOUTUBE'), findsOneWidget);
-    expect(find.text('SOUNDCLOUD'), findsOneWidget);
-    expect(find.text('Mejor calidad encontrada'), findsOneWidget);
-    expect(find.text('«Cancion uno»'), findsOneWidget, reason: 'dice que cancion es');
-    expect(find.text('En SoundCloud  '), findsOneWidget);
-    expect(find.text('AAC 160 kb/s'), findsWidgets);
-    expect(find.text('Opus 127 kb/s'), findsOneWidget);
+    // Sin grupos por fuente: cada tarjeta dice de donde es.
+    expect(find.text('YOUTUBE'), findsNothing);
+    expect(find.text('MEJOR CALIDAD'), findsOneWidget);
+    expect(find.text('SIN PERDIDA · WAV'), findsOneWidget);
+    expect(alturaDe(tester, 'Audius'), lessThan(alturaDe(tester, 'SoundCloud')));
+    expect(alturaDe(tester, 'SoundCloud'), lessThan(alturaDe(tester, 'YouTube')));
   });
 
-  testWidgets('lo que tiene DRM se dice antes de intentarlo y no se recomienda',
+  testWidgets('lo que tiene DRM se dice antes de intentarlo y se va al final',
       (WidgetTester tester) async {
     respuestas['soundcloud'] = '{"ok":true,"resultados":['
         '{"titulo":"Cancion uno","autor":"Sello","duracion":180,'
@@ -2195,7 +2275,25 @@ void main() {
     );
     expect(find.text('Protegida: no se puede bajar'), findsOneWidget);
     // La mejor es la que si se puede bajar, aunque sea de menos bitrate.
-    expect(find.text('En YouTube  '), findsOneWidget);
+    expect(alturaDe(tester, 'YouTube'), lessThan(alturaDe(tester, 'SoundCloud')));
+  });
+
+  testWidgets('un origen sin perdida elige FLAC solo al descargar', (WidgetTester tester) async {
+    respuestas['audius'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Grupo",'
+        '"duracion":180,"url":"https://audius.co/grupo/cancion-uno","miniatura":"",'
+        '"calidad":{"codec":"wav","sinPerdida":true}}]}';
+    respuestas.remove('youtube');
+    comoElTelefono(tester);
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Elegido FLAC'), findsOneWidget);
+    expect(find.text('FLAC · sin perdida'), findsOneWidget, reason: 'el resumen de Musica');
   });
 
   testWidgets('una fuente que no responde no tapa lo que dieron las demas',

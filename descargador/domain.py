@@ -7,13 +7,15 @@ from urllib.parse import urlsplit
 #: Códecs que acepta el extractor de audio.
 AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "best")
 
-#: Dónde se puede buscar música.
+#: Dónde se puede buscar música, todas sin cuenta ni clave.
 #:
-#: Solo están las que admiten búsqueda de verdad. Bandcamp queda fuera a
-#: propósito: no tiene buscador en el motor y su reproductor sirve 128 kb/s,
-#: así que no aportaría nada frente a YouTube; para comprar su FLAC hay que
-#: pasar por su web. Tidal, Qobuz y compañía llevan DRM y no se contemplan.
-FUENTES = ("youtube", "soundcloud", "archive")
+#: Medido lo mejor que da cada una: Audius, MP3 a 320 kb/s y el original sin
+#: pérdida cuando el artista lo deja bajar; SoundCloud, AAC 160 si no lleva
+#: DRM; YouTube, Opus ~127; Bandcamp, 128 kb/s salvo lo que el artista regala,
+#: que llega en FLAC; el Archive, FLAC. Tidal, Qobuz y compañía llevan DRM, y
+#: lo que se ofrece en foros para sacar su FLAC usa cuentas de pago ajenas:
+#: no se contempla.
+FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive")
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
 #:
@@ -165,6 +167,31 @@ class DownloadProgress:
 
 
 @dataclass(frozen=True)
+class AudioQuality:
+    """La calidad real del audio en su origen, antes de convertirlo a nada.
+
+    Es el techo de cualquier descarga: pasar a FLAC un Opus de 128 kb/s no le
+    devuelve lo que se perdió al comprimirlo, solo ocupa cinco veces más. Por
+    eso lo que se enseña y se compara es esto, no el formato del archivo final.
+    """
+
+    codec: str
+    kbps: float | None = None
+    hz: int | None = None
+    #: Bits por muestra. Solo se sabe leyendo el archivo sin pérdida ya bajado.
+    bits: int | None = None
+
+    @property
+    def lossless(self) -> bool:
+        return self.codec.lower() in CODECS_SIN_PERDIDA
+
+    @property
+    def rank(self) -> tuple[int, float]:
+        """Para ordenar: primero lo que no pierde nada, luego más bitrate."""
+        return (1 if self.lossless else 0, float(self.kbps or 0))
+
+
+@dataclass(frozen=True)
 class MediaFormat:
     format_id: str
     ext: str
@@ -183,6 +210,9 @@ class VideoInfo:
     url: str = ""
     #: Miniatura del video. Sin ella una lista de resultados es ilegible.
     thumbnail: str = ""
+    #: La calidad, cuando la fuente ya la dice al buscar. None si hay que
+    #: comprobarla, que es lo normal.
+    quality: AudioQuality | None = None
 
 
 @dataclass(frozen=True)
@@ -225,29 +255,6 @@ class Playlist:
 
     title: str
     items: tuple[VideoInfo, ...] = ()
-
-
-@dataclass(frozen=True)
-class AudioQuality:
-    """La calidad real del audio en su origen, antes de convertirlo a nada.
-
-    Es el techo de cualquier descarga: pasar a FLAC un Opus de 128 kb/s no le
-    devuelve lo que se perdió al comprimirlo, solo ocupa cinco veces más. Por
-    eso lo que se enseña y se compara es esto, no el formato del archivo final.
-    """
-
-    codec: str
-    kbps: float | None = None
-    hz: int | None = None
-
-    @property
-    def lossless(self) -> bool:
-        return self.codec.lower() in CODECS_SIN_PERDIDA
-
-    @property
-    def rank(self) -> tuple[int, float]:
-        """Para ordenar: primero lo que no pierde nada, luego más bitrate."""
-        return (1 if self.lossless else 0, float(self.kbps or 0))
 
 
 @dataclass(frozen=True)

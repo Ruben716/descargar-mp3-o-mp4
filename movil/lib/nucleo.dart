@@ -306,6 +306,7 @@ class Resultado {
     required this.url,
     this.miniatura = '',
     this.fuente,
+    this.calidad,
   });
 
   factory Resultado.desdeJson(Map<String, dynamic> j) => Resultado(
@@ -314,6 +315,7 @@ class Resultado {
         duracion: (j['duracion'] as num?)?.toDouble() ?? 0,
         url: j['url']?.toString() ?? '',
         miniatura: j['miniatura']?.toString() ?? '',
+        calidad: CalidadAudio.tal(j['calidad']),
       );
 
   final String titulo;
@@ -325,6 +327,10 @@ class Resultado {
   /// De donde salio. Buscando en todas a la vez hace falta saberlo por pista.
   final Fuente? fuente;
 
+  /// La calidad, cuando la fuente ya la dice al buscar (Audius). Lo normal
+  /// es que haga falta comprobarla.
+  final CalidadAudio? calidad;
+
   Resultado deFuente(Fuente f) => Resultado(
         titulo: titulo,
         autor: autor,
@@ -332,6 +338,7 @@ class Resultado {
         url: url,
         miniatura: miniatura,
         fuente: f,
+        calidad: calidad,
       );
 }
 
@@ -409,6 +416,8 @@ enum Fuente {
   todas('todas', 'Todas', 'Busca en todas a la vez y compara la calidad'),
   youtube('youtube', 'YouTube', 'Lo mas y lo mas nuevo'),
   soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
+  audius('audius', 'Audius', 'Artistas que suben a 320 y a veces el original sin perdida'),
+  bandcamp('bandcamp', 'Bandcamp', 'Independientes; algunos regalan el FLAC'),
   archive('archive', 'Archive', 'Conciertos sin perdida');
 
   const Fuente(this.clave, this.etiqueta, this.pista);
@@ -426,7 +435,13 @@ enum Fuente {
   bool get daListas => this == Fuente.archive;
 
   /// Las que existen de verdad en el nucleo, en el orden en que se ensenian.
-  static const List<Fuente> reales = <Fuente>[Fuente.youtube, Fuente.soundcloud, Fuente.archive];
+  static const List<Fuente> reales = <Fuente>[
+    Fuente.youtube,
+    Fuente.soundcloud,
+    Fuente.audius,
+    Fuente.bandcamp,
+    Fuente.archive,
+  ];
 }
 
 /// Formatos de audio en los que no se puede igualar el volumen.

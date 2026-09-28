@@ -84,8 +84,13 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **La calidad que se enseña es la del origen, no la del archivo.** `quality()` usa la misma
   `_seleccion_formato` que la descarga, así que dice exactamente qué audio llegará; convertir un
   Opus de 127 kb/s a FLAC no lo hace «sin pérdida», y la app no debe decir lo contrario. Medido sin
-  cuenta: YouTube da Opus ~127 / AAC ~129 kb/s; SoundCloud, AAC 160 si no lleva DRM (lo de los
-  sellos grandes sí lo lleva); el Archive, FLAC.
+  cuenta: Audius, MP3 320 y el WAV/FLAC original cuando el artista deja bajarlo; SoundCloud, AAC 160
+  si no lleva DRM (lo de los sellos grandes sí lo lleva); YouTube, Opus ~127 / AAC ~129; Bandcamp,
+  MP3 128 salvo lo regalado (~1 de cada 10), que llega sin pérdida; el Archive, FLAC.
+- **Audius necesita el extractor propio** (`_extractor_audius`, enrutado por `_extraer`): el de
+  yt-dlp solo pide el streaming y nunca bajaría el original. Toda extracción de una pista suelta
+  debe pasar por `_extraer`. Los bits y la frecuencia reales salen de la cabecera del archivo ya
+  bajado (`cabecera_sin_perdida`): ninguna web los dice al buscar.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,
   canales y directos; `continuedl` + `overwrites: False` reanudan sin sobrescribir; el nombre incluye
   `%(id)s`; `bv*+ba/b` une sin recodificar.

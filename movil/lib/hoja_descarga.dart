@@ -23,6 +23,30 @@ String resumenDescarga(Ajustes a) {
   return partes.join(' · ');
 }
 
+/// El formato que le saca partido al origen, y por que se cambio.
+///
+/// Si el origen es sin perdida, FLAC lo guarda entero; si es comprimido y
+/// estaba elegido FLAC o WAV, se pasa a MP3, porque inflarlo solo ocupa mas.
+/// Solo toca la musica, y solo cuando se sabe de donde viene el sonido.
+({Ajustes ajustes, String? motivo}) formatoSegunOrigen(Ajustes a, CalidadAudio? origen) {
+  if (origen == null || !a.soloAudio) return (ajustes: a, motivo: null);
+  final bool guardaSinPerdida = const <String>['flac', 'wav'].contains(a.formatoAudio);
+  if (origen.sinPerdida && !guardaSinPerdida) {
+    return (
+      ajustes: a.copiar(formatoAudio: 'flac'),
+      motivo: 'Elegido FLAC: el origen es sin perdida y asi se guarda entero.',
+    );
+  }
+  if (!origen.sinPerdida && guardaSinPerdida) {
+    return (
+      ajustes: a.copiar(formatoAudio: 'mp3'),
+      motivo: 'Elegido MP3: el origen ya viene comprimido y en '
+          '${a.formatoAudio.toUpperCase()} ocuparia mucho mas sin sonar mejor.',
+    );
+  }
+  return (ajustes: a, motivo: null);
+}
+
 /// Lo que se va a descargar, tal y como se ensenia en la hoja.
 class QueSeDescarga {
   const QueSeDescarga({
@@ -78,6 +102,18 @@ class HojaDescarga extends StatefulWidget {
 class _HojaDescargaState extends State<HojaDescarga> {
   late Ajustes _a = widget.inicial;
 
+  /// Lo que se ajusto solo al abrir, para decirlo. null si nada.
+  String? _ajustado;
+
+  @override
+  void initState() {
+    super.initState();
+    final ({Ajustes ajustes, String? motivo}) propuesta =
+        formatoSegunOrigen(widget.inicial, widget.que.origen);
+    _a = propuesta.ajustes;
+    _ajustado = propuesta.motivo;
+  }
+
   Future<void> _masOpciones() async {
     final Ajustes? nuevos = await showModalBottomSheet<Ajustes>(
       context: context,
@@ -88,7 +124,12 @@ class _HojaDescargaState extends State<HojaDescarga> {
       ),
       builder: (_) => HojaAjustes(inicial: _a),
     );
-    if (nuevos != null && mounted) setState(() => _a = nuevos);
+    if (nuevos != null && mounted) {
+      setState(() {
+        _a = nuevos;
+        _ajustado = null;
+      });
+    }
   }
 
   /// Si lo elegido no le saca partido al origen, se dice y se ofrece arreglarlo.
@@ -115,7 +156,10 @@ class _HojaDescargaState extends State<HojaDescarga> {
             child: Text(texto, style: const TextStyle(fontSize: 12, height: 1.35)),
           ),
           TextButton(
-            onPressed: () => setState(() => _a = _a.copiar(formatoAudio: propuesto)),
+            onPressed: () => setState(() {
+              _a = _a.copiar(formatoAudio: propuesto);
+              _ajustado = null;
+            }),
             child: Text('Usar ${propuesto.toUpperCase()}'),
           ),
         ],
@@ -218,7 +262,21 @@ class _HojaDescargaState extends State<HojaDescarga> {
                 ),
               ],
             ),
-            if (_consejo() case final Widget consejo) consejo,
+            if (_ajustado case final String motivo)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Row(
+                  children: <Widget>[
+                    const Icon(Icons.auto_fix_high_rounded, size: 16, color: Tema.acento),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(motivo, style: const TextStyle(fontSize: 12, height: 1.35)),
+                    ),
+                  ],
+                ),
+              )
+            else if (_consejo() case final Widget consejo)
+              consejo,
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(

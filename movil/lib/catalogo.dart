@@ -20,7 +20,7 @@ class Catalogo {
   static const String _tablaCalidades = 'calidades';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 5;
+  static const int _version = 6;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -69,6 +69,7 @@ class Catalogo {
       codec TEXT NOT NULL,
       kbps REAL,
       hz INTEGER,
+      bits INTEGER,
       fecha INTEGER NOT NULL
     )
   ''';
@@ -99,7 +100,10 @@ class Catalogo {
       // para que se vuelvan a buscar bien; volver a bajarlas es barato.
       await bd.delete(_tablaLetras);
     }
+    // Viniendo de antes de la 5, el CREATE de ahora ya trae la columna de los
+    // bits; solo a una tabla creada en la 5 hay que anadirsela.
     if (desde < 5) await bd.execute(_esquemaCalidades);
+    if (desde == 5) await bd.execute('ALTER TABLE $_tablaCalidades ADD COLUMN bits INTEGER');
   }
 
   /// Apunta de que calidad llego una descarga.
@@ -112,6 +116,7 @@ class Catalogo {
         'codec': calidad.codec,
         'kbps': calidad.kbps,
         'hz': calidad.hz,
+        'bits': calidad.bits,
         'fecha': DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -132,6 +137,7 @@ class Catalogo {
       codec: f['codec']! as String,
       kbps: (f['kbps'] as num?)?.toDouble(),
       hz: (f['hz'] as num?)?.toInt(),
+      bits: (f['bits'] as num?)?.toInt(),
     );
   }
 

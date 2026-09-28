@@ -1,5 +1,7 @@
 import contextlib
 import io
+import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -42,12 +44,16 @@ from descargador.domain import (
     parse_timestamp,
 )
 from descargador.infrastructure import (
+    ES_AUDIUS,
     INTENTOS_TRANSITORIOS,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
+    _extraer,
     _portada_deezer,
     _portada_itunes,
     buscar_portada,
+    cabecera_sin_perdida,
+    calidad_audius,
     calidad_de,
     codec_legible,
     escribir_etiquetas,
@@ -55,6 +61,7 @@ from descargador.infrastructure import (
     incrustar_portada,
     mensaje_claro,
     nombre_con_etiquetas,
+    original_sin_perdida,
     partes_del_nombre,
 )
 
@@ -1247,6 +1254,153 @@ class CalidadTests(unittest.TestCase):
     def test_el_drm_se_explica(self):
         texto = mensaje_claro(RuntimeError("[soundcloud] 1916636273: This video is DRM protected"))
         self.assertIn("protegida", texto)
+
+
+
+class _Json:
+    """Una respuesta HTTP de mentira con el JSON que se le pase."""
+
+    def __init__(self, datos):
+        self._datos = json.dumps(datos).encode()
+
+    def read(self):
+        return self._datos
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class AudiusTests(unittest.TestCase):
+    """Audius: 320 kb/s siempre, y el original cuando el artista lo deja."""
+
+    #: Lo que devolvió de verdad su API para el remix de Jay Eskar.
+    CON_ORIGINAL: ClassVar[dict] = {
+        "id": "0KxVOEV", "title": "Skrillex, ISOxo - Fuze (Jay Eskar Remix)",
+        "user": {"name": "Jay Eskar"}, "duration": 258,
+        "permalink": "/jayeskar/skrillex-isoxo-fuze-jay-eskar-remix-8",
+        "is_streamable": True, "is_stream_gated": False,
+        "is_downloadable": True, "is_original_available": True, "is_download_gated": False,
+        "orig_filename": "Fuze (Jay Eskar Remix) SoundCloud Version.wav",
+        "artwork": {"480x480": "https://img/480.jpg", "1000x1000": "https://img/1000.jpg"},
+    }
+
+    def test_el_original_en_wav_es_sin_perdida(self):
+        self.assertEqual(original_sin_perdida(self.CON_ORIGINAL), "wav")
+        self.assertEqual(calidad_audius(self.CON_ORIGINAL), AudioQuality("wav"))
+
+    def test_sin_original_queda_el_streaming_a_320(self):
+        pista = self.CON_ORIGINAL | {"is_original_available": False}
+        self.assertEqual(calidad_audius(pista), AudioQuality("mp3", 320.0))
+
+    def test_un_original_en_mp3_no_aporta_nada(self):
+        pista = self.CON_ORIGINAL | {"orig_filename": "tema.mp3"}
+        self.assertIsNone(original_sin_perdida(pista))
+
+    def test_la_descarga_de_pago_no_cuenta_como_original(self):
+        pista = self.CON_ORIGINAL | {"is_download_gated": True}
+        self.assertIsNone(original_sin_perdida(pista))
+
+    def test_lo_que_no_se_puede_escuchar_gratis_se_descarta(self):
+        self.assertIsNone(calidad_audius(self.CON_ORIGINAL | {"is_stream_gated": True}))
+        self.assertIsNone(calidad_audius(self.CON_ORIGINAL | {"is_streamable": False}))
+
+    def test_la_busqueda_trae_la_calidad_ya_sabida(self):
+        cerrada = self.CON_ORIGINAL | {"id": "x", "is_stream_gated": True}
+        respuesta = _Json({"data": [self.CON_ORIGINAL, cerrada]})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta):
+            resultados = YtDlpDownloader._buscar_en_audius(SearchQuery("fuze", source="audius"))
+        self.assertEqual(len(resultados), 1, msg="la cerrada no se ofrece")
+        r = resultados[0]
+        self.assertEqual(r.url, "https://audius.co/jayeskar/skrillex-isoxo-fuze-jay-eskar-remix-8")
+        self.assertEqual(r.uploader, "Jay Eskar")
+        self.assertEqual(r.quality, AudioQuality("wav"))
+
+    def test_sus_enlaces_van_por_el_extractor_que_baja_el_original(self):
+        motor = Mock()
+        _extraer(motor, "https://audius.co/jayeskar/fuze-8", download=False)
+        motor.add_info_extractor.assert_called_once()
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "AudiusOriginal")
+
+    def test_los_demas_enlaces_siguen_como_siempre(self):
+        motor = Mock()
+        _extraer(motor, "https://www.youtube.com/watch?v=abc", download=False)
+        motor.add_info_extractor.assert_not_called()
+        self.assertNotIn("ie_key", motor.extract_info.call_args.kwargs)
+
+    def test_se_reconocen_sus_enlaces(self):
+        self.assertTrue(ES_AUDIUS.match("https://audius.co/deadmau5/arcadia-2020-333834"))
+        self.assertFalse(ES_AUDIUS.match("https://audius.co/deadmau5"))
+
+
+class BandcampTests(unittest.TestCase):
+    """Bandcamp: se busca con su buscador; la calidad hay que comprobarla."""
+
+    def test_la_busqueda_saca_canciones_y_no_promete_calidad(self):
+        respuesta = _Json({"auto": {"results": [
+            {"name": "AMBIENT 7", "band_name": "Jeff Rosenstock", "img": "https://img/a.jpg",
+             "item_url_path": "https://jeffrosenstock.bandcamp.com/track/ambient-7"},
+            {"name": "Sin enlace", "band_name": "Nadie"},
+        ]}})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_bandcamp(SearchQuery("ambient", source="bandcamp"))
+        self.assertEqual(len(resultados), 1)
+        self.assertEqual(resultados[0].url, "https://jeffrosenstock.bandcamp.com/track/ambient-7")
+        self.assertIsNone(resultados[0].quality, msg="regalado o de pago solo se sabe comprobando")
+        # Se buscan canciones, no discos ni artistas.
+        cuerpo = json.loads(red.call_args.args[0].data)
+        self.assertEqual(cuerpo["search_filter"], "t")
+
+    def test_un_fallo_de_red_se_cuenta(self):
+        with (
+            patch("descargador.infrastructure.urlopen", side_effect=OSError("sin red")),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_bandcamp(SearchQuery("ambient", source="bandcamp"))
+        self.assertIn("Bandcamp", str(fallo.exception))
+
+    def test_las_nuevas_fuentes_se_aceptan(self):
+        for fuente in ("audius", "bandcamp"):
+            self.assertEqual(SearchQuery("algo", source=fuente).source, fuente)
+
+
+class CabeceraTests(unittest.TestCase):
+    """Los bits y la frecuencia salen del archivo, no de la web."""
+
+    def _escribir(self, datos: bytes) -> Path:
+        carpeta = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, carpeta, ignore_errors=True)
+        ruta = carpeta / "tema.bin"
+        ruta.write_bytes(datos)
+        return ruta
+
+    @staticmethod
+    def _flac(hz: int, bits: int, canales: int = 2) -> bytes:
+        """Un FLAC minimo: la firma y el bloque STREAMINFO."""
+        # STREAMINFO: 10 bytes de tamanos y luego frecuencia, canales y bits.
+        empaquetado = (hz << 44) | ((canales - 1) << 41) | ((bits - 1) << 36)
+        info = bytes(10) + empaquetado.to_bytes(8, "big") + bytes(16)
+        return b"fLaC" + b"\x80\x00\x00\x22" + info
+
+    def test_flac_de_24_bits_a_48_khz(self):
+        ruta = self._escribir(self._flac(48000, 24))
+        self.assertEqual(cabecera_sin_perdida(ruta), (48000, 24))
+
+    def test_wav_de_cd(self):
+        fmt = (1).to_bytes(2, "little") + (2).to_bytes(2, "little") + (44100).to_bytes(4, "little")
+        fmt += (176400).to_bytes(4, "little") + (4).to_bytes(2, "little") + (16).to_bytes(2, "little")
+        datos = b"RIFF" + (36).to_bytes(4, "little") + b"WAVE" + b"fmt " + (16).to_bytes(4, "little") + fmt
+        self.assertEqual(cabecera_sin_perdida(self._escribir(datos)), (44100, 16))
+
+    def test_un_mp3_no_tiene_cabecera_sin_perdida(self):
+        self.assertIsNone(cabecera_sin_perdida(self._escribir(b"ID3\x04" + bytes(100))))
+
+    def test_la_calidad_bajada_se_completa_con_el_archivo(self):
+        ruta = self._escribir(self._flac(96000, 24))
+        calidad = YtDlpDownloader._calidad_bajada({"acodec": "flac", "ext": "flac"}, (ruta,))
+        self.assertEqual(calidad, AudioQuality("flac", None, 96000, 24))
 
 
 if __name__ == "__main__":

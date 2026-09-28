@@ -61,6 +61,7 @@ def _calidad_json(calidad: AudioQuality | None) -> dict | None:
         "codec": calidad.codec,
         "kbps": calidad.kbps,
         "hz": calidad.hz,
+        "bits": calidad.bits,
         "sinPerdida": calidad.lossless,
     }
 
@@ -240,6 +241,8 @@ def buscar(texto: str, limite: int, fuente: str = "youtube") -> str:
                     "duracion": r.duration or 0,
                     "url": r.url,
                     "miniatura": r.thumbnail,
+                    # Solo cuando la fuente ya la dice al buscar (Audius).
+                    "calidad": _calidad_json(r.quality),
                 }
                 for r in resultados
             ],

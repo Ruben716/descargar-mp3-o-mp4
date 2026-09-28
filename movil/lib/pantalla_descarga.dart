@@ -68,11 +68,14 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   ///
   /// De YouTube basta uno: su calidad es siempre la misma (medido, Opus a
   /// unos 127 kb/s) y solo hace falta saber que se deja bajar. En SoundCloud
-  /// se miran mas, porque lo de los sellos grandes viene con DRM y no se puede
-  /// bajar, y lo que no lo lleva llega a AAC 160 kb/s, mejor que YouTube.
+  /// se miran mas, porque lo de los sellos grandes viene con DRM, y lo que no
+  /// lo lleva llega a AAC 160. En Bandcamp, porque solo uno de cada diez
+  /// regala el FLAC y no hay otra forma de saber cual. Audius ya lo dice al
+  /// buscar y el Archive siempre es FLAC: esos no hace falta mirarlos.
   static const Map<Fuente, int> _aComprobar = <Fuente, int>{
     Fuente.youtube: 1,
     Fuente.soundcloud: 3,
+    Fuente.bandcamp: 4,
   };
 
   /// Para las pruebas: lo recordado de una no puede decidir la siguiente.
@@ -281,28 +284,47 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     if (mounted) setState(() {});
   }
 
-  /// La calidad que se sabe de un resultado, comprobada o conocida de antes.
-  CalidadAudio? _calidadDe(Resultado r) =>
-      r.fuente == Fuente.archive ? _flac : _comprobadas[r.url]?.calidad;
-
-  /// El resultado comprobado con mejor calidad que sea la cancion buscada.
-  ///
-  /// Los conciertos del Archive quedan fuera: son sin perdida, pero son un
-  /// concierto entero, no la cancion que se busco.
-  Resultado? get _mejor {
-    Resultado? mejor;
-    CalidadAudio? suya;
-    for (final Resultado r in _resultados) {
-      if (r.fuente == Fuente.archive) continue;
-      final CalidadAudio? c = _comprobadas[r.url]?.calidad;
-      if (c == null || !pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor)) continue;
-      if (suya == null || c.mejorQue(suya)) {
-        mejor = r;
-        suya = c;
-      }
-    }
-    return mejor;
+  /// La calidad que se sabe de un resultado: comprobada, dicha por la fuente
+  /// al buscar, o la tipica de esa fuente. null si no se sabe o no se puede.
+  CalidadAudio? _calidadDe(Resultado r) {
+    final _Comprobacion? c = _comprobadas[r.url];
+    if (c?.calidad != null) return c!.calidad;
+    if (c?.error != null) return null;
+    return r.calidad ??
+        switch (r.fuente) {
+          Fuente.archive => _flac,
+          Fuente.youtube => CalidadAudio.tipicaDeYoutube,
+          _ => null,
+        };
   }
+
+  /// Todo junto, de la mejor calidad a la peor.
+  ///
+  /// Primero lo que es la cancion buscada, de mejor a peor; despues lo demas
+  /// (otras versiones, conciertos enteros), tambien de mejor a peor; y al
+  /// final lo que no se puede bajar. A igual calidad manda el orden en que lo
+  /// devolvio cada fuente, que ya es su propia relevancia.
+  List<Resultado> get _ordenados {
+    if (_importada) return _resultados;
+    int grupo(Resultado r) {
+      if (_comprobadas[r.url]?.error != null) return 2;
+      return pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor) ? 0 : 1;
+    }
+
+    final Map<Resultado, int> posicion = <Resultado, int>{
+      for (int i = 0; i < _resultados.length; i++) _resultados[i]: i,
+    };
+    return List<Resultado>.of(_resultados)
+      ..sort((Resultado a, Resultado b) {
+        final int porGrupo = grupo(a).compareTo(grupo(b));
+        if (porGrupo != 0) return porGrupo;
+        final double pa = _calidadDe(a)?.puntos ?? 0;
+        final double pb = _calidadDe(b)?.puntos ?? 0;
+        if (pa != pb) return pb.compareTo(pa);
+        return posicion[a]!.compareTo(posicion[b]!);
+      });
+  }
+
 
   /// Pregunta como bajarlo y, si se confirma, lo baja.
   Future<void> _descargar(String url, QueSeDescarga que) async {
@@ -610,44 +632,48 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   }
 
   Widget _lista() {
-    final Resultado? mejor = _importada ? null : _mejor;
+    final List<Resultado> orden = _ordenados;
+    // La primera es la mejor si se sabe su calidad y es lo que se busco.
+    final Resultado? mejor = !_importada &&
+            orden.isNotEmpty &&
+            _calidadDe(orden.first) != null &&
+            pareceLaMisma(_buscado, titulo: orden.first.titulo, autor: orden.first.autor)
+        ? orden.first
+        : null;
     final bool variasFuentes = _fuente == Fuente.todas && !_importada;
-    final List<Widget> filas = <Widget>[
-      if (mejor != null)
-        _MejorOpcion(
-          titulo: mejor.titulo,
-          fuente: mejor.fuente?.etiqueta ?? '',
-          calidad: _calidadDe(mejor)!,
-          alPulsar: _ocupado ? null : () => _descargarResultado(mejor),
-        ),
-      if (_pendientes.isNotEmpty)
-        _Nota(icono: Icons.hourglass_top_rounded, texto: 'Aun buscando en ${_nombres(_pendientes)}...'),
-      for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
-        _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
-    ];
-    Fuente? anterior;
-    for (final Resultado r in _resultados) {
-      // Un resultado del Archive es un concierto entero: se abre, no se baja.
-      final bool esGrabacion = (r.fuente ?? _fuente).daListas && !_importada;
-      if (variasFuentes && r.fuente != anterior) {
-        filas.add(_Seccion(texto: r.fuente?.etiqueta ?? ''));
-        anterior = r.fuente;
-      }
-      filas.add(_TarjetaResultado(
-        resultado: r,
-        esGrabacion: esGrabacion,
-        esLaMejor: identical(r, mejor),
-        calidad: _calidadDe(r),
-        comprobacion: _comprobadas[r.url],
-        alPulsar: _ocupado
-            ? null
-            : () => esGrabacion
-                ? _importarLista(r.url, fuente: r.fuente)
-                : _descargarResultado(r),
-        alEscuchar: () => _escuchar(r),
-      ));
-    }
-    return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: filas);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      children: <Widget>[
+        if (_pendientes.isNotEmpty)
+          _Nota(
+            icono: Icons.hourglass_top_rounded,
+            texto: 'Aun buscando en ${_nombres(_pendientes)}...',
+          ),
+        for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
+          _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
+        for (final Resultado r in orden)
+          _tarjeta(r, esLaMejor: identical(r, mejor), fuenteVisible: variasFuentes),
+      ],
+    );
+  }
+
+  Widget _tarjeta(Resultado r, {required bool esLaMejor, required bool fuenteVisible}) {
+    // Un resultado del Archive es un concierto entero: se abre, no se baja.
+    final bool esGrabacion = (r.fuente ?? _fuente).daListas && !_importada;
+    return _TarjetaResultado(
+      // La clave hace que al reordenarse cada tarjeta conserve lo suyo.
+      key: ValueKey<String>(r.url),
+      resultado: r,
+      esGrabacion: esGrabacion,
+      esLaMejor: esLaMejor,
+      fuente: fuenteVisible ? r.fuente?.etiqueta : null,
+      calidad: _calidadDe(r),
+      comprobacion: _comprobadas[r.url],
+      alPulsar: _ocupado
+          ? null
+          : () => esGrabacion ? _importarLista(r.url, fuente: r.fuente) : _descargarResultado(r),
+      alEscuchar: () => _escuchar(r),
+    );
   }
 }
 
@@ -667,98 +693,6 @@ class _Comprobacion {
   final CalidadAudio? calidad;
   final String? error;
   final bool enCurso;
-}
-
-/// Arriba de todo, la mejor opcion encontrada: un toque y a descargar.
-class _MejorOpcion extends StatelessWidget {
-  const _MejorOpcion({
-    required this.titulo,
-    required this.fuente,
-    required this.calidad,
-    required this.alPulsar,
-  });
-
-  /// Que cancion es: sin el, habia que bajar hasta su fuente para saberlo.
-  final String titulo;
-  final String fuente;
-  final CalidadAudio calidad;
-  final VoidCallback? alPulsar;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Tema.acento.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: alPulsar,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
-            child: Row(
-              children: <Widget>[
-                const Icon(Icons.workspace_premium_rounded, color: Tema.acento),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      const Text(
-                        'Mejor calidad encontrada',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '«$titulo»',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
-                      const SizedBox(height: 4),
-                      // Wrap y no Row: con un sello largo, en un telefono
-                      // estrecho, pasa a la linea de abajo en vez de salirse.
-                      Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        runSpacing: 4,
-                        children: <Widget>[
-                          Text('En $fuente  ',
-                              style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                          SelloCalidad(calidad: calidad),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.download_rounded, color: Tema.acento),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// El nombre de la fuente encima de sus resultados, buscando en todas.
-class _Seccion extends StatelessWidget {
-  const _Seccion({required this.texto});
-
-  final String texto;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
-        child: Text(
-          texto.toUpperCase(),
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1.1,
-            color: Colors.white54,
-          ),
-        ),
-      );
 }
 
 /// Una linea pequena de aviso entre los resultados.
@@ -818,9 +752,14 @@ class _TarjetaResultado extends StatelessWidget {
     required this.alPulsar,
     required this.alEscuchar,
     this.esLaMejor = false,
+    this.fuente,
     this.calidad,
     this.comprobacion,
+    super.key,
   });
+
+  /// De donde es, cuando se busca en todas y ya no van separadas.
+  final String? fuente;
 
   final Resultado resultado;
 
@@ -888,21 +827,22 @@ class _TarjetaResultado extends StatelessWidget {
                     // Algo menor que la de siempre: con los dos botones, el
                     // titulo se quedaba en un hilo en un telefono normal.
                     PortadaRemota(url: resultado.miniatura, ancho: 104, alto: 60),
-                    Positioned(
-                      right: 4,
-                      bottom: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          formatoTiempo(resultado.duracion),
-                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                    if (resultado.duracion > 0)  // Bandcamp no la dice: mejor nada que un «0:00».
+                      Positioned(
+                        right: 4,
+                        bottom: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.black87,
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                          child: Text(
+                            formatoTiempo(resultado.duracion),
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
                 const SizedBox(width: 12),
@@ -910,6 +850,28 @@ class _TarjetaResultado extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
+                      if (esLaMejor)
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 4),
+                          child: Row(
+                            children: <Widget>[
+                              Icon(Icons.workspace_premium_rounded, size: 13, color: Tema.acento),
+                              SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  'MEJOR CALIDAD',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Tema.acento,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       Text(
                         resultado.titulo,
                         maxLines: 2,
@@ -925,10 +887,17 @@ class _TarjetaResultado extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white54, fontSize: 12),
                       ),
-                      if (_estado() case final Widget estado) ...<Widget>[
-                        const SizedBox(height: 6),
-                        estado,
-                      ],
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: <Widget>[
+                          if (fuente case final String f)
+                            Text(f, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                          ?_estado(),
+                        ],
+                      ),
                     ],
                   ),
                 ),

@@ -232,8 +232,19 @@ class _AudioState extends State<_Audio> {
         final CalidadAudio? calidad = datos.data;
         if (calidad == null) return const SizedBox.shrink();
         final String extension = nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
-        final bool inflado =
-            !calidad.sinPerdida && const <String>['flac', 'wav'].contains(extension);
+        final bool archivoSinPerdida = const <String>['flac', 'wav'].contains(extension);
+        // Un MP3 hecho desde un original sin perdida ya no es sin perdida: el
+        // sello dorado seria mentira. Se dice que se bajo de ahi, sin mas.
+        if (calidad.sinPerdida && !archivoSinPerdida && extension.isNotEmpty) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(
+              '${extension.toUpperCase()} · hecho desde un original sin perdida',
+              style: const TextStyle(color: Colors.white54, fontSize: 11),
+            ),
+          );
+        }
+        final bool inflado = !calidad.sinPerdida && archivoSinPerdida;
         return Padding(
           padding: const EdgeInsets.only(top: 10),
           child: Wrap(

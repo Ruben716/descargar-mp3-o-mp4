@@ -1,4 +1,5 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
+import functools
 import json
 import os
 import re
@@ -6,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -65,7 +67,17 @@ RECORTE_CUADRADO = "crop='min(iw,ih)':'min(iw,ih)'"
 #: Cómo se reparte «Artista - Tema» dentro del título.
 PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
 
-#: Prefijo de búsqueda del motor, por fuente. El Archive no tiene y va aparte.
+#: La API pública de Audius. No pide clave: basta con decir quién pregunta.
+AUDIUS_API = "https://api.audius.co/v1"
+APP_AUDIUS = "tumbao"
+
+#: Las direcciones de una pista de Audius: «audius.co/artista/tema».
+ES_AUDIUS = re.compile(r"https?://(?:www\.)?audius\.co/[^/?#]+/[^/?#]+")
+
+#: El buscador público de la web de Bandcamp.
+BUSCADOR_BANDCAMP = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic"
+
+#: Prefijo de búsqueda del motor, por fuente. Las demás van por su propia API.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 
 #: Colección del Internet Archive con conciertos que los grupos dejan compartir.
@@ -237,6 +249,143 @@ def calidad_de(info: dict) -> AudioQuality:
     )
 
 
+def original_sin_perdida(pista: dict) -> str | None:
+    """La extensión del original de una pista de Audius, si se deja bajar y no pierde.
+
+    El artista decide si su pista se puede descargar, y Audius entonces sirve
+    el archivo que subió. Si es un MP3 no aporta nada frente al streaming;
+    si es un WAV o un FLAC, es el sonido entero.
+    """
+    if not (pista.get("is_downloadable") and pista.get("is_original_available")):
+        return None
+    if pista.get("is_download_gated"):
+        return None
+    extension = Path(pista.get("orig_filename") or "").suffix.lower().lstrip(".")
+    extension = "aiff" if extension == "aif" else extension
+    return extension if extension in ("wav", "flac", "aiff") else None
+
+
+def calidad_audius(pista: dict) -> AudioQuality | None:
+    """Lo que da una pista de Audius, o None si no se puede escuchar sin pagar.
+
+    Medido: su streaming es MP3 a 320 kb/s, cabecera a cabecera.
+    """
+    if pista.get("is_stream_gated") or pista.get("is_streamable") is False:
+        return None
+    original = original_sin_perdida(pista)
+    return AudioQuality(original) if original else AudioQuality("mp3", 320.0)
+
+
+@functools.cache
+def _extractor_audius():
+    """Un extractor de Audius que sabe bajar el original, no solo escucharlo.
+
+    El que trae el motor solo pide el streaming. Este ofrece también el
+    archivo que subió el artista cuando lo deja bajar, y la selección de
+    formato de siempre se queda con el mejor: si es un WAV, el WAV.
+    """
+    try:
+        from yt_dlp.extractor.common import InfoExtractor
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class AudiusOriginalIE(InfoExtractor):
+        IE_NAME = "audius:original"
+        _VALID_URL = ES_AUDIUS.pattern
+
+        def _real_extract(self, url):
+            pista = self._download_json(
+                f"{AUDIUS_API}/resolve", url,
+                query={"url": url, "app_name": APP_AUDIUS},
+                note="Consultando la pista en Audius")["data"]
+            if calidad_audius(pista) is None:
+                self.raise_no_formats(
+                    "Esa pista de Audius es de pago o está restringida.", expected=True)
+            ident = pista["id"]
+            formatos = [{
+                "format_id": "mp3-320",
+                "url": f"{AUDIUS_API}/tracks/{ident}/stream?app_name={APP_AUDIUS}",
+                "ext": "mp3",
+                "acodec": "mp3",
+                "abr": 320,
+                "vcodec": "none",
+            }]
+            original = original_sin_perdida(pista)
+            if original:
+                formatos.append({
+                    "format_id": "original",
+                    "url": f"{AUDIUS_API}/tracks/{ident}/download?app_name={APP_AUDIUS}",
+                    "ext": original,
+                    "acodec": original,
+                    "vcodec": "none",
+                })
+            autor = (pista.get("user") or {}).get("name")
+            return {
+                "id": ident,
+                "title": pista.get("title") or ident,
+                "uploader": autor,
+                "artist": autor,
+                "duration": pista.get("duration"),
+                "thumbnail": (pista.get("artwork") or {}).get("1000x1000"),
+                "webpage_url": url,
+                "formats": formatos,
+            }
+
+    return AudiusOriginalIE
+
+
+def _extraer(engine, url: str, **opciones):
+    """extract_info, pero con el extractor propio donde hace falta."""
+    if ES_AUDIUS.match(url):
+        clase = _extractor_audius()
+        engine.add_info_extractor(clase())
+        return engine.extract_info(url, ie_key=clase.ie_key(), **opciones)
+    return engine.extract_info(url, **opciones)
+
+
+def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None) -> dict:
+    """Pide un JSON a la API de una fuente. Un fallo se cuenta, no se esconde."""
+    cabeceras = {"User-Agent": "Mozilla/5.0 (descargador)"}
+    if cuerpo is not None:
+        cabeceras["Content-Type"] = "application/json"
+    try:
+        with urlopen(Request(direccion, data=cuerpo, headers=cabeceras), timeout=30) as respuesta:
+            return json.loads(respuesta.read().decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DownloadError(f"No se pudo buscar en {fuente}: {exc}") from exc
+
+
+def cabecera_sin_perdida(ruta: Path) -> tuple[int, int] | None:
+    """Frecuencia y bits reales de un FLAC o un WAV, leídos de su cabecera.
+
+    Es lo que separa un CD (16 bits, 44,1 kHz) de un Hi-Res de verdad, y no
+    lo dice ninguna web al buscar: solo el archivo, una vez bajado.
+    """
+    try:
+        with open(ruta, "rb") as archivo:
+            cabeza = archivo.read(4096)
+    except OSError:
+        return None
+    # FLAC: tras «fLaC» va siempre el bloque STREAMINFO. 20 bits de
+    # frecuencia, 3 de canales y 5 de bits por muestra, en ese orden.
+    if cabeza[:4] == b"fLaC" and len(cabeza) >= 42:
+        info = cabeza[8:42]
+        hz = (info[10] << 12) | (info[11] << 4) | (info[12] >> 4)
+        bits = (((info[12] & 0x01) << 4) | (info[13] >> 4)) + 1
+        return (hz, bits) if hz else None
+    # WAV: se busca el trozo «fmt », que lleva la frecuencia y los bits.
+    if cabeza[:4] == b"RIFF" and cabeza[8:12] == b"WAVE":
+        i = 12
+        while i + 8 <= len(cabeza):
+            tamano = int.from_bytes(cabeza[i + 4:i + 8], "little")
+            if cabeza[i:i + 4] == b"fmt " and i + 24 <= len(cabeza):
+                hz = int.from_bytes(cabeza[i + 12:i + 16], "little")
+                bits = int.from_bytes(cabeza[i + 22:i + 24], "little")
+                return (hz, bits) if hz else None
+            i += 8 + tamano + (tamano & 1)
+    return None
+
+
 def mensaje_claro(error: Exception) -> str:
     """Convierte un fallo del motor en algo que se entienda."""
     crudo = str(error)
@@ -287,7 +436,7 @@ class YtDlpDownloader:
         }
         try:
             with YoutubeDL(opciones) as engine:
-                info = engine.extract_info(request.url, download=False)
+                info = _extraer(engine, request.url, download=False)
             if not info:
                 raise DownloadError("No se obtuvo información. Comprueba la URL.")
             if info.get("_type") in {"playlist", "multi_video"}:
@@ -320,7 +469,7 @@ class YtDlpDownloader:
         }
         try:
             with YoutubeDL(opciones) as engine:
-                info = engine.extract_info(request.url, download=False)
+                info = _extraer(engine, request.url, download=False)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(mensaje_claro(exc)) from exc
         if not info:
@@ -348,7 +497,7 @@ class YtDlpDownloader:
             # completa, así que la selección de formato de yt-dlp sobra, y
             # cuando no logra satisfacerla aborta la extracción entera.
             with YoutubeDL(opciones) as engine:
-                info = engine.extract_info(request.url, download=False, process=False)
+                info = _extraer(engine, request.url, download=False, process=False)
             if not info:
                 raise DownloadError("No se obtuvo nada que reproducir.")
             pista = self._elegir_pista(info, request.options.audio_only)
@@ -412,6 +561,10 @@ class YtDlpDownloader:
         """
         if query.source == "archive":
             return self._buscar_en_archive(query)
+        if query.source == "audius":
+            return self._buscar_en_audius(query)
+        if query.source == "bandcamp":
+            return self._buscar_en_bandcamp(query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -431,6 +584,59 @@ class YtDlpDownloader:
             return tuple(self._resultado(e) for e in entradas if e)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
+
+    @staticmethod
+    def _buscar_en_audius(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en Audius, donde los artistas suben su música tal cual.
+
+        Su API es pública y sin clave, y ya dice aquí la calidad de cada pista:
+        todo lo que se puede escuchar va a 320 kb/s, y cuando el artista deja
+        bajar el original suele ser un WAV sin pérdida. Lo que es de pago o
+        está restringido se descarta, porque no se podría bajar.
+        """
+        direccion = f"{AUDIUS_API}/tracks/search?" + urlencode(
+            {"query": query.text, "app_name": APP_AUDIUS, "limit": query.limit})
+        resultados = []
+        for pista in _consultar(direccion, "Audius").get("data") or []:
+            calidad = calidad_audius(pista)
+            if calidad is None or not pista.get("permalink"):
+                continue
+            resultados.append(VideoInfo(
+                title=pista.get("title") or "(sin título)",
+                uploader=(pista.get("user") or {}).get("name"),
+                duration=pista.get("duration"),
+                url=f"https://audius.co{pista['permalink']}",
+                thumbnail=(pista.get("artwork") or {}).get("480x480") or "",
+                quality=calidad,
+            ))
+        return tuple(resultados)
+
+    @staticmethod
+    def _buscar_en_bandcamp(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca canciones en Bandcamp con el buscador de su propia web.
+
+        Allí lo normal es escuchar a 128 kb/s y pagar por el FLAC, pero hay
+        artistas que lo regalan, y entonces el motor baja el original sin
+        pérdida. Cuál es cuál solo se sabe comprobándolo: aquí no se promete.
+        """
+        cuerpo = json.dumps({
+            "search_text": query.text,
+            "search_filter": "t",
+            "full_page": False,
+            "fan_id": None,
+        }).encode()
+        datos = _consultar(BUSCADOR_BANDCAMP, "Bandcamp", cuerpo)
+        resultados = (datos.get("auto") or {}).get("results") or []
+        return tuple(
+            VideoInfo(
+                title=r.get("name") or "(sin título)",
+                uploader=r.get("band_name"),
+                url=r["item_url_path"],
+                thumbnail=r.get("img") or "",
+            )
+            for r in resultados[:query.limit]
+            if r.get("item_url_path")
+        )
 
     @staticmethod
     def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
@@ -621,7 +827,7 @@ class YtDlpDownloader:
                 options["cookiefile"] = self._cookies
 
             with YoutubeDL(options) as engine:
-                info = engine.extract_info(request.url, download=False, process=False)
+                info = _extraer(engine, request.url, download=False, process=False)
                 if info and info.get("_type") in {"playlist", "multi_video"}:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
                 procesado = engine.process_ie_result(info, download=True) if info else None
@@ -631,19 +837,29 @@ class YtDlpDownloader:
                     # Ya figuraba en el registro: se omite, no es un fallo.
                     return DownloadResult(())
                 raise DownloadError("No se obtuvo ningún archivo. Comprueba la URL.")
-            return DownloadResult(existentes, quality=self._calidad_bajada(procesado))
+            return DownloadResult(existentes, quality=self._calidad_bajada(procesado, existentes))
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(mensaje_claro(exc)) from exc
 
     @staticmethod
-    def _calidad_bajada(info: dict | None) -> AudioQuality | None:
-        """Lo que llegó, para poder decirlo luego. Sin ello no se pierde nada."""
+    def _calidad_bajada(info: dict | None, archivos: tuple[Path, ...] = ()) -> AudioQuality | None:
+        """Lo que llegó, para poder decirlo luego. Sin ello no se pierde nada.
+
+        Si llegó sin pérdida y se guardó así, se completa con los bits y la
+        frecuencia del propio archivo: la web no los dice, el archivo sí.
+        """
         if not info:
             return None
         try:
-            return calidad_de(info)
+            calidad = calidad_de(info)
         except DownloadError:
             return None
+        if calidad.lossless:
+            for archivo in archivos:
+                cabecera = cabecera_sin_perdida(archivo)
+                if cabecera:
+                    return replace(calidad, hz=cabecera[0], bits=cabecera[1])
+        return calidad
 
     @staticmethod
     def _seleccion_formato(opts: DownloadOptions) -> str:
