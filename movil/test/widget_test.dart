@@ -24,9 +24,12 @@ import 'package:descargador_movil/reproductor.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:just_audio_platform_interface/just_audio_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'motor_falso.dart';
 
 /// Respuestas del canal nativo. Las pruebas no arrancan Python ni tocan la red.
 const MethodChannel _canal = MethodChannel('com.ruben.descargador/nucleo');
@@ -42,6 +45,9 @@ void main() {
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
+  // Uno solo para todo el archivo: el reproductor tambien es unico.
+  final MotorFalso motorFalso = MotorFalso();
+
   final List<MethodCall> llamadas = <MethodCall>[];
   // Lo que el telefono dice tener; alguna prueba necesita que no este vacio.
   String biblioteca = '{"ok":true,"elementos":[]}';
@@ -51,6 +57,13 @@ void main() {
   Future<void>? frenoCaratula;
 
   setUp(() async {
+    motorFalso.reiniciar();
+    JustAudioPlatform.instance = motorFalso;
+    // Parado, como al abrir la app: si se quedara activo de la prueba
+    // anterior, la siguiente carga no volveria a activarlo y el fallo del
+    // ecualizador, que sale justo al activar, no se veria nunca.
+    await EstadoReproductor.instancia.motor.stop();
+    motorFalso.reiniciar();
     llamadas.clear();
     biblioteca = '{"ok":true,"elementos":[]}';
     frenoBiblioteca = null;
@@ -1314,12 +1327,13 @@ void main() {
     biblioteca = _conCanciones;
     final EstadoReproductor estado = EstadoReproductor.instancia;
 
-    // En el escritorio no hay motor de audio y protesta al cargar la cola.
-    // Eso no es lo que se mira aqui: se mira que la cola llegue a ponerse.
-    await runZonedGuarded(estado.restaurarSesion, (Object _, StackTrace _) {});
+    await estado.restaurarSesion();
 
     expect(estado.cola.map((Elemento e) => e.uri).toList(),
         <String>['content://audio/1', 'content://audio/2']);
+    expect(estado.actual?.elemento?.uri, 'content://audio/2',
+        reason: 'se queda en la que sonaba, no en la primera');
+    expect(estado.motor.audioSources.length, 2, reason: 'y el motor la tiene de verdad');
   });
 
   test('guardar sin cola no borra la sesion que hay que retomar', () async {
@@ -1422,6 +1436,104 @@ void main() {
     }, (Object _, StackTrace _) {});
 
     expect(estado.error, isNull, reason: 'la abandono el usuario, no fallo');
+  });
+
+  group('el ecualizador de Android que a veces no esta', () {
+    // En el telefono, al abrir, el plugin preguntaba por las bandas antes de
+    // que Android hubiera creado el ecualizador: NullPointerException, la
+    // carga fallaba, y el motor se quedaba con esa activacion rota.
+    final PlatformException delEcualizador =
+        PlatformException(code: 'Error', message: falloDelEcualizadorEnAndroid);
+    const List<Duration> sinEsperar = <Duration>[Duration.zero, Duration.zero];
+
+    test('se reinicia el motor y se vuelve a cargar', () async {
+      int intentos = 0;
+      int reinicios = 0;
+      await EstadoReproductor.cargarConReintentos(
+        () async {
+          if (++intentos < 3) throw delEcualizador;
+        },
+        reiniciar: () async => reinicios++,
+        sigueVigente: () => true,
+        esperas: sinEsperar,
+      );
+
+      expect(intentos, 3);
+      expect(reinicios, 2, reason: 'sin reiniciar, el motor repite el fallo guardado');
+    });
+
+    test('cualquier otro fallo se cuenta a la primera', () async {
+      int intentos = 0;
+      final Future<void> carga = EstadoReproductor.cargarConReintentos(
+        () async {
+          intentos++;
+          throw PlatformException(code: 'Error', message: 'Source error: el archivo no existe');
+        },
+        reiniciar: () async => fail('no hay nada que reiniciar'),
+        sigueVigente: () => true,
+        esperas: sinEsperar,
+      );
+
+      await expectLater(carga, throwsA(isA<PlatformException>()));
+      expect(intentos, 1, reason: 'esperar no arregla un archivo borrado');
+    });
+
+    test('si el usuario ya pidio otra cosa, no se insiste', () async {
+      int intentos = 0;
+      final Future<void> carga = EstadoReproductor.cargarConReintentos(
+        () async {
+          intentos++;
+          throw delEcualizador;
+        },
+        reiniciar: () async {},
+        sigueVigente: () => false,
+        esperas: sinEsperar,
+      );
+
+      await expectLater(carga, throwsA(isA<PlatformException>()));
+      expect(intentos, 1, reason: 'insistir pisaria lo que el usuario acaba de poner');
+    });
+
+    test('al abrir la app, la sesion se retoma aunque el ecualizador falle', () async {
+      // El caso exacto del telefono, pasando por el just_audio de verdad.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+          'uris': <String>['content://audio/1', 'content://audio/2'],
+          'indice': 0,
+          'posicion': 0,
+        }),
+      });
+      biblioteca = _conCanciones;
+      motorFalso.fallosDelEcualizador = 1;
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+
+      await estado.restaurarSesion();
+
+      expect(estado.motor.audioSources.length, 2, reason: 'el motor tiene la cola');
+      expect(estado.cola.length, 2);
+      expect(motorFalso.activaciones, greaterThanOrEqualTo(2),
+          reason: 'la primera activacion se tiro y se hizo otra desde cero');
+    });
+
+    test('si no se recupera, la pantalla no ensena una cancion que no va a sonar', () async {
+      // Antes la pantalla se quedaba con la cancion retomada y el boton de
+      // pausa, pero el motor no tenia nada: tocar play no hacia nada.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+          'uris': <String>['content://audio/1'],
+          'indice': 0,
+          'posicion': 0,
+        }),
+      });
+      biblioteca = _conCanciones;
+      motorFalso.fallosDelEcualizador = 99;
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+
+      await estado.restaurarSesion();
+
+      expect(estado.actual, isNull);
+      expect(estado.cola, isEmpty);
+    });
   });
 
   test('la velocidad pasa por todos sus valores y vuelve al principio', () {

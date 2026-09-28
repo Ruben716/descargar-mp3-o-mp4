@@ -182,13 +182,23 @@ class EstadoReproductor extends ChangeNotifier {
       _actual = Pista(titulo: donde.nombre, fuente: donde.uri, elemento: donde);
       notifyListeners();
 
-      await motor.setAudioSources(
-        fuentes,
-        initialIndex: sesion.indice,
-        initialPosition: sesion.posicion,
+      await _cargarEnMotor(
+        () => motor.setAudioSources(
+          fuentes,
+          initialIndex: sesion.indice,
+          initialPosition: sesion.posicion,
+        ),
+        ordenes,
       );
     } catch (_) {
-      // Una sesion que ya no se entiende no puede impedir abrir la app.
+      // Una sesion que ya no se entiende no puede impedir abrir la app. Pero
+      // tampoco puede dejar la pantalla ensenando una cancion que el motor no
+      // tiene: asi se veia «sonando» algo que no iba a sonar nunca.
+      if (_ordenes == ordenes) {
+        _cola = <Elemento>[];
+        _actual = null;
+        notifyListeners();
+      }
     }
   }
 
@@ -235,6 +245,59 @@ class EstadoReproductor extends ChangeNotifier {
       return null;
     }
   }
+
+  /// Carga en el motor, reintentando si falla el ecualizador de Android.
+  ///
+  /// El plugin pregunta por las bandas del ecualizador nada mas activarse,
+  /// pero en Android el ecualizador solo existe cuando el motor ya tiene su
+  /// sesion de audio, y esa llega un momento despues. Si la pregunta le gana
+  /// a la sesion, revienta con un NullPointerException. En este telefono
+  /// pasaba a veces al abrir la app.
+  ///
+  /// Reintentar sin mas no sirve: el motor se queda con la activacion rota
+  /// guardada y cualquier carga posterior repite el mismo error, asi que no
+  /// volvia a sonar nada hasta cerrar la app del todo. Hay que pararlo, que
+  /// desmonta esa activacion, y cargar de nuevo desde cero.
+  Future<void> _cargarEnMotor(Future<void> Function() cargar, int ordenes) =>
+      cargarConReintentos(
+        cargar,
+        reiniciar: motor.stop,
+        sigueVigente: () => _ordenes == ordenes,
+      );
+
+  @visibleForTesting
+  static Future<void> cargarConReintentos(
+    Future<void> Function() cargar, {
+    required Future<void> Function() reiniciar,
+    required bool Function() sigueVigente,
+    List<Duration> esperas = const <Duration>[
+      Duration(milliseconds: 150),
+      Duration(milliseconds: 400),
+      Duration(milliseconds: 1000),
+    ],
+  }) async {
+    for (int intento = 0; ; intento++) {
+      try {
+        await cargar();
+        return;
+      } catch (error) {
+        // Cualquier otro fallo (un archivo borrado, un formato raro) no se
+        // arregla esperando: se cuenta tal cual.
+        final bool reintentable = esFalloDelEcualizador(error) &&
+            intento < esperas.length &&
+            sigueVigente();
+        if (!reintentable) rethrow;
+        await reiniciar();
+        await Future<void>.delayed(esperas[intento]);
+        // Si mientras tanto el usuario pidio otra cosa, esta carga ya sobra.
+        if (!sigueVigente()) rethrow;
+      }
+    }
+  }
+
+  /// Los efectos de sonido de Android viven en `android.media.audiofx`.
+  @visibleForTesting
+  static bool esFalloDelEcualizador(Object error) => '$error'.contains('audiofx');
 
   /// Recupera el ecualizador guardado en cuanto el aparato diga sus bandas.
   ///
@@ -297,7 +360,11 @@ class EstadoReproductor extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      await motor.setAudioSources(await _fuentes(elementos), initialIndex: desde);
+      final List<AudioSource> fuentes = await _fuentes(elementos);
+      await _cargarEnMotor(
+        () => motor.setAudioSources(fuentes, initialIndex: desde),
+        ordenes,
+      );
       // Una cola nueva llega sin barajar. Si el aleatorio seguia puesto de
       // antes hay que rebarajar, o diria "aleatorio" y sonaria en orden.
       if (motor.shuffleModeEnabled) await motor.shuffle();
@@ -561,17 +628,16 @@ class EstadoReproductor extends ChangeNotifier {
     try {
       // La etiqueta MediaItem es lo que pinta el sistema en la notificacion y
       // en la pantalla de bloqueo; sin ella saldria vacia.
-      await motor.setAudioSource(
-        AudioSource.uri(
-          Uri.parse(pista.fuente),
-          tag: MediaItem(
-            id: pista.fuente,
-            title: nombreLimpio(pista.titulo),
-            album: 'Tumbao',
-            artUri: await Nucleo.caratulaArchivo(pista.fuente),
-          ),
+      final AudioSource fuente = AudioSource.uri(
+        Uri.parse(pista.fuente),
+        tag: MediaItem(
+          id: pista.fuente,
+          title: nombreLimpio(pista.titulo),
+          album: 'Tumbao',
+          artUri: await Nucleo.caratulaArchivo(pista.fuente),
         ),
       );
+      await _cargarEnMotor(() => motor.setAudioSource(fuente), ordenes);
       await motor.play();
     } catch (error) {
       _fallo(error, ordenes);

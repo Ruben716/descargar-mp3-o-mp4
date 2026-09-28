@@ -44,6 +44,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Para el motor de audio falso de las pruebas; ya viene con just_audio.
+  just_audio_platform_interface: ^4.6.0
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
