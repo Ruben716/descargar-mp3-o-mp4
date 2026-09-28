@@ -155,8 +155,10 @@ class EstadoReproductor extends ChangeNotifier {
 
       // Las caratulas de la cola entera son lo que mas tarda, y es justo la
       // espera en la que el usuario da al play. Se piden antes de tocar nada
-      // para poder rendirse sin haber movido ya la pantalla.
-      final List<AudioSource> fuentes = await _fuentes(sesion.cola);
+      // para poder rendirse sin haber movido ya la pantalla, y se deja a
+      // medias en cuanto el usuario pide algo.
+      final List<AudioSource> fuentes =
+          await _fuentes(sesion.cola, abandonar: () => _ordenes != ordenes);
       if (_ordenes != ordenes) return;
 
       _cola = sesion.cola;
@@ -307,9 +309,17 @@ class EstadoReproductor extends ChangeNotifier {
   ///
   /// Una a una tardaria demasiado con una lista larga, y todas a la vez
   /// abriria un hilo por pista en Kotlin.
-  Future<List<AudioSource>> _fuentes(List<Elemento> elementos) async {
+  /// [abandonar] se consulta entre tanda y tanda. Sin eso, lo que ya no
+  /// interesa seguia pidiendo caratulas hasta el final, y como todas van por
+  /// el mismo canal, lo que el usuario acababa de pedir esperaba su turno
+  /// detras de las que quedaran. Ahi estaba la espera larga al abrir la app.
+  Future<List<AudioSource>> _fuentes(
+    List<Elemento> elementos, {
+    bool Function()? abandonar,
+  }) async {
     final List<AudioSource> fuentes = <AudioSource>[];
     for (int i = 0; i < elementos.length; i += 8) {
+      if (abandonar?.call() ?? false) return const <AudioSource>[];
       final List<Elemento> trozo = elementos.skip(i).take(8).toList();
       final List<Uri?> artes = await Future.wait(trozo.map((Elemento e) => _arte(e.uri)));
       for (int j = 0; j < trozo.length; j++) {

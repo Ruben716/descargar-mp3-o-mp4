@@ -168,12 +168,17 @@ class Nucleo {
     }
   }
 
-  /// La carpeta temporal, preguntada una sola vez: tambien cruza el canal.
-  static Directory? _temporal;
+  /// Donde viven las caratulas ya preparadas, preguntado una sola vez.
+  ///
+  /// No va en la carpeta temporal a proposito: el limpiador del sistema la
+  /// vacia cuando quiere, y entonces habria que volver a sacar y recomprimir
+  /// las cien caratulas de la biblioteca antes de que sonara nada.
+  static Directory? _carpetaCaratulas;
 
   static Future<File?> _archivoCaratula(String uri) async {
     try {
-      final Directory cache = _temporal ??= await getTemporaryDirectory();
+      final Directory cache =
+          _carpetaCaratulas ??= await getApplicationSupportDirectory();
       return File('${cache.path}/caratula_${uri.hashCode.toRadixString(16)}.jpg');
     } catch (_) {
       return null;

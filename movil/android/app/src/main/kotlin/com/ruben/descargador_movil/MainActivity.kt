@@ -162,10 +162,13 @@ class MainActivity : AudioServiceActivity() {
                             etiquetar(puente, uri, titulo, artista)
                         }
                     }
-                    "biblioteca" -> enHilo(respuesta) { _ -> biblioteca() }
+                    // Ninguna de las dos pasa por Python: salen de MediaStore.
+                    // Listar es ademas lo primero que pide la app al abrir, y
+                    // asi ya no arrastra el arranque del motor de descargas.
+                    "biblioteca" -> enHiloSuelto(respuesta) { biblioteca() }
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
-                        enHilo(respuesta) { _ -> eliminar(uri) }
+                        enHiloSuelto(respuesta) { eliminar(uri) }
                     }
                     "caratula" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()

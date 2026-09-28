@@ -1322,6 +1322,51 @@ void main() {
         <String>['content://audio/1', 'content://audio/2']);
   });
 
+  test('retomar la sesion deja de pedir caratulas en cuanto el usuario toca algo', () async {
+    // El fallo que arregla: al abrir, retomar pide una caratula por cancion,
+    // de ocho en ocho y por el mismo canal que usa todo lo demas. Si el
+    // usuario tocaba una cancion a mitad, retomar seguia hasta la ultima y lo
+    // suyo esperaba detras. Con una biblioteca grande era una espera larga.
+    final List<String> uris = <String>[
+      for (int i = 0; i < 40; i++) 'content://audio/$i',
+    ];
+    biblioteca = jsonEncode(<String, dynamic>{
+      'ok': true,
+      'elementos': <Map<String, dynamic>>[
+        for (final String u in uris)
+          <String, dynamic>{
+            'nombre': 'Tema ${u.split('/').last} [x].mp3',
+            'tamano': 100,
+            'duracion': 100,
+            'audio': true,
+            'uri': u,
+          },
+      ],
+    });
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EstadoReproductor.claveSesion:
+          jsonEncode(<String, dynamic>{'uris': uris, 'indice': 0, 'posicion': 0}),
+    });
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    final Completer<void> puerta = Completer<void>();
+    frenoCaratula = puerta.future;
+
+    await runZonedGuarded(() async {
+      final Future<void> retomando = estado.restaurarSesion();
+      // Deja que llegue a la primera tanda y se quede esperandola.
+      while (!llamadas.any((MethodCall l) => l.method == 'caratula')) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      await estado.cerrar();
+      puerta.complete();
+      await retomando;
+    }, (Object _, StackTrace _) {});
+
+    final int pedidas = llamadas.where((MethodCall l) => l.method == 'caratula').length;
+    expect(pedidas, lessThanOrEqualTo(8),
+        reason: 'la primera tanda ya estaba en camino; las otras cuatro sobraban');
+  });
+
   test('una carga que el usuario deja atras no se anuncia como error', () async {
     // El fallo que arregla: poner una cola larga espera a tener una caratula
     // por cancion. Si en esa espera el usuario pedia otra cosa, el motor
