@@ -202,7 +202,7 @@ class _Fila extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
                         Text(
-                          nombreLimpio(elemento.nombre),
+                          elemento.etiqueta,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

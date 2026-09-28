@@ -248,7 +248,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        nombreLimpio(elemento.nombre),
+                        elemento.etiqueta,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
@@ -452,7 +452,7 @@ class _Tarjeta extends StatelessWidget {
                 PortadaLocal(elemento: pista, lado: 130, radio: 18),
               const SizedBox(height: 8),
               Text(
-                titulo ?? nombreLimpio(pista!.nombre),
+                titulo ?? pista!.etiqueta,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),

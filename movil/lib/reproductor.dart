@@ -270,7 +270,7 @@ class _AudioState extends State<_Audio> {
     final AudioPlayer motor = _estado.motor;
     final ColorScheme colores = Theme.of(context).colorScheme;
     final ({String artista, String tema}) partes =
-        partirNombre(nombreLimpio(widget.elemento.nombre));
+        widget.elemento.partes;
 
     return Column(
       children: <Widget>[

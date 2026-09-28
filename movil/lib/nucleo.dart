@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'calidad.dart';
+import 'formato.dart';
 
 /// Acceso al nucleo Python, el mismo que usa la version de consola.
 ///
@@ -374,6 +375,9 @@ class Elemento {
     required this.duracion,
     required this.tamano,
     required this.audio,
+    this.etiquetaTitulo = '',
+    this.etiquetaArtista = '',
+    this.fecha = 0,
   });
 
   factory Elemento.desdeJson(Map<String, dynamic> j) => Elemento(
@@ -382,7 +386,30 @@ class Elemento {
         duracion: (j['duracion'] as num?)?.toDouble() ?? 0,
         tamano: (j['tamano'] as num?)?.toInt() ?? 0,
         audio: j['audio'] == true,
+        etiquetaTitulo: j['titulo']?.toString() ?? '',
+        etiquetaArtista: j['artista']?.toString() ?? '',
+        fecha: (j['fecha'] as num?)?.toInt() ?? 0,
       );
+
+  /// Lo que dicen las etiquetas del archivo. Vacio si no las tiene.
+  final String etiquetaTitulo;
+  final String etiquetaArtista;
+
+  /// Cuando llego al telefono, en segundos desde 1970. 0 si no se sabe.
+  final int fecha;
+
+  /// Artista y tema para ensenar; ver [nombreVisible].
+  ({String artista, String tema}) get partes =>
+      nombreVisible(nombre, titulo: etiquetaTitulo, artista: etiquetaArtista);
+
+  String get tema => partes.tema;
+  String get artista => partes.artista;
+
+  /// En una sola linea, para donde no caben dos: «Artista - Tema».
+  String get etiqueta {
+    final ({String artista, String tema}) p = partes;
+    return p.artista.isEmpty ? p.tema : '${p.artista} - ${p.tema}';
+  }
 
   final String nombre;
   final String uri;

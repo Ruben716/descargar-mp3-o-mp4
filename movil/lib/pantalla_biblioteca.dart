@@ -5,6 +5,7 @@ import 'dialogo_etiquetas.dart';
 import 'estado_reproductor.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
+import 'lista_secciones.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 import 'paleta.dart';
@@ -24,10 +25,23 @@ enum Orden {
   final String etiqueta;
 }
 
-/// Lo descargado, repartido en canciones, videos y listas.
+/// Que parte de la biblioteca se ve.
+enum Seccion {
+  canciones('Canciones'),
+  artistas('Artistas'),
+  videos('Videos'),
+  listas('Listas');
+
+  const Seccion(this.etiqueta);
+
+  final String etiqueta;
+}
+
+/// Lo descargado, repartido en canciones, artistas, videos y listas.
 ///
-/// Las listas tienen su propia pestania y no fichas sueltas: en cuanto pasan
-/// de unas pocas, amontonarlas arriba deja la pantalla inservible.
+/// Arriba van fichas y no pestanias, como en la biblioteca de Spotify: cuatro
+/// pestanias con su cuenta entre parentesis no cabian en un telefono y la
+/// ultima quedaba cortada. La cuenta va ahora en el resumen de debajo.
 class PantallaBiblioteca extends StatefulWidget {
   const PantallaBiblioteca({super.key});
 
@@ -35,11 +49,10 @@ class PantallaBiblioteca extends StatefulWidget {
   State<PantallaBiblioteca> createState() => PantallaBibliotecaState();
 }
 
-class PantallaBibliotecaState extends State<PantallaBiblioteca>
-    with SingleTickerProviderStateMixin {
+class PantallaBibliotecaState extends State<PantallaBiblioteca> {
   final Listas _listas = Listas.instancia;
-  late final TabController _pestanas = TabController(length: 4, vsync: this);
   final TextEditingController _busqueda = TextEditingController();
+  Seccion _seccion = Seccion.canciones;
 
   List<Elemento> _elementos = <Elemento>[];
   Orden _orden = Orden.reciente;
@@ -58,7 +71,6 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
   void dispose() {
     _listas.removeListener(_refrescar);
     _busqueda.dispose();
-    _pestanas.dispose();
     super.dispose();
   }
 
@@ -96,14 +108,14 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     final String consulta = _busqueda.text.trim();
     final List<Elemento> salida = _elementos
         .where((Elemento e) => e.audio == audio)
-        .where((Elemento e) => consulta.isEmpty || coincide(e.nombre, consulta))
+        // Se busca en lo que se ve (artista y tema limpios) y en el archivo.
+        .where((Elemento e) => consulta.isEmpty || coincide('${e.etiqueta} ${e.nombre}', consulta))
         .toList();
     switch (_orden) {
       case Orden.reciente:
         break;
       case Orden.alfabetico:
-        salida.sort((Elemento a, Elemento b) =>
-            sinTildes(nombreLimpio(a.nombre)).compareTo(sinTildes(nombreLimpio(b.nombre))));
+        salida.sort((Elemento a, Elemento b) => sinTildes(a.tema).compareTo(sinTildes(b.tema)));
       case Orden.duracion:
         salida.sort((Elemento a, Elemento b) => b.duracion.compareTo(a.duracion));
     }
@@ -220,42 +232,106 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     return Column(
       children: <Widget>[
         _barraBusqueda(),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          child: TabBar(
-            controller: _pestanas,
-            dividerColor: Colors.transparent,
-            indicatorSize: TabBarIndicatorSize.tab,
-            indicator: BoxDecoration(
-              color: Tema.acento.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            labelColor: Tema.acento,
-            unselectedLabelColor: Colors.white54,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-            isScrollable: true,
-            tabAlignment: TabAlignment.start,
-            tabs: <Widget>[
-              Tab(text: 'Canciones (${_canciones.length})'),
-              Tab(text: 'Artistas (${_artistas.length})'),
-              Tab(text: 'Videos (${_videos.length})'),
-              Tab(text: 'Listas (${_nombresListas.length})'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
+        _fichas(),
+        const SizedBox(height: 4),
         Expanded(
-          child: TabBarView(
-            controller: _pestanas,
-            children: <Widget>[
-              _pistas(_canciones, 'Aqui apareceran las canciones que descargues.'),
-              _seccionArtistas(),
-              _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
-              _seccionListas(),
-            ],
-          ),
+          child: switch (_seccion) {
+            Seccion.canciones =>
+              _pistas(_canciones, 'Aqui apareceran las canciones que descargues.', conBotones: true),
+            Seccion.artistas => _seccionArtistas(),
+            Seccion.videos => _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
+            Seccion.listas => _seccionListas(),
+          },
         ),
       ],
+    );
+  }
+
+  Widget _fichas() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      child: Row(
+        children: <Widget>[
+          for (final Seccion s in Seccion.values)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                selected: _seccion == s,
+                showCheckmark: false,
+                label: Text(s.etiqueta),
+                labelStyle: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: _seccion == s ? Tema.acento : Colors.white70,
+                ),
+                selectedColor: Tema.acento.withValues(alpha: 0.2),
+                backgroundColor: Tema.superficie,
+                onSelected: (_) => setState(() => _seccion = s),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// En que partes se corta la lista segun el orden elegido.
+  ///
+  /// Por fecha, por tramos de tiempo; de la A a la Z, por letras (y con el
+  /// indice para saltar); por duracion no hay nada natural por lo que partir.
+  String Function(Elemento)? get _seccionDe => switch (_orden) {
+        Orden.reciente => (Elemento e) => seccionPorFecha(e.fecha, DateTime.now()),
+        Orden.alfabetico => (Elemento e) => seccionPorLetra(e.tema),
+        Orden.duracion => null,
+      };
+
+  /// Cuantas son, cuanto duran y cuanto ocupan, en una linea.
+  static String resumen(List<Elemento> elementos, {required bool audio}) {
+    final int n = elementos.length;
+    final double segundos = elementos.fold(0, (double s, Elemento e) => s + e.duracion);
+    final int tamano = elementos.fold(0, (int s, Elemento e) => s + e.tamano);
+    final int horas = segundos ~/ 3600;
+    final int minutos = (segundos % 3600) ~/ 60;
+    final String duracion = horas > 0 ? '$horas h $minutos min' : '$minutos min';
+    final String que = audio ? (n == 1 ? 'cancion' : 'canciones') : (n == 1 ? 'video' : 'videos');
+    return '$n $que · $duracion · ${formatoTamano(tamano)}';
+  }
+
+  /// Reproducir, aleatorio y el resumen, encima de las canciones.
+  Widget _botones(List<Elemento> canciones) {
+    final EstadoReproductor reproductor = EstadoReproductor.instancia;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => reproductor.reproducirEnOrden(canciones),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('Reproducir'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: () => reproductor.reproducirAleatorio(canciones),
+                  icon: const Icon(Icons.shuffle_rounded),
+                  label: const Text('Aleatorio'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            resumen(canciones, audio: true),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
+      ),
     );
   }
 
@@ -309,7 +385,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
     );
   }
 
-  Widget _pistas(List<Elemento> elementos, String vacio) {
+  Widget _pistas(List<Elemento> elementos, String vacio, {bool conBotones = false}) {
     if (elementos.isEmpty) {
       if (_busqueda.text.trim().isNotEmpty) {
         return const _Vacio(
@@ -319,17 +395,17 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca>
       }
       return _Vacio(texto: vacio, icono: Icons.library_music_outlined);
     }
-    return RefreshIndicator(
-      onRefresh: recargar,
-      child: ListView.builder(
-        padding: const EdgeInsets.only(bottom: 20),
-        itemCount: elementos.length,
-        itemBuilder: (BuildContext context, int i) => FilaPista(
-          elemento: elementos[i],
-          enCola: elementos,
-          acciones: _accionesDe(elementos[i]),
-        ),
-      ),
+    return ListaConSecciones(
+      // La clave cambia con el orden: asi la lista vuelve arriba al cambiarlo.
+      key: ValueKey<Orden>(_orden),
+      elementos: elementos,
+      seccionDe: _seccionDe,
+      indice: _orden == Orden.alfabetico,
+      altoFila: FilaPista.alto,
+      cabecera: conBotones ? _botones(elementos) : null,
+      altoCabecera: conBotones ? 88 : 0,
+      alRefrescar: recargar,
+      fila: (Elemento e) => FilaPista(elemento: e, enCola: elementos, acciones: _accionesDe(e)),
     );
   }
 

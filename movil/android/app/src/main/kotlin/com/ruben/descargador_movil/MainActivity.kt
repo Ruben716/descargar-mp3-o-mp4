@@ -390,11 +390,18 @@ class MainActivity : AudioServiceActivity() {
         esAudio: Boolean,
         salida: JSONArray,
     ) {
+        // Titulo y artista de las etiquetas: el nombre del archivo trae el
+        // titulo de YouTube tal cual, con su codigo entre corchetes y todo.
+        // «artist» se pide por su nombre porque la constante comun a audio y
+        // video no existe antes de Android 11, y la app arranca en el 10.
         val columnas = arrayOf(
             MediaStore.MediaColumns._ID,
             MediaStore.MediaColumns.DISPLAY_NAME,
             MediaStore.MediaColumns.SIZE,
             MediaStore.MediaColumns.DURATION,
+            MediaStore.MediaColumns.TITLE,
+            MediaStore.Audio.AudioColumns.ARTIST,
+            MediaStore.MediaColumns.DATE_ADDED,
         )
         // Las carpetas van en una sola consulta y no en varias: asi el orden por
         // fecha sale mezclado de verdad y lo antiguo no se amontona al final.
@@ -417,7 +424,10 @@ class MainActivity : AudioServiceActivity() {
                             .put("tamano", cursor.getLong(2))
                             .put("duracion", cursor.getLong(3) / 1000)
                             .put("audio", esAudio)
-                            .put("uri", ContentUris.withAppendedId(coleccion, id).toString()),
+                            .put("uri", ContentUris.withAppendedId(coleccion, id).toString())
+                            .put("titulo", cursor.getString(4) ?: "")
+                            .put("artista", cursor.getString(5) ?: "")
+                            .put("fecha", cursor.getLong(6)),
                     )
                 }
             }

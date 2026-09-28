@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -427,7 +428,8 @@ class EstadoReproductor extends ChangeNotifier {
     Uri.parse(elemento.uri),
     tag: MediaItem(
       id: elemento.uri,
-      title: nombreLimpio(elemento.nombre),
+      title: elemento.tema,
+      artist: elemento.artista.isEmpty ? null : elemento.artista,
       album: 'Tumbao',
       artUri: arte,
     ),
@@ -450,6 +452,22 @@ class EstadoReproductor extends ChangeNotifier {
   ///
   /// Al ponerlo se baraja dejando en cabeza lo que ya suena, para no cortar la
   /// cancion a mitad; al quitarlo se vuelve al orden en que se cargo la cola.
+  /// Todo en el orden en que se ve, desde la primera.
+  Future<void> reproducirEnOrden(List<Elemento> elementos) async {
+    if (elementos.isEmpty) return;
+    if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
+    await reproducirLista(elementos, 0);
+  }
+
+  /// Todo en orden aleatorio, empezando por una cualquiera.
+  Future<void> reproducirAleatorio(List<Elemento> elementos) async {
+    if (elementos.isEmpty) return;
+    // Encendido antes de cargar: reproducirLista baraja la cola nueva si
+    // el aleatorio esta puesto.
+    if (!motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(true);
+    await reproducirLista(elementos, Random().nextInt(elementos.length));
+  }
+
   Future<void> alternarAleatorio() async {
     final bool activar = !motor.shuffleModeEnabled;
     if (activar) await motor.shuffle();

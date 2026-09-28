@@ -19,7 +19,7 @@ class Artistas {
 
   /// El artista de una pista, o [sinNombre] si el nombre no lo dice.
   static String de(Elemento elemento) {
-    final String artista = partirNombre(nombreLimpio(elemento.nombre)).artista;
+    final String artista = elemento.artista;
     return artista.isEmpty ? sinNombre : artista;
   }
 

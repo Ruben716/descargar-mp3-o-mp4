@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'formato.dart';
 import 'nucleo.dart';
 import 'tema.dart';
 
@@ -31,7 +30,7 @@ class _DialogoEtiquetas extends StatefulWidget {
 /// el dialogo seguia cerrandose, y Flutter aborta por ello.
 class _DialogoEtiquetasState extends State<_DialogoEtiquetas> {
   late final ({String artista, String tema}) _partes =
-      partirNombre(nombreLimpio(widget.elemento.nombre));
+      widget.elemento.partes;
   late final TextEditingController _artista = TextEditingController(text: _partes.artista);
   late final TextEditingController _titulo = TextEditingController(text: _partes.tema);
 

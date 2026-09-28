@@ -41,9 +41,15 @@ class FilaPista extends StatelessWidget {
 
   final List<AccionPista> acciones;
 
+  /// Lo que ocupa una fila con la letra de siempre: la portada (50), su
+  /// relleno (16) y la separacion con la siguiente (8). La lista con indice
+  /// lo necesita para saber donde empieza cada letra sin pintarla.
+  static const double alto = 74;
+
   @override
   Widget build(BuildContext context) {
     final EstadoReproductor estado = EstadoReproductor.instancia;
+    final ({String artista, String tema}) partes = elemento.partes;
     return ListenableBuilder(
       listenable: estado,
       builder: (BuildContext context, _) {
@@ -70,7 +76,7 @@ class FilaPista extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
                           Text(
-                            nombreLimpio(elemento.nombre),
+                            partes.tema,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -81,9 +87,12 @@ class FilaPista extends StatelessWidget {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            '${formatoTiempo(elemento.duracion)}  ·  '
-                            '${formatoTamano(elemento.tamano)}',
-                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                            partes.artista.isEmpty
+                                ? formatoTiempo(elemento.duracion)
+                                : '${partes.artista}  ·  ${formatoTiempo(elemento.duracion)}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white54, fontSize: 12),
                           ),
                         ],
                       ),

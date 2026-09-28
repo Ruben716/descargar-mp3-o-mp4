@@ -70,3 +70,73 @@ bool coincide(String texto, String consulta) =>
     tema: texto.substring(corte.end).trim(),
   );
 }
+
+/// Coletillas de YouTube que no son parte del titulo: «(Official Video)»,
+/// «[4K]», «(Letra)»... Solo dentro de parentesis o corchetes: «Live» suelto
+/// puede ser parte del tema, pero «(Live)» al final nunca lo es. Es el mismo
+/// criterio que usa el nucleo al etiquetar.
+final RegExp _ruido = RegExp(
+  r'\s*[\(\[][^)\]]*\b(?:official|oficial|video|videoclip|lyrics?|letra|'
+  r'audio|hd|hq|4k|8k|mv|remaster(?:ed)?|visualizer|visualiser|'
+  r'en\s+vivo|live)\b[^)\]]*[\)\]]',
+  caseSensitive: false,
+);
+
+String _sinRuido(String titulo) {
+  final String limpio = titulo.replaceAll(_ruido, '').replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+  // Si el titulo era solo coletilla, mejor dejarlo como estaba que en blanco.
+  return limpio.isEmpty ? titulo.trim() : limpio;
+}
+
+/// El nombre de un canal y no de un artista: «Queen - Topic», «ShakiraVEVO».
+String _sinCanal(String artista) => artista
+    .replaceFirst(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+    .replaceFirst(RegExp(r'VEVO$'), '')
+    .trim();
+
+/// Si una etiqueta se escribio con la codificacion equivocada.
+///
+/// Pasa con alguna descarga antigua: «Orión» quedo como «Ori髇». El nombre
+/// del archivo si esta bien, asi que si la etiqueta trae letras chinas que el
+/// archivo no tiene, y el archivo lleva tildes, la etiqueta esta rota.
+bool _malCodificada(String etiqueta, String archivo) {
+  final RegExp chino = RegExp(r'[一-鿿]');
+  final bool tildes = RegExp(r'[áéíóúñüÁÉÍÓÚÑÜ]').hasMatch(archivo);
+  return tildes &&
+      chino.allMatches(etiqueta).any((Match m) => !archivo.contains(m.group(0)!));
+}
+
+/// Artista y tema para ensenar, de las etiquetas cuando son de fiar.
+///
+/// El nombre del archivo es el titulo de YouTube tal cual, con su codigo
+/// entre corchetes. Las etiquetas suelen estar mejor, pero no siempre: en las
+/// descargas antiguas el titulo aun lleva «Artista - Tema» y el artista es el
+/// nombre del canal («TheStruckFernVEVO» en vez de Piso 21). Por eso:
+///
+/// - Si el titulo de la etiqueta lleva «Artista - Tema», se parte y el
+///   artista de la etiqueta se ignora, que es el canal.
+/// - Si no, se usan titulo y artista de la etiqueta.
+/// - Si la etiqueta falta o esta mal codificada, se parte el nombre del archivo.
+///
+/// Y siempre se quita el ruido tipo «(Official Video)».
+({String artista, String tema}) nombreVisible(
+  String archivo, {
+  String titulo = '',
+  String artista = '',
+}) {
+  final String deArchivo = nombreLimpio(archivo);
+  String t = titulo.trim();
+  String a = artista.trim();
+  if (a == '<unknown>') a = '';
+  if (t.isEmpty || _malCodificada('$t $a', deArchivo)) {
+    final ({String artista, String tema}) partes = partirNombre(deArchivo);
+    return (artista: partes.artista, tema: _sinRuido(partes.tema));
+  }
+  if (RegExp(r'\s+[-–—]\s+').hasMatch(t)) {
+    final ({String artista, String tema}) partes = partirNombre(t);
+    return (artista: partes.artista, tema: _sinRuido(partes.tema));
+  }
+  // «AIRBAG - Cicatrices»: el artista con el disco pegado. Vale lo de delante.
+  a = partirNombre(a).artista.isNotEmpty ? partirNombre(a).artista : a;
+  return (artista: _sinCanal(a), tema: _sinRuido(t));
+}

@@ -12,6 +12,7 @@ import 'package:descargador_movil/ecualizador.dart';
 import 'package:descargador_movil/entrada.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/hoja_descarga.dart';
+import 'package:descargador_movil/lista_secciones.dart';
 import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/fila_pista.dart';
 import 'package:descargador_movil/formato.dart';
@@ -553,8 +554,10 @@ void main() {
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Canciones (0)'), findsOneWidget);
-    expect(find.textContaining('Listas (0)'), findsOneWidget);
+    // Fichas y no pestanias con la cuenta: cuatro no cabian en un telefono.
+    for (final String seccion in <String>['Canciones', 'Artistas', 'Videos', 'Listas']) {
+      expect(find.widgetWithText(ChoiceChip, seccion), findsOneWidget);
+    }
   });
 
   testWidgets('escuchar un resultado abre su vista previa',
@@ -589,8 +592,9 @@ void main() {
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.textContaining('Listas ('));
-    await tester.tap(find.textContaining('Listas ('));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Listas'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Listas'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Nueva lista'));
     await tester.pumpAndSettle();
@@ -607,8 +611,9 @@ void main() {
     await abrir(tester);
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.textContaining('Listas ('));
-    await tester.tap(find.textContaining('Listas ('));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Listas'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Listas'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Nueva lista'));
     await tester.pumpAndSettle();
@@ -1964,6 +1969,140 @@ void main() {
     });
   });
 
+  group('el nombre que se ensenia', () {
+    // Casos sacados de la biblioteca de verdad del telefono.
+    test('las etiquetas buenas mandan sobre el nombre del archivo', () {
+      final ({String artista, String tema}) n = nombreVisible('Te Olvidare [k9xV2H_Ae9g].mp3',
+          titulo: 'Te Olvidare', artista: 'Antologia, Miguel Mans');
+      expect(n.artista, 'Antologia, Miguel Mans', reason: 'antes salia sin artista');
+      expect(n.tema, 'Te Olvidare');
+    });
+
+    test('si el titulo aun lleva «Artista - Tema», el artista de la etiqueta es el canal', () {
+      final ({String artista, String tema}) n = nombreVisible(
+          'Piso 21 - Puntos Suspensivos (Audio) [KgMdDclEyN].mp3',
+          titulo: 'Piso 21 - Puntos Suspensivos (Audio)',
+          artista: 'TheStruckFernVEVO');
+      expect(n.artista, 'Piso 21');
+      expect(n.tema, 'Puntos Suspensivos', reason: 'sin la coletilla');
+    });
+
+    test('una etiqueta mal codificada no gana al archivo', () {
+      final ({String artista, String tema}) n = nombreVisible(
+          'Wuicho Kun & Orión - En el Próximo Big Bang [x].mp3',
+          titulo: 'En el Pr\u9ad5imo Big Bang',
+          artista: 'Wuicho Kun & Ori\u9ac7');
+      expect(n.artista, 'Wuicho Kun & Orión');
+      expect(n.tema, 'En el Próximo Big Bang');
+    });
+
+    test('los nombres en coreano no se toman por mal codificados', () {
+      final ({String artista, String tema}) n = nombreVisible('(로제) ROSÉ - messy [2097].mp3',
+          titulo: 'messy (from the movie F1)', artista: '(로제) ROSÉ');
+      expect(n.artista, '(로제) ROSÉ');
+      expect(n.tema, 'messy (from the movie F1)');
+    });
+
+    test('el artista con el disco pegado y los canales «Topic» se arreglan', () {
+      expect(nombreVisible('x.mp3', titulo: 'Mentira La Verdad', artista: 'AIRBAG - Cicatrices').artista,
+          'AIRBAG');
+      expect(nombreVisible('x.mp3', titulo: 'Bohemian Rhapsody', artista: 'Queen - Topic').artista,
+          'Queen');
+    });
+
+    test('sin etiquetas se parte el nombre del archivo, como siempre', () {
+      final ({String artista, String tema}) n =
+          nombreVisible('Alex Warren - Eternity (Official Video) [abc].mp3');
+      expect(n.artista, 'Alex Warren');
+      expect(n.tema, 'Eternity');
+    });
+  });
+
+  group('secciones de la biblioteca', () {
+    final DateTime ahora = DateTime(2026, 9, 28, 12);
+    int dia(int y, int m, int d) => DateTime(y, m, d, 10).millisecondsSinceEpoch ~/ 1000;
+
+    test('por fecha, en tramos que se entienden', () {
+      expect(seccionPorFecha(dia(2026, 9, 28), ahora), 'Hoy');
+      expect(seccionPorFecha(dia(2026, 9, 27), ahora), 'Ayer');
+      expect(seccionPorFecha(dia(2026, 9, 23), ahora), 'Esta semana');
+      expect(seccionPorFecha(dia(2026, 9, 3), ahora), 'Este mes');
+      expect(seccionPorFecha(dia(2026, 8, 14), ahora), 'Agosto 2026');
+      expect(seccionPorFecha(0, ahora), 'Antes');
+    });
+
+    test('por letra, sin tildes y con lo demas bajo #', () {
+      expect(seccionPorLetra('Ángeles'), 'A');
+      expect(seccionPorLetra('zoe'), 'Z');
+      expect(seccionPorLetra('10.000 Razones'), '#');
+      expect(seccionPorLetra('사랑'), '#');
+    });
+
+    test('el resumen dice cuantas, cuanto duran y cuanto ocupan', () {
+      final List<Elemento> dos = <Elemento>[
+        const Elemento(nombre: 'a.mp3', uri: 'u1', duracion: 1800, tamano: 1048576, audio: true),
+        const Elemento(nombre: 'b.mp3', uri: 'u2', duracion: 2400, tamano: 1048576, audio: true),
+      ];
+      expect(PantallaBibliotecaState.resumen(dos, audio: true), '2 canciones · 1 h 10 min · 2.0 MB');
+    });
+  });
+
+  testWidgets('la biblioteca parte por fechas y reproduce todo desde arriba',
+      (WidgetTester tester) async {
+    final int hoy = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Piso 21 - Puntos Suspensivos (Audio) [k].mp3","titulo":"Piso 21 - Puntos Suspensivos (Audio)",'
+        '"artista":"TheStruckFernVEVO","fecha":$hoy,"tamano":100,"duracion":200,"audio":true,"uri":"content://audio/1"},'
+        '{"nombre":"Vieja [v].mp3","titulo":"Vieja","artista":"Alguien","fecha":0,'
+        '"tamano":100,"duracion":100,"audio":true,"uri":"content://audio/2"}]}';
+    comoElTelefono(tester);
+    await abrirBiblioteca(tester);
+
+    // Lo que se ve sale de las etiquetas, no del nombre del archivo.
+    expect(find.text('Puntos Suspensivos'), findsOneWidget);
+    expect(find.textContaining('Piso 21  ·'), findsOneWidget);
+    expect(find.text('HOY'), findsOneWidget);
+    expect(find.text('ANTES'), findsOneWidget);
+    expect(find.textContaining('2 canciones'), findsOneWidget);
+
+    await tester.tap(find.text('Reproducir'));
+    await tester.pumpAndSettle();
+    expect(EstadoReproductor.instancia.cola.length, 2);
+    expect(EstadoReproductor.instancia.actual?.elemento?.uri, 'content://audio/1',
+        reason: 'reproducir empieza por la primera que se ve');
+  });
+
+  testWidgets('en orden alfabetico sale el indice y lleva a su letra', (WidgetTester tester) async {
+    final StringBuffer json = StringBuffer('{"ok":true,"elementos":[');
+    final List<String> temas = <String>[
+      for (final String l in <String>['A', 'B', 'C', 'M', 'Z'])
+        for (int i = 0; i < 6; i++) '$l tema $i',
+    ];
+    for (int i = 0; i < temas.length; i++) {
+      json.write('${i == 0 ? '' : ','}{"nombre":"${temas[i]}.mp3","titulo":"${temas[i]}",'
+          '"artista":"X","fecha":0,"tamano":1,"duracion":1,"audio":true,"uri":"content://audio/$i"}');
+    }
+    json.write(']}');
+    biblioteca = json.toString();
+    comoElTelefono(tester);
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byTooltip('Ordenar'));
+    await tester.pumpAndSettle();
+    // Se toca el elemento del menu y no su texto, que va desplazado en la fila.
+    await tester.tap(find.widgetWithText(CheckedPopupMenuItem<Orden>, 'A - Z'));
+    await tester.pumpAndSettle();
+
+    final Finder indice = find.byWidgetPredicate(
+        (Widget w) => w is Semantics && w.properties.label == 'Indice alfabetico');
+    expect(indice, findsOneWidget);
+    expect(find.text('Z tema 0'), findsNothing, reason: 'la Z queda muy abajo');
+
+    await tester.tap(find.descendant(of: indice, matching: find.text('Z')));
+    await tester.pumpAndSettle();
+    expect(find.text('Z tema 0'), findsOneWidget, reason: 'el indice lleva a la Z');
+  });
+
   group('que es lo escrito', () {
     test('nada, texto o enlace', () {
       expect(Entrada.de('   ').tipo, TipoEntrada.vacia);
@@ -2069,7 +2208,7 @@ void main() {
     biblioteca = _conCanciones;
     await abrirBiblioteca(tester);
 
-    expect(find.textContaining('Artistas ('), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Artistas'), findsOneWidget);
   });
 
   // --- Editar etiquetas ----------------------------------------------------
@@ -2160,8 +2299,9 @@ void main() {
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.textContaining('Videos ('));
-    await tester.tap(find.textContaining('Videos ('));
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Videos'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Videos'));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
     await tester.pumpAndSettle();
