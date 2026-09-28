@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .domain import (
@@ -76,6 +76,17 @@ ES_AUDIUS = re.compile(r"https?://(?:www\.)?audius\.co/[^/?#]+/[^/?#]+")
 
 #: El buscador público de la web de Bandcamp.
 BUSCADOR_BANDCAMP = "https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic"
+
+#: Tamaño de cada trozo al bajar un archivo grande en varias conexiones.
+TROZO_PARALELO = 4 * 1024 * 1024
+
+#: Cuántas conexiones a la vez para un archivo en trozos. Medido: con cuatro,
+#: el WAV original de Audius bajó un 58 % más rápido que con una.
+CONEXIONES_PARALELAS = 4
+
+#: Formatos que no pierden nada. Si el destino es uno de estos, se busca el
+#: mejor origen, sin pérdida incluido; si no, sobra bajar un original enorme.
+FORMATOS_SIN_PERDIDA = ("flac", "wav", "alac")
 
 #: Prefijo de búsqueda del motor, por fuente. Las demás van por su propia API.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
@@ -312,13 +323,7 @@ def _extractor_audius():
             }]
             original = original_sin_perdida(pista)
             if original:
-                formatos.append({
-                    "format_id": "original",
-                    "url": f"{AUDIUS_API}/tracks/{ident}/download?app_name={APP_AUDIUS}",
-                    "ext": original,
-                    "acodec": original,
-                    "vcodec": "none",
-                })
+                formatos.append(self._formato_original(ident, original))
             autor = (pista.get("user") or {}).get("name")
             return {
                 "id": ident,
@@ -331,7 +336,64 @@ def _extractor_audius():
                 "formats": formatos,
             }
 
+        def _formato_original(self, ident: str, extension: str) -> dict:
+            """El original, en trozos si se sabe cuánto pesa.
+
+            Pesa mucho (un WAV de cuatro minutos, 70 MB), y bajarlo por una
+            sola conexión era lo que hacía eterna la descarga en el teléfono.
+            En trozos, el motor los pide a la vez y luego los junta.
+            """
+            direccion = f"{AUDIUS_API}/tracks/{ident}/download?app_name={APP_AUDIUS}"
+            formato: dict = {
+                "format_id": "original",
+                "url": direccion,
+                "ext": extension,
+                "acodec": extension,
+                "vcodec": "none",
+            }
+            try:
+                from yt_dlp.networking import HEADRequest
+
+                respuesta = self._request_webpage(
+                    HEADRequest(direccion), ident, note="Midiendo el original", fatal=False)
+                total = int((respuesta.headers.get("Content-Length") if respuesta else 0) or 0)
+                final = respuesta.url if respuesta else ""
+            except (ValueError, ImportError):
+                total, final = 0, ""
+            if total > TROZO_PARALELO and final:
+                formato |= {
+                    "url": final,
+                    "filesize": total,
+                    "protocol": "http_dash_segments",
+                    "fragments": [{"url": final, "byte_range": r} for r in trozos(total)],
+                }
+            return formato
+
     return AudiusOriginalIE
+
+
+def necesita_portada_oficial(url: str) -> bool:
+    """Si la imagen que trae el enlace es un fotograma y no la portada.
+
+    Solo pasa con YouTube. En Audius, Bandcamp, SoundCloud o el Archive la
+    imagen ya es la del disco que subió el artista: buscar otra fuera cuesta
+    tiempo y, peor, puede cambiarla por la de otra versión (a un remix, la
+    del tema original).
+    """
+    try:
+        anfitrion = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return anfitrion == "youtu.be" or anfitrion.endswith("youtube.com")
+
+
+def trozos(total: int, tamano: int = TROZO_PARALELO) -> list[dict]:
+    """Los rangos de bytes para bajar un archivo en varias conexiones.
+
+    El final de cada rango es exclusivo, como lo espera el motor.
+    """
+    return [{"start": inicio, "end": min(inicio + tamano, total)}
+            for inicio in range(0, total, tamano)]
 
 
 def _extraer(engine, url: str, **opciones):
@@ -798,6 +860,9 @@ class YtDlpDownloader:
                 "continuedl": True,
                 "overwrites": False,
                 "retries": 5,
+                # Lo que llega en trozos (HLS de SoundCloud, el original de
+                # Audius) se pide en varias conexiones a la vez.
+                "concurrent_fragment_downloads": CONEXIONES_PARALELAS,
                 "fragment_retries": 5,
                 "skip_unavailable_fragments": False,
                 "socket_timeout": 30,
@@ -864,7 +929,12 @@ class YtDlpDownloader:
     @staticmethod
     def _seleccion_formato(opts: DownloadOptions) -> str:
         if opts.audio_only:
-            return "ba/b"
+            if opts.audio_format in FORMATOS_SIN_PERDIDA:
+                return "ba/b"
+            # Para un MP3 no hace falta bajar el WAV original de 70 MB y
+            # convertirlo: si hay un origen comprimido, se usa ese. En Audius,
+            # su MP3 a 320 pesa una séptima parte y se copia sin reconvertir.
+            return "ba[acodec!~='^(flac|alac|wav|aiff|pcm)']/ba/b"
         # El «?» del tope es lo que evita descartar un formato solo porque no
         # diga su altura. Instagram y compañía sirven MP4 sin metadatos, y con
         # el filtro estricto se quedaban fuera los únicos que servían.

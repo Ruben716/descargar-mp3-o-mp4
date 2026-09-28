@@ -22,8 +22,10 @@ class CheckQuality:
         self.downloader = downloader
 
     def execute(self, url: str) -> AudioQuality:
-        # Como música: es la calidad del audio lo que se quiere saber.
-        request = DownloadRequest(url, Path("."), DownloadOptions(audio_only=True))
+        # Como música y pidiendo lo mejor que haya: con destino FLAC la
+        # selección no descarta los originales sin pérdida.
+        request = DownloadRequest(
+            url, Path("."), DownloadOptions(audio_only=True, audio_format="flac"))
         return self.downloader.quality(request)
 
 

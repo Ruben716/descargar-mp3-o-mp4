@@ -30,6 +30,7 @@ from descargador.infrastructure import (
     descargar_portada,
     escribir_etiquetas,
     incrustar_portada,
+    necesita_portada_oficial,
     nombre_con_etiquetas,
     partes_del_nombre,
 )
@@ -201,7 +202,8 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
         motor = YtDlpDownloader(_anotar, registro, cookies or None)
         resultado = DownloadVideo(motor).execute(url, Path(carpeta), opciones)
         archivos = list(resultado.files)
-        if solo_audio and portada_oficial:
+        # Solo donde la imagen es un fotograma: en las demas ya es la del disco.
+        if solo_audio and portada_oficial and necesita_portada_oficial(url):
             _AVANCE["status"] = "portada"
             archivos = [_ponerPortadaOficial(a) for a in archivos]
         _AVANCE["status"] = "listo"

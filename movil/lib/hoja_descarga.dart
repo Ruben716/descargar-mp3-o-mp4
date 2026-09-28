@@ -34,7 +34,8 @@ String resumenDescarga(Ajustes a) {
   if (origen.sinPerdida && !guardaSinPerdida) {
     return (
       ajustes: a.copiar(formatoAudio: 'flac'),
-      motivo: 'Elegido FLAC: el origen es sin perdida y asi se guarda entero.',
+      motivo: 'Elegido FLAC: el origen es sin perdida y asi se guarda entero. '
+          'Pesa mucho mas (unos 15 MB por minuto) y tarda mas en bajar.',
     );
   }
   if (!origen.sinPerdida && guardaSinPerdida) {
@@ -272,6 +273,16 @@ class _HojaDescargaState extends State<HojaDescarga> {
                     Expanded(
                       child: Text(motivo, style: const TextStyle(fontSize: 12, height: 1.35)),
                     ),
+                    // Con prisa, MP3: la app baja entonces la version comprimida
+                    // que tenga la fuente, no el original entero.
+                    if (_a.formatoAudio == 'flac')
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _a = _a.copiar(formatoAudio: 'mp3');
+                          _ajustado = null;
+                        }),
+                        child: const Text('Mejor MP3'),
+                      ),
                   ],
                 ),
               )

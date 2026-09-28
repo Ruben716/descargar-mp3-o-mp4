@@ -1,5 +1,6 @@
 import contextlib
 import io
+import itertools
 import json
 import shutil
 import subprocess
@@ -60,9 +61,11 @@ from descargador.infrastructure import (
     incrusta_caratula,
     incrustar_portada,
     mensaje_claro,
+    necesita_portada_oficial,
     nombre_con_etiquetas,
     original_sin_perdida,
     partes_del_nombre,
+    trozos,
 )
 
 
@@ -151,7 +154,10 @@ class AdapterTests(unittest.TestCase):
 
     def test_format_selection(self):
         self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions()), "bv*+ba/b")
-        self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
+        # Con destino sin pérdida se busca lo mejor que haya, originales incluidos.
+        self.assertEqual(
+            YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True, audio_format="flac")),
+            "ba/b")
         # El tope va con «?»: un formato que no diga su altura no se descarta.
         self.assertIn("height<=?720", YtDlpDownloader._seleccion_formato(DownloadOptions(quality=720)))
 
@@ -743,9 +749,50 @@ class FormatoVerticalTests(unittest.TestCase):
         # en «b» y no se le añade uno de más.
         self.assertEqual(YtDlpDownloader._seleccion_formato(DownloadOptions()), "bv*+ba/b")
 
-    def test_el_audio_se_elige_igual_que_siempre(self):
-        self.assertEqual(
-            YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True)), "ba/b")
+    def test_para_un_mp3_se_prefiere_un_origen_comprimido(self):
+        # Se ejecuta el selector de verdad sobre los formatos que ofrece Audius:
+        # para un MP3 no hace falta bajar el WAV de 70 MB y convertirlo.
+        from yt_dlp import YoutubeDL
+
+        formatos = [
+            {"format_id": "mp3-320", "url": "https://a/s", "ext": "mp3", "acodec": "mp3",
+             "abr": 320, "vcodec": "none"},
+            {"format_id": "original", "url": "https://a/d", "ext": "wav", "acodec": "wav",
+             "vcodec": "none"},
+        ]
+
+        def elegido(formato_audio: str) -> str:
+            opciones = DownloadOptions(audio_only=True, audio_format=formato_audio)
+            with YoutubeDL({"quiet": True}) as motor:
+                selector = motor.build_format_selector(YtDlpDownloader._seleccion_formato(opciones))
+                return next(selector({"formats": formatos, "has_merged_format": False,
+                                      "incomplete_formats": False}))["format_id"]
+
+        self.assertEqual(elegido("mp3"), "mp3-320")
+        self.assertEqual(elegido("flac"), "original")
+
+    def test_si_solo_hay_sin_perdida_se_baja_igual(self):
+        # El Archive solo da FLAC: pedir MP3 no puede dejarlo sin nada.
+        seleccion = YtDlpDownloader._seleccion_formato(DownloadOptions(audio_only=True))
+        self.assertTrue(seleccion.endswith("/ba/b"))
+
+    def test_la_portada_oficial_solo_se_busca_para_youtube(self):
+        self.assertTrue(necesita_portada_oficial("https://www.youtube.com/watch?v=abc"))
+        self.assertTrue(necesita_portada_oficial("https://music.youtube.com/watch?v=abc"))
+        self.assertTrue(necesita_portada_oficial("https://youtu.be/abc"))
+        # En las demas la imagen ya es la del disco.
+        for url in ("https://audius.co/a/b", "https://x.bandcamp.com/track/b",
+                    "https://soundcloud.com/a/b", "https://archive.org/details/x"):
+            self.assertFalse(necesita_portada_oficial(url), url)
+
+    def test_un_archivo_grande_se_parte_en_trozos_que_lo_cubren_entero(self):
+        partes = trozos(10 * 1024 * 1024, tamano=4 * 1024 * 1024)
+        self.assertEqual(len(partes), 3)
+        self.assertEqual(partes[0]["start"], 0)
+        # Sin huecos ni solapes: cada uno empieza donde acaba el anterior.
+        for anterior, siguiente in itertools.pairwise(partes):
+            self.assertEqual(anterior["end"], siguiente["start"])
+        self.assertEqual(partes[-1]["end"], 10 * 1024 * 1024)
 
 
 class EtiquetasTests(unittest.TestCase):

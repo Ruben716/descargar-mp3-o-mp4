@@ -68,6 +68,8 @@ void main() {
   /// Lo que responde la comprobacion de calidad, por enlace. Por defecto, lo
   /// que da YouTube de verdad: Opus a 127 kb/s.
   Map<String, String> calidades = <String, String>{};
+  /// Lo que responde una descarga. null: que sale bien.
+  String? respuestaDescarga;
   /// Lo mismo con las caratulas, que es donde espera la cancion que va a sonar.
   Future<void>? frenoCaratula;
 
@@ -86,6 +88,7 @@ void main() {
     Nucleo.enlaceCompartido.value = null;
     respuestas = <String, String>{'youtube': _busqueda};
     calidades = <String, String>{};
+    respuestaDescarga = null;
     PantallaDescargaState.olvidarBusquedas();
     frenoCaratula = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
@@ -123,7 +126,7 @@ void main() {
         'avisarLote' => '{"ok":true}',
         'compartirArchivo' => '{"ok":true}',
         'compartirEnlace' => '{"ok":true}',
-        'descargar' => '{"ok":true,"archivos":["content://audio/99"]}',
+        'descargar' => respuestaDescarga ?? '{"ok":true,"archivos":["content://audio/99"]}',
         _ => '{"ok":true}',
       };
     });
@@ -224,6 +227,68 @@ void main() {
 
     final MethodCall descarga = llamadas.lastWhere((MethodCall c) => c.method == 'descargar');
     expect((descarga.arguments as Map<dynamic, dynamic>)['soloAudio'], isTrue);
+  });
+
+  /// Busca, toca el primer resultado y lo baja como musica, esperando al final.
+  Future<void> bajarElPrimero(WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Descargar musica'));
+    await tester.pump();
+    // El catalogo es una base de datos de verdad: necesita tiempo real.
+    for (int i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    await tester.pump(const Duration(seconds: 1));
+  }
+
+  testWidgets('al acabar se dice como fue, aunque la lista este llena', (WidgetTester tester) async {
+    // El fallo que arregla: el resultado solo se pintaba si no habia
+    // resultados, y bajando de una busqueda siempre los hay.
+    await bajarElPrimero(tester);
+
+    expect(find.text('Cancion dos'), findsOneWidget, reason: 'la lista sigue ahi');
+    expect(find.text('Guardado en tu biblioteca.'), findsOneWidget);
+  });
+
+  testWidgets('un fallo al descargar tambien se ve, con su detalle', (WidgetTester tester) async {
+    respuestaDescarga = '{"ok":false,"error":"No se pudo meter la portada.",'
+        '"registro":["ERROR: Postprocessing: mutagen no esta"]}';
+    await bajarElPrimero(tester);
+
+    expect(find.text('No se pudo meter la portada.'), findsOneWidget);
+    await tester.tap(find.text('Detalle'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ver detalle tecnico'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('mutagen no esta'), findsOneWidget);
+  });
+
+  testWidgets('con un origen sin perdida se puede pedir MP3 para ir rapido',
+      (WidgetTester tester) async {
+    respuestas['audius'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Grupo",'
+        '"duracion":180,"url":"https://audius.co/grupo/cancion-uno","miniatura":"",'
+        '"calidad":{"codec":"wav","sinPerdida":true}}]}';
+    respuestas.remove('youtube');
+    comoElTelefono(tester);
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Pesa mucho mas'), findsOneWidget);
+
+    await tester.tap(find.text('Mejor MP3'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('MP3 · 192 kb/s'), findsOneWidget);
+    expect(find.textContaining('Pesa mucho mas'), findsNothing);
   });
 
   testWidgets('cerrar la hoja sin elegir no descarga nada', (WidgetTester tester) async {

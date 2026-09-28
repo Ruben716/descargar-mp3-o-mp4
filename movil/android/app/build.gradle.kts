@@ -84,6 +84,11 @@ chaquopy {
         version = "3.14"
         pip {
             install("yt-dlp")
+            // Sin ella, yt-dlp no puede meter la portada en FLAC, Opus ni OGG,
+            // y la descarga entera fallaba al final: el archivo se quedaba en
+            // la carpeta temporal sin llegar a la biblioteca. En MP3 no se
+            // notaba porque ahi la pone FFmpeg.
+            install("mutagen")
         }
     }
 }

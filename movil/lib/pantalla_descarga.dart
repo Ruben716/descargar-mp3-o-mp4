@@ -110,8 +110,63 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     unawaited(Nucleo.precalentar());
   }
 
+  /// Si habia una descarga en marcha la ultima vez que se miro.
+  bool _estabaDescargando = false;
+
   void _refrescar() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final bool acaba = _estabaDescargando && !_control.activa;
+    _estabaDescargando = _control.activa;
+    setState(() {});
+    if (acaba && _control.mensaje.isNotEmpty) _avisarResultado();
+  }
+
+  /// Dice como acabo la descarga, siempre.
+  ///
+  /// El resultado se pintaba en el hueco de la lista, y solo si no habia
+  /// resultados. Descargando algo de una busqueda, que es lo normal, la lista
+  /// estaba llena y el aviso no salia nunca: una descarga podia fallar sin
+  /// que nadie se enterase.
+  void _avisarResultado() {
+    final String mensaje = _control.mensaje;
+    final bool fallo = _control.fallo;
+    final List<String> detalle = _control.detalle;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: fallo ? 10 : 4),
+          backgroundColor: fallo ? const Color(0xFF5C1F2B) : null,
+          content: Row(
+            children: <Widget>[
+              Icon(
+                fallo ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                color: fallo ? const Color(0xFFFF6B81) : const Color(0xFF57D9A3),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: Text(mensaje, maxLines: 4, overflow: TextOverflow.ellipsis)),
+            ],
+          ),
+          action: fallo && detalle.isNotEmpty
+              ? SnackBarAction(label: 'Detalle', onPressed: () => _verDetalle(mensaje, detalle))
+              : null,
+        ),
+      );
+  }
+
+  void _verDetalle(String mensaje, List<String> detalle) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Tema.superficie,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: _Aviso(mensaje: mensaje, fallo: true, detalle: detalle),
+        ),
+      ),
+    );
   }
 
   /// Un fallo del reproductor se avisa de paso y sin ocupar la pantalla:
