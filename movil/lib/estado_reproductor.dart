@@ -103,13 +103,16 @@ class EstadoReproductor extends ChangeNotifier {
   int _ordenes = 0;
 
   /// Apunta la cola y el punto exacto para poder seguir tras cerrar la app.
+  ///
+  /// Sin cola no toca nada, y eso importa: el flujo de posicion del motor
+  /// avisa en cuanto el motor existe, antes de que haya nada cargado. Antes
+  /// una cola vacia borraba lo guardado, y ese primer aviso le ganaba la
+  /// carrera al retomado: la sesion se perdia al abrir la app. Olvidarla es
+  /// cosa de [cerrar] y de nadie mas.
   Future<void> _guardarSesion() async {
+    if (_cola.isEmpty) return;
     try {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
-      if (_cola.isEmpty) {
-        await memoria.remove(claveSesion);
-        return;
-      }
       await memoria.setString(
         claveSesion,
         jsonEncode(<String, dynamic>{
@@ -122,6 +125,19 @@ class EstadoReproductor extends ChangeNotifier {
       // Quedarse sin guardar la sesion no puede cortar la musica.
     }
   }
+
+  /// Cerrar a proposito si olvida donde ibas: al abrir no hay nada que retomar.
+  Future<void> _olvidarSesion() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.remove(claveSesion);
+    } catch (_) {
+      // Igual que al guardar: esto nunca puede cortar nada.
+    }
+  }
+
+  @visibleForTesting
+  Future<void> guardarSesion() => _guardarSesion();
 
   /// Guarda de tanto en tanto mientras suena, que la posicion cambia siempre.
   void _quizasGuardarSesion() {
@@ -603,7 +619,7 @@ class EstadoReproductor extends ChangeNotifier {
     _ordenes++;
     _cola = <Elemento>[];
     cancelarSuenio();
-    unawaited(_guardarSesion());
+    unawaited(_olvidarSesion());
     try {
       await motor.stop();
     } catch (_) {

@@ -1322,6 +1322,39 @@ void main() {
         <String>['content://audio/1', 'content://audio/2']);
   });
 
+  test('guardar sin cola no borra la sesion que hay que retomar', () async {
+    // El fallo que arregla: el motor avisa de su posicion nada mas crearse,
+    // con la cola aun vacia, y guardar en ese momento borraba lo guardado. Si
+    // ese aviso llegaba antes que el retomado, la sesion se perdia al abrir.
+    final String guardada = jsonEncode(<String, dynamic>{
+      'uris': <String>['content://audio/1'],
+      'indice': 0,
+      'posicion': 0,
+    });
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EstadoReproductor.claveSesion: guardada,
+    });
+
+    await EstadoReproductor.instancia.guardarSesion();
+
+    final SharedPreferences memoria = await SharedPreferences.getInstance();
+    expect(memoria.getString(EstadoReproductor.claveSesion), guardada);
+  });
+
+  test('cerrar si olvida la sesion', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      EstadoReproductor.claveSesion: '{"uris":["content://audio/1"],"indice":0,"posicion":0}',
+    });
+
+    await EstadoReproductor.instancia.cerrar();
+    // cerrar no espera a borrarla; se deja terminar.
+    await Future<void>.delayed(Duration.zero);
+
+    final SharedPreferences memoria = await SharedPreferences.getInstance();
+    expect(memoria.getString(EstadoReproductor.claveSesion), isNull,
+        reason: 'quien cierra el reproductor no quiere que vuelva al abrir');
+  });
+
   test('retomar la sesion deja de pedir caratulas en cuanto el usuario toca algo', () async {
     // El fallo que arregla: al abrir, retomar pide una caratula por cancion,
     // de ocho en ocho y por el mismo canal que usa todo lo demas. Si el
