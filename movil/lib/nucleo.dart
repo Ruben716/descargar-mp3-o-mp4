@@ -145,6 +145,19 @@ class Nucleo {
 
   static Future<String?> urlCompartida() => _canal.invokeMethod<String>('urlCompartida');
 
+  /// El enlace que otra app acaba de compartir, a la espera de atenderse.
+  ///
+  /// Lo recoge el armazon de pestanias, que es lo unico que existe siempre, y
+  /// lo atiende Descargar. Antes lo pedia Descargar por su cuenta, pero esa
+  /// pantalla solo se construye al visitarla: al compartir, la app se abria
+  /// en Inicio y el enlace se quedaba esperando sin que nadie lo viera.
+  static final ValueNotifier<String?> enlaceCompartido = ValueNotifier<String?>(null);
+
+  static Future<void> recogerCompartido() async {
+    final String? enlace = await urlCompartida();
+    if (enlace != null && enlace.isNotEmpty) enlaceCompartido.value = enlace;
+  }
+
   static final Map<String, Uint8List?> _caratulas = <String, Uint8List?>{};
 
   /// Caratula del archivo, ya decodificada. Se recuerda porque cruzar el

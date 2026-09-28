@@ -7,7 +7,9 @@ import 'package:descargador_movil/main.dart';
 import 'package:descargador_movil/catalogo.dart';
 import 'package:descargador_movil/control_descarga.dart';
 import 'package:descargador_movil/ecualizador.dart';
+import 'package:descargador_movil/entrada.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
+import 'package:descargador_movil/hoja_descarga.dart';
 import 'package:descargador_movil/listas.dart';
 import 'package:descargador_movil/fila_pista.dart';
 import 'package:descargador_movil/formato.dart';
@@ -21,6 +23,7 @@ import 'package:descargador_movil/pantalla_biblioteca.dart';
 import 'package:descargador_movil/pantalla_descarga.dart';
 import 'package:descargador_movil/portadas.dart';
 import 'package:descargador_movil/reproductor.dart';
+import 'package:descargador_movil/tema.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,6 +56,8 @@ void main() {
   String biblioteca = '{"ok":true,"elementos":[]}';
   /// Para dejar la lectura de la biblioteca a medias y colar algo por delante.
   Future<void>? frenoBiblioteca;
+  /// Lo que otra app le comparte a esta al abrirla.
+  String? compartida;
   /// Lo mismo con las caratulas, que es donde espera la cancion que va a sonar.
   Future<void>? frenoCaratula;
 
@@ -67,6 +72,8 @@ void main() {
     llamadas.clear();
     biblioteca = '{"ok":true,"elementos":[]}';
     frenoBiblioteca = null;
+    compartida = null;
+    Nucleo.enlaceCompartido.value = null;
     frenoCaratula = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // El reproductor y la descarga son unicos para toda la app: sin esto
@@ -87,7 +94,7 @@ void main() {
         await frenoCaratula;
       }
       return switch (llamada.method) {
-        'urlCompartida' => null,
+        'urlCompartida' => compartida,
         'biblioteca' => biblioteca,
         'buscar' => _busqueda,
         'importarLista' =>
@@ -133,14 +140,18 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('arranca en el buscador, con video y musica a elegir', (WidgetTester tester) async {
+  testWidgets('arranca con un solo campo para buscar o pegar un enlace',
+      (WidgetTester tester) async {
     await abrir(tester);
 
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Video'), findsOneWidget);
-    expect(find.text('Musica'), findsOneWidget);
-    // El titulo, el boton y la pestania comparten la palabra.
-    expect(find.text('Descargar'), findsWidgets);
+    expect(find.text('Busca o pega un enlace'), findsOneWidget);
+    expect(find.text('Pegar'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsOneWidget);
+    // Ya no hay dos modos entre los que cambiar.
+    expect(find.byTooltip('Usar una URL'), findsNothing);
+    // Musica o video se elige al descargar, con lo que se baja delante.
+    expect(find.text('Musica'), findsNothing);
   });
 
   testWidgets('una busqueda pinta los resultados', (WidgetTester tester) async {
@@ -155,7 +166,8 @@ void main() {
     expect(llamadas.any((MethodCall c) => c.method == 'buscar'), isTrue);
   });
 
-  testWidgets('elegir un resultado cambia el boton de descarga', (WidgetTester tester) async {
+  testWidgets('tocar un resultado pregunta como bajarlo y lo baja asi',
+      (WidgetTester tester) async {
     await abrir(tester);
     await tester.enterText(find.byType(TextField), 'cancion');
     await tester.testTextInput.receiveAction(TextInputAction.search);
@@ -164,7 +176,43 @@ void main() {
     await tester.tap(find.text('Cancion uno'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Descargar seleccion'), findsOneWidget);
+    // Lo que se va a bajar, delante, y las dos maneras.
+    expect(find.text('¿Como lo quieres?'), findsOneWidget);
+    expect(find.text('Cancion uno'), findsWidgets);
+    expect(find.text('Musica'), findsOneWidget);
+    expect(find.text('Video'), findsOneWidget);
+
+    await tester.tap(find.text('Musica'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Descargar musica'));
+    await tester.pump();
+    // Antes de bajar se consulta el catalogo, que es una base de datos de
+    // verdad: necesita tiempo real, no el reloj de mentira de la prueba.
+    for (int i = 0; i < 5; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pump();
+    }
+    // El vigilante del progreso pregunta cada medio segundo hasta que acaba.
+    await tester.pump(const Duration(seconds: 1));
+
+    final MethodCall descarga = llamadas.lastWhere((MethodCall c) => c.method == 'descargar');
+    expect((descarga.arguments as Map<dynamic, dynamic>)['soloAudio'], isTrue);
+  });
+
+  testWidgets('cerrar la hoja sin elegir no descarga nada', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+
+    // Tocar fuera de la hoja la cierra, como en cualquier app.
+    await tester.tapAt(const Offset(20, 20));
+    await tester.pumpAndSettle();
+
+    expect(find.text('¿Como lo quieres?'), findsNothing);
+    expect(llamadas.any((MethodCall c) => c.method == 'descargar'), isFalse);
   });
 
   testWidgets('pegar un enlace de lista en el buscador ofrece traerla entera',
@@ -178,9 +226,12 @@ void main() {
       'https://music.youtube.com/playlist?list=PLabc',
     );
     await tester.pumpAndSettle();
-    expect(find.text('Traer la lista'), findsOneWidget);
+    // Antes de pulsar ya se dice que es y que va a pasar.
+    expect(find.text('Lista de YouTube Music: veras sus pistas antes de bajarlas'),
+        findsOneWidget);
+    expect(find.text('Ver la lista'), findsOneWidget);
 
-    await tester.tap(find.text('Traer la lista'));
+    await tester.tap(find.text('Ver la lista'));
     await tester.pumpAndSettle();
     expect(find.text('Cancion uno'), findsOneWidget);
   });
@@ -188,6 +239,110 @@ void main() {
 
 
 
+
+  testWidgets('pulsar sin escribir nada dice que hacer, debajo del campo',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.tap(find.widgetWithText(BotonDegradado, 'Buscar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escribe el nombre de una cancion o pega un enlace.'), findsOneWidget);
+    expect(llamadas.any((MethodCall c) => c.method == 'buscar'), isFalse);
+  });
+
+  testWidgets('un enlace roto se avisa al pulsar y no arranca nada',
+      (WidgetTester tester) async {
+    const String aviso =
+        'Ese enlace esta incompleto. Copialo otra vez desde la app donde lo viste.';
+    await abrir(tester);
+
+    await tester.enterText(find.byType(TextField), 'https//youtube.com/watch?v=abc');
+    await tester.pumpAndSettle();
+    // Mientras se escribe no se riñe: puede que aun no este terminado.
+    expect(find.text(aviso), findsNothing);
+
+    await tester.tap(find.widgetWithText(BotonDegradado, 'Descargar'));
+    await tester.pumpAndSettle();
+    expect(find.text(aviso), findsOneWidget);
+    expect(find.text('¿Como lo quieres?'), findsNothing);
+    expect(llamadas.any((MethodCall c) => c.method == 'descargar'), isFalse);
+
+    // Y al volver a escribir se va.
+    await tester.enterText(find.byType(TextField), 'https://youtu.be/abc');
+    await tester.pumpAndSettle();
+    expect(find.text(aviso), findsNothing);
+  });
+
+  testWidgets('un enlace dice de donde es, quita las fuentes y ofrece descargar',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.enterText(find.byType(TextField), 'Mira esto https://vm.tiktok.com/ZM123/ !');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enlace de TikTok: se descarga lo que abre'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'YouTube'), findsNothing);
+    expect(find.widgetWithText(BotonDegradado, 'Descargar'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(BotonDegradado, 'Descargar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Enlace de TikTok'), findsOneWidget);
+    expect(find.text('https://vm.tiktok.com/ZM123/'), findsOneWidget,
+        reason: 'se baja el enlace, no la frase que lo acompanaba');
+  });
+
+  testWidgets('un video abierto desde una lista ofrece tambien la lista',
+      (WidgetTester tester) async {
+    await abrir(tester);
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://www.youtube.com/watch?v=abc&list=PLxyz',
+    );
+    await tester.pumpAndSettle();
+
+    // Lo que se estaba viendo es el video: eso es lo que baja el boton.
+    expect(find.widgetWithText(BotonDegradado, 'Descargar'), findsOneWidget);
+    await tester.tap(find.text('Ver la lista entera'));
+    await tester.pumpAndSettle();
+
+    final MethodCall pedida =
+        llamadas.lastWhere((MethodCall c) => c.method == 'importarLista');
+    expect((pedida.arguments as Map<dynamic, dynamic>)['url'],
+        'https://www.youtube.com/playlist?list=PLxyz');
+  });
+
+  testWidgets('el boton Pegar trae lo copiado', (WidgetTester tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (MethodCall llamada) async => llamada.method == 'Clipboard.getData'
+          ? <String, dynamic>{'text': '  https://youtu.be/abc  '}
+          : null,
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await abrir(tester);
+
+    await tester.tap(find.text('Pegar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('https://youtu.be/abc'), findsOneWidget);
+    expect(find.text('Enlace de YouTube: se descarga lo que abre'), findsOneWidget);
+  });
+
+  testWidgets('un enlace compartido abre directamente como bajarlo',
+      (WidgetTester tester) async {
+    compartida = 'https://www.instagram.com/reel/abc/';
+
+    // Sin tocar la pestania: la app abre en Inicio y tiene que ir sola.
+    await abrirInicio(tester);
+
+    expect(find.text('¿Como lo quieres?'), findsOneWidget);
+    expect(find.text('Enlace de Instagram'), findsOneWidget);
+    final NavigationBar barra = tester.widget(find.byType(NavigationBar));
+    expect(barra.selectedIndex, 1, reason: 'se queda en Descargar, donde se vera el progreso');
+  });
 
   testWidgets('una lista traida dice cuantas trae y ofrece bajarla entera',
       (WidgetTester tester) async {
@@ -197,27 +352,31 @@ void main() {
       'https://music.youtube.com/playlist?list=PLabc',
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Traer la lista'));
+    await tester.tap(find.text('Ver la lista'));
     await tester.pumpAndSettle();
 
     expect(find.text('2 pistas · Mis temas'), findsOneWidget);
-    expect(find.text('Todo en video'), findsOneWidget);
+    expect(find.text('Descargar todo'), findsOneWidget);
   });
 
-  testWidgets('en modo musica el boton del lote ofrece MP3',
+  testWidgets('bajar la lista entera pregunta como y dice cuantas son',
       (WidgetTester tester) async {
     await abrir(tester);
-    await tester.tap(find.text('Musica'));
-    await tester.pumpAndSettle();
     await tester.enterText(
       find.byType(TextField),
       'https://music.youtube.com/playlist?list=PLabc',
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Traer la lista'));
+    await tester.tap(find.text('Ver la lista'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Todo en MP3'), findsOneWidget);
+    await tester.tap(find.text('Descargar todo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargar las 2 en video'), findsOneWidget);
+
+    await tester.tap(find.text('Musica'));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargar las 2 en musica'), findsOneWidget);
   });
 
   testWidgets('los resultados de una busqueda no ofrecen descargar todo',
@@ -250,8 +409,16 @@ void main() {
   testWidgets('el panel de opciones se abre y ofrece lo del nucleo',
       (WidgetTester tester) async {
     await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.tune_rounded));
+    // Las opciones de siempre, ahora desde donde se decide como bajarlo.
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mas opciones'));
     await tester.pumpAndSettle();
 
     expect(find.text('Opciones'), findsOneWidget);
@@ -274,7 +441,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('Video'), findsOneWidget);
+    expect(find.text('Busca o pega un enlace'), findsOneWidget);
   });
 
   testWidgets('la biblioteca separa canciones, videos y listas',
@@ -475,6 +642,37 @@ void main() {
     await bajarLote(audio: true);
 
     expect(llamadas.where((MethodCall c) => c.method == 'descargar').length, 2);
+  });
+
+  test('lo elegido para descargar se recuerda al volver a abrir la app', () async {
+    final ControlDescarga control = ControlDescarga.instancia;
+    control.cambiarAjustes(
+      const Ajustes(url: '', soloAudio: true, formatoAudio: 'flac', fragmento: '1:00-2:00'),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    // Como si se cerrara la app: vuelve a lo de fabrica y se recupera.
+    control.reiniciar();
+    expect(control.ajustes.soloAudio, isFalse);
+    await control.recuperarAjustes();
+
+    expect(control.ajustes.soloAudio, isTrue);
+    expect(control.ajustes.formatoAudio, 'flac');
+    expect(control.ajustes.fragmento, isEmpty,
+        reason: 'el trozo era para un video concreto, no para todos');
+  });
+
+  test('el trozo se usa en su descarga y despues se quita', () async {
+    final ControlDescarga control = ControlDescarga.instancia;
+    control.reiniciar();
+    control.cambiarAjustes(const Ajustes(url: '', fragmento: '1:00-2:00'));
+
+    await control.iniciar('https://y/1');
+
+    final MethodCall descarga = llamadas.lastWhere((MethodCall c) => c.method == 'descargar');
+    expect((descarga.arguments as Map<dynamic, dynamic>)['fragmento'], '1:00-2:00');
+    expect(control.ajustes.fragmento, isEmpty,
+        reason: 'si no, la siguiente descarga saldria recortada sin pedirlo');
   });
 
   test('una descarga suelta si avisa por si misma', () async {
@@ -1536,6 +1734,61 @@ void main() {
     });
   });
 
+  group('que es lo escrito', () {
+    test('nada, texto o enlace', () {
+      expect(Entrada.de('   ').tipo, TipoEntrada.vacia);
+      expect(Entrada.de(' bad bunny ').tipo, TipoEntrada.busqueda);
+      expect(Entrada.de(' bad bunny ').texto, 'bad bunny');
+      expect(Entrada.de('https://www.youtube.com/watch?v=abc').tipo, TipoEntrada.enlace);
+    });
+
+    test('un enlace sin https tambien vale, si lleva ruta', () {
+      final Entrada e = Entrada.de('youtu.be/abc');
+      expect(e.tipo, TipoEntrada.enlace);
+      expect(e.url, 'https://youtu.be/abc');
+      // Sin ruta es mas probable que sea un titulo con un punto.
+      expect(Entrada.de('Mr.Brightside').tipo, TipoEntrada.busqueda);
+    });
+
+    test('del texto que acompana a un enlace se saca el enlace', () {
+      final Entrada e = Entrada.de('Mira este video: https://vm.tiktok.com/ZM123/.');
+      expect(e.tipo, TipoEntrada.enlace);
+      expect(e.url, 'https://vm.tiktok.com/ZM123/');
+      expect(e.sitio, 'TikTok');
+    });
+
+    test('lista, video dentro de lista y mezclas', () {
+      expect(Entrada.de('https://www.youtube.com/playlist?list=PL1').tipo, TipoEntrada.lista);
+      final Entrada video = Entrada.de('https://www.youtube.com/watch?v=abc&list=PL1');
+      expect(video.tipo, TipoEntrada.enlace);
+      expect(video.listaAparte, 'https://www.youtube.com/playlist?list=PL1');
+      // Las mezclas de YouTube no acaban nunca y no son la lista de nadie.
+      expect(Entrada.de('https://youtu.be/abc?list=RDabc').listaAparte, isEmpty);
+    });
+
+    test('lo que parece un enlace pero no se puede abrir', () {
+      expect(Entrada.de('https//youtube.com/watch?v=abc').tipo, TipoEntrada.enlaceRoto);
+      expect(Entrada.de('https://youtube').tipo, TipoEntrada.enlaceRoto);
+    });
+
+    test('el sitio se dice como lo diria una persona', () {
+      expect(Entrada.sitioDe('music.youtube.com'), 'YouTube Music');
+      expect(Entrada.sitioDe('m.youtube.com'), 'YouTube');
+      expect(Entrada.sitioDe('vm.tiktok.com'), 'TikTok');
+      expect(Entrada.sitioDe('www.ejemplo.pe'), 'ejemplo.pe');
+    });
+  });
+
+  test('el resumen dice que va a salir sin abrir las opciones', () {
+    const Ajustes base = Ajustes(url: '');
+    expect(resumenDescarga(base.copiar(soloAudio: true)), 'MP3 · 192 kb/s');
+    expect(resumenDescarga(base.copiar(soloAudio: true, formatoAudio: 'flac')),
+        'FLAC · sin perdida');
+    expect(resumenDescarga(base.copiar(calidad: 0)), 'MP4 · la mejor calidad');
+    expect(resumenDescarga(base.copiar(calidad: 1080, fragmento: '1:00-2:00')),
+        'MP4 · hasta 1080p · solo un trozo');
+  });
+
   test('la velocidad pasa por todos sus valores y vuelve al principio', () {
     final List<double> vistas = <double>[];
     double actual = EstadoReproductor.velocidades.first;
@@ -1832,9 +2085,9 @@ void main() {
     await tester.tap(find.text('Cancion uno'));
     await tester.pumpAndSettle();
 
-    // No se selecciona para bajarla suelta: se pide su lista de pistas.
+    // No se baja de una pieza: se piden sus pistas.
     expect(llamadas.any((MethodCall c) => c.method == 'importarLista'), isTrue);
-    expect(find.text('Descargar seleccion'), findsNothing);
+    expect(find.text('¿Como lo quieres?'), findsNothing);
   });
 
   // --- El color sale de la portada ----------------------------------------

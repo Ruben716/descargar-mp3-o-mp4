@@ -1,18 +1,25 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import 'cargando.dart';
 import 'control_descarga.dart';
+import 'entrada.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
-import 'hoja_ajustes.dart';
-import 'cargando.dart';
+import 'hoja_descarga.dart';
 import 'nucleo.dart';
 import 'pantalla_previa.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
-/// Pantalla principal: buscar o pegar una URL, ajustar y descargar.
+/// Pantalla principal: un solo campo para buscar o pegar un enlace.
+///
+/// Sigue el patron de la barra del navegador: la app decide por lo escrito si
+/// es una busqueda o un enlace, y lo dice debajo del campo antes de pulsar
+/// nada. Como bajarlo (musica o video) se pregunta justo al descargar, con lo
+/// que se va a bajar delante, en vez de estar fijo arriba de la pantalla.
 class PantallaDescarga extends StatefulWidget {
   const PantallaDescarga({super.key});
 
@@ -20,14 +27,13 @@ class PantallaDescarga extends StatefulWidget {
   State<PantallaDescarga> createState() => PantallaDescargaState();
 }
 
-class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingObserver {
-  final TextEditingController _entrada = TextEditingController();
+class PantallaDescargaState extends State<PantallaDescarga> {
+  final TextEditingController _campo = TextEditingController();
+  final FocusNode _foco = FocusNode();
   final ControlDescarga _control = ControlDescarga.instancia;
   final EstadoReproductor _reproductor = EstadoReproductor.instancia;
 
-  bool _buscando = true;
   List<Resultado> _resultados = <Resultado>[];
-  Resultado? _elegido;
   bool _buscandoAhora = false;
   bool _importada = false;
   String _nombreLista = '';
@@ -35,13 +41,24 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   bool _fallo = false;
   Fuente _fuente = Fuente.youtube;
 
+  /// Lo que esta mal de lo escrito, debajo del campo.
+  ///
+  /// Solo aparece al pulsar el boton y se va al volver a escribir: avisar
+  /// mientras aun se esta tecleando es reganar por algo a medio hacer.
+  String? _errorCampo;
+
+  Entrada get _entrada => Entrada.de(_campo.text);
+
+  bool get _ocupado => _control.activa || _buscandoAhora;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _control.addListener(_refrescar);
     _reproductor.addListener(_vigilarReproductor);
-    _recogerCompartido();
+    Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
+    // Si la pantalla nace precisamente porque se compartio algo, ya esta ahi.
+    _alRecibirEnlace();
   }
 
   void _refrescar() {
@@ -61,37 +78,74 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     );
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _recogerCompartido();
+  /// Se atiende tras pintar: la hoja necesita la pantalla ya construida, y asi
+  /// el salto de pestania se ve antes de que suba.
+  void _alRecibirEnlace() {
+    if (Nucleo.enlaceCompartido.value == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _atenderCompartido());
   }
 
-  /// Un enlace compartido desde YouTube llega con la app ya abierta.
-  Future<void> _recogerCompartido() async {
-    final String? enlace = await Nucleo.urlCompartida();
-    if (enlace == null || enlace.isEmpty || !mounted) return;
-    setState(() {
-      _buscando = false;
-      _entrada.text = enlace;
-      _elegido = null;
-      _resultados = <Resultado>[];
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Enlace recibido desde otra app'),
-        behavior: SnackBarBehavior.floating,
-      ),
+  /// Un enlace compartido desde otra app va directo a como bajarlo.
+  ///
+  /// Quien comparte a la app ya dijo lo que quiere: hacerle pulsar ademas
+  /// «Descargar» seria un paso de mas.
+  Future<void> _atenderCompartido() async {
+    final String? enlace = Nucleo.enlaceCompartido.value;
+    if (enlace == null || !mounted) return;
+    Nucleo.enlaceCompartido.value = null;
+    _poner(enlace);
+    final Entrada e = _entrada;
+    if (e.tipo == TipoEntrada.enlace) await _descargarEnlace(e);
+    if (e.tipo == TipoEntrada.lista) await _importarLista(e.url);
+  }
+
+  /// Deja un texto en el campo como si se hubiera escrito.
+  void _poner(String texto) {
+    _campo.value = TextEditingValue(
+      text: texto,
+      selection: TextSelection.collapsed(offset: texto.length),
     );
+    setState(() => _errorCampo = null);
   }
 
-  Future<void> _buscar() async {
-    final String texto = _texto;
-    if (texto.isEmpty) return;
-    // Buscar un enlace no tiene sentido; se hace lo que el enlace pide.
-    if (_esEnlace) {
-      await _accionPrincipal();
+  /// Pega lo copiado. Solo se lee el portapapeles al pulsar: leerlo solo, al
+  /// abrir la app, seria mirar lo que el usuario copio sin que lo pidiera.
+  Future<void> _pegar() async {
+    final ClipboardData? datos = await Clipboard.getData(Clipboard.kTextPlain);
+    final String texto = datos?.text?.trim() ?? '';
+    if (!mounted) return;
+    if (texto.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay nada copiado. Copia el enlace en su app y vuelve.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return;
     }
+    _poner(texto);
+  }
+
+  /// Lo que hace el boton grande, segun lo escrito.
+  Future<void> _continuar() async {
+    final Entrada e = _entrada;
+    switch (e.tipo) {
+      case TipoEntrada.vacia:
+        setState(() => _errorCampo = 'Escribe el nombre de una cancion o pega un enlace.');
+        _foco.requestFocus();
+      case TipoEntrada.enlaceRoto:
+        setState(() => _errorCampo =
+            'Ese enlace esta incompleto. Copialo otra vez desde la app donde lo viste.');
+      case TipoEntrada.busqueda:
+        await _buscar(e.texto);
+      case TipoEntrada.lista:
+        await _importarLista(e.url);
+      case TipoEntrada.enlace:
+        await _descargarEnlace(e);
+    }
+  }
+
+  Future<void> _buscar(String texto) async {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     setState(() {
@@ -101,14 +155,14 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final List<Resultado> encontrados =
-          await Nucleo.buscar(texto, fuente: _fuente.clave);
+      final List<Resultado> encontrados = await Nucleo.buscar(texto, fuente: _fuente.clave);
       if (!mounted) return;
       setState(() {
         _resultados = encontrados;
         _importada = false;
         if (encontrados.isEmpty) {
-          _aviso = 'Sin resultados.';
+          _aviso = 'Nada para «$texto» en ${_fuente.etiqueta}. '
+              'Prueba con menos palabras o busca en otra fuente.';
           _fallo = true;
         }
       });
@@ -124,21 +178,48 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     }
   }
 
-  Future<void> _descargar() async {
-    final String url = _elegido?.url ?? _entrada.text.trim();
-    if (url.isEmpty) {
-      setState(() {
-        _aviso = 'Elige un resultado o pega una URL.';
-        _fallo = true;
-      });
-      return;
-    }
+  /// Pregunta como bajarlo y, si se confirma, lo baja.
+  Future<void> _descargar(String url, QueSeDescarga que) async {
     FocusScope.of(context).unfocus();
+    final Ajustes? elegidos =
+        await preguntarComoDescargar(context, que: que, ajustes: _control.ajustes);
+    if (elegidos == null || !mounted) return;
+    _control.cambiarAjustes(elegidos);
     setState(() {
       _aviso = '';
       _fallo = false;
     });
     await _control.iniciar(url);
+  }
+
+  Future<void> _descargarEnlace(Entrada e) => _descargar(
+        e.url,
+        QueSeDescarga(titulo: 'Enlace de ${e.sitio}', subtitulo: e.url),
+      );
+
+  Future<void> _descargarResultado(Resultado r) => _descargar(
+        r.url,
+        QueSeDescarga(titulo: r.titulo, subtitulo: r.autor, miniatura: r.miniatura),
+      );
+
+  /// Baja la lista entera. Al terminar se recrea en la app con su nombre.
+  Future<void> _descargarTodo() async {
+    final Ajustes? elegidos = await preguntarComoDescargar(
+      context,
+      que: QueSeDescarga(
+        titulo: _nombreLista.isEmpty ? 'La lista entera' : _nombreLista,
+        subtitulo: '${_resultados.length} pistas',
+        miniatura: _resultados.first.miniatura,
+        cantidad: _resultados.length,
+      ),
+      ajustes: _control.ajustes,
+    );
+    if (elegidos == null || !mounted) return;
+    _control.cambiarAjustes(elegidos);
+    await _control.iniciarVarios(
+      _resultados.map((Resultado r) => r.url).toList(),
+      nombreLista: _nombreLista,
+    );
   }
 
   /// Abre la vista previa, que reproduce el video de verdad.
@@ -155,51 +236,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     );
   }
 
-  Future<void> _abrirAjustes() async {
-    final Ajustes? nuevos = await showModalBottomSheet<Ajustes>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Tema.superficie,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (_) => HojaAjustes(inicial: _control.ajustes),
-    );
-    if (nuevos != null) _control.cambiarAjustes(nuevos);
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _control.removeListener(_refrescar);
-    _reproductor.removeListener(_vigilarReproductor);
-    _entrada.dispose();
-    super.dispose();
-  }
-
-  bool get _ocupado => _control.activa || _buscandoAhora;
-
-  String get _texto => _entrada.text.trim();
-
-  bool get _esEnlace => _texto.startsWith('http');
-
-  /// Un enlace de lista se reconoce por llevar list= o /playlist.
-  ///
-  /// A proposito no mira en que modo estamos: pegar el enlace en el buscador
-  /// es lo natural, y obligar a cambiar antes de modo no hay quien lo adivine.
-  bool get _esLista =>
-      _esEnlace && (_texto.contains('list=') || _texto.contains('/playlist'));
-
-  Future<void> _descargarTodo() async {
-    final List<String> urls = _resultados.map((Resultado r) => r.url).toList();
-    // Al bajarla entera se recrea la lista en la app con ese mismo nombre.
-    await _control.iniciarVarios(urls, nombreLista: _nombreLista);
-  }
-
-  /// Lo que hace el boton grande segun lo que haya escrito.
-  Future<void> _accionPrincipal() => _esLista ? _importarLista() : _descargar();
-
-  Future<void> _importarLista({String? url}) async {
+  Future<void> _importarLista(String url) async {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     setState(() {
@@ -209,7 +246,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
       _resultados = <Resultado>[];
     });
     try {
-      final ListaTraida lista = await Nucleo.importarLista(url ?? _texto);
+      final ListaTraida lista = await Nucleo.importarLista(url);
       if (!mounted) return;
       setState(() {
         _resultados = lista.pistas;
@@ -233,20 +270,30 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 
   @override
+  void dispose() {
+    Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
+    _control.removeListener(_refrescar);
+    _reproductor.removeListener(_vigilarReproductor);
+    _campo.dispose();
+    _foco.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final Entrada e = _entrada;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              _buscador(),
-              if (_buscando) _fuentes(),
-              const SizedBox(height: 10),
-              _controles(),
-              const SizedBox(height: 10),
+              _campoEntrada(e),
+              const SizedBox(height: 6),
+              _queVaAPasar(e),
+              const SizedBox(height: 12),
               if (_control.activa)
                 _TarjetaProgreso(
                   porcentaje: _control.porcentaje,
@@ -258,13 +305,17 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
                 )
               else
                 BotonDegradado(
-                  texto: _esLista
-                      ? 'Traer la lista'
-                      : (_elegido == null ? 'Descargar' : 'Descargar seleccion'),
-                  icono: _esLista
-                      ? Icons.playlist_add_rounded
-                      : Icons.arrow_downward_rounded,
-                  alPulsar: _ocupado ? null : _accionPrincipal,
+                  texto: switch (e.tipo) {
+                    TipoEntrada.lista => 'Ver la lista',
+                    TipoEntrada.enlace || TipoEntrada.enlaceRoto => 'Descargar',
+                    TipoEntrada.vacia || TipoEntrada.busqueda => 'Buscar',
+                  },
+                  icono: switch (e.tipo) {
+                    TipoEntrada.lista => Icons.queue_music_rounded,
+                    TipoEntrada.enlace || TipoEntrada.enlaceRoto => Icons.arrow_downward_rounded,
+                    TipoEntrada.vacia || TipoEntrada.busqueda => Icons.search_rounded,
+                  },
+                  alPulsar: _ocupado ? null : _continuar,
                 ),
             ],
           ),
@@ -275,117 +326,99 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
     );
   }
 
-  /// De donde se busca. Solo aparece buscando por nombre: con una URL
-  /// pegada la fuente la decide el propio enlace.
+  Widget _campoEntrada(Entrada e) {
+    return TextField(
+      controller: _campo,
+      focusNode: _foco,
+      textInputAction: e.esEnlace ? TextInputAction.go : TextInputAction.search,
+      onSubmitted: _ocupado ? null : (_) => _continuar(),
+      onChanged: (_) => setState(() => _errorCampo = null),
+      decoration: InputDecoration(
+        hintText: 'Busca o pega un enlace',
+        errorText: _errorCampo,
+        errorMaxLines: 2,
+        prefixIcon: Icon(e.esEnlace ? Icons.link_rounded : Icons.search_rounded),
+        suffixIcon: _campo.text.isEmpty
+            // Con el campo vacio, lo mas probable es venir con un enlace copiado.
+            ? Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: TextButton.icon(
+                  onPressed: _ocupado ? null : _pegar,
+                  icon: const Icon(Icons.content_paste_rounded, size: 18),
+                  label: const Text('Pegar'),
+                ),
+              )
+            : IconButton(
+                tooltip: 'Borrar',
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: () => _poner(''),
+              ),
+      ),
+    );
+  }
+
+  /// Dice que va a pasar con lo escrito antes de pulsar nada.
+  ///
+  /// Era lo que faltaba: no se sabia si lo escrito se iba a buscar o a
+  /// descargar hasta pulsar el boton y ver que salia.
+  Widget _queVaAPasar(Entrada e) {
+    return switch (e.tipo) {
+      TipoEntrada.enlace => _Pista(
+          icono: Icons.link_rounded,
+          texto: 'Enlace de ${e.sitio}: se descarga lo que abre',
+          accion: e.listaAparte.isEmpty
+              ? null
+              : TextButton(
+                  onPressed: _ocupado ? null : () => _importarLista(e.listaAparte),
+                  child: const Text('Ver la lista entera'),
+                ),
+        ),
+      TipoEntrada.lista => _Pista(
+          icono: Icons.queue_music_rounded,
+          texto: 'Lista de ${e.sitio}: veras sus pistas antes de bajarlas',
+        ),
+      // Lo que sale mal se dice al pulsar, debajo del campo; aqui no se adelanta.
+      TipoEntrada.enlaceRoto => const SizedBox.shrink(),
+      TipoEntrada.vacia || TipoEntrada.busqueda => _fuentes(),
+    };
+  }
+
+  /// Donde se busca. Solo tiene sentido buscando: un enlace ya dice de donde es.
   Widget _fuentes() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Wrap(
-        spacing: 8,
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
         children: <Widget>[
+          const Text('Buscar en', style: TextStyle(color: Colors.white54, fontSize: 12)),
+          const SizedBox(width: 8),
           for (final Fuente f in Fuente.values)
-            ChoiceChip(
-              selected: _fuente == f,
-              label: Text(f.etiqueta, style: const TextStyle(fontSize: 12)),
-              tooltip: f.pista,
-              selectedColor: Tema.acento.withValues(alpha: 0.25),
-              backgroundColor: Tema.superficie,
-              onSelected: _ocupado
-                  ? null
-                  : (_) => setState(() {
-                        _fuente = f;
-                        // Lo encontrado en otra fuente ya no viene al caso.
-                        _elegido = null;
-                        _importada = false;
-                        _resultados = <Resultado>[];
-                      }),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                selected: _fuente == f,
+                label: Text(f.etiqueta, style: const TextStyle(fontSize: 12)),
+                tooltip: f.pista,
+                selectedColor: Tema.acento.withValues(alpha: 0.25),
+                backgroundColor: Tema.superficie,
+                onSelected: _ocupado
+                    ? null
+                    : (_) => setState(() {
+                          _fuente = f;
+                          // Lo encontrado en otra fuente ya no viene al caso.
+                          _importada = false;
+                          _resultados = <Resultado>[];
+                        }),
+              ),
             ),
         ],
       ),
     );
   }
 
-  Widget _buscador() {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: TextField(
-            controller: _entrada,
-            textInputAction: _buscando ? TextInputAction.search : TextInputAction.done,
-            onSubmitted: _ocupado
-                ? null
-                // Un enlace nunca se busca: se descarga o se trae entero.
-                : (_) => (_buscando && !_esEnlace) ? _buscar() : _accionPrincipal(),
-            decoration: InputDecoration(
-              hintText: _buscando ? 'Busca una cancion o video' : 'Pega la URL',
-              prefixIcon: Icon(_buscando ? Icons.search_rounded : Icons.link_rounded),
-              suffixIcon: _entrada.text.isEmpty
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 20),
-                      onPressed: () => setState(_entrada.clear),
-                    ),
-            ),
-            onChanged: (_) => setState(() {}),
-          ),
-        ),
-        const SizedBox(width: 10),
-        // Alternar entre buscar por nombre y pegar un enlace.
-        IconButton.filledTonal(
-          onPressed: _ocupado
-              ? null
-              : () => setState(() {
-                    _buscando = !_buscando;
-                    _elegido = null;
-                    _resultados = <Resultado>[];
-                  }),
-          tooltip: _buscando ? 'Usar una URL' : 'Buscar por nombre',
-          icon: Icon(_buscando ? Icons.link_rounded : Icons.search_rounded),
-        ),
-      ],
-    );
-  }
-
-  Widget _controles() {
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: SegmentedButton<bool>(
-            showSelectedIcon: false,
-            style: const ButtonStyle(visualDensity: VisualDensity.compact),
-            segments: const <ButtonSegment<bool>>[
-              ButtonSegment<bool>(
-                value: false,
-                label: Text('Video'),
-                icon: Icon(Icons.movie_outlined, size: 18),
-              ),
-              ButtonSegment<bool>(
-                value: true,
-                label: Text('Musica'),
-                icon: Icon(Icons.music_note_outlined, size: 18),
-              ),
-            ],
-            selected: <bool>{_control.ajustes.soloAudio},
-            onSelectionChanged: _ocupado
-                ? null
-                : (Set<bool> e) =>
-                    _control.cambiarAjustes(_control.ajustes.copiar(soloAudio: e.first)),
-          ),
-        ),
-        const SizedBox(width: 10),
-        IconButton.filledTonal(
-          onPressed: _ocupado ? null : _abrirAjustes,
-          tooltip: 'Opciones',
-          icon: const Icon(Icons.tune_rounded),
-        ),
-      ],
-    );
-  }
-
   Widget _cuerpo() {
     if (_buscandoAhora) {
       return CargandoMusica(
-        texto: _esLista ? 'Trayendo la lista...' : 'Buscando...',
+        texto: _entrada.tipo == TipoEntrada.busqueda ? 'Buscando...' : 'Trayendo la lista...',
       );
     }
     final String mensaje = _aviso.isNotEmpty ? _aviso : _control.mensaje;
@@ -397,9 +430,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         detalle: _aviso.isNotEmpty ? const <String>[] : _control.detalle,
       );
     }
-    if (_resultados.isEmpty) {
-      return _Vacio(buscando: _buscando);
-    }
+    if (_resultados.isEmpty) return const _Vacio();
     return Column(
       children: <Widget>[
         if (_importada) _barraLista(),
@@ -423,9 +454,7 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
           FilledButton.icon(
             onPressed: _ocupado ? null : _descargarTodo,
             icon: const Icon(Icons.download_for_offline_rounded, size: 18),
-            label: Text(
-              _control.ajustes.soloAudio ? 'Todo en MP3' : 'Todo en video',
-            ),
+            label: const Text('Descargar todo'),
           ),
         ],
       ),
@@ -433,6 +462,8 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 
   Widget _lista() {
+    // Un resultado del Archive es un concierto entero: se abre, no se baja.
+    final bool sonGrabaciones = _fuente.daListas && !_importada;
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       itemCount: _resultados.length,
@@ -440,10 +471,10 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
         final Resultado r = _resultados[i];
         return _TarjetaResultado(
           resultado: r,
-          marcado: identical(r, _elegido),
-          alPulsar: () => _fuente.daListas && !_importada
-              ? _importarLista(url: r.url)
-              : setState(() => _elegido = identical(r, _elegido) ? null : r),
+          esGrabacion: sonGrabaciones,
+          alPulsar: _ocupado
+              ? null
+              : () => sonGrabaciones ? _importarLista(r.url) : _descargarResultado(r),
           alEscuchar: () => _escuchar(r),
         );
       },
@@ -451,101 +482,122 @@ class PantallaDescargaState extends State<PantallaDescarga> with WidgetsBindingO
   }
 }
 
+/// Una linea con lo que va a pasar, y a veces algo mas que se puede hacer.
+class _Pista extends StatelessWidget {
+  const _Pista({required this.icono, required this.texto, this.accion});
+
+  final IconData icono;
+  final String texto;
+  final Widget? accion;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        Icon(icono, size: 16, color: Tema.acento),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(texto, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+        ),
+        ?accion,
+      ],
+    );
+  }
+}
+
 class _TarjetaResultado extends StatelessWidget {
   const _TarjetaResultado({
     required this.resultado,
-    required this.marcado,
+    required this.esGrabacion,
     required this.alPulsar,
     required this.alEscuchar,
   });
 
   final Resultado resultado;
-  final bool marcado;
-  final VoidCallback alPulsar;
+
+  /// Si al tocarlo se abren sus pistas en vez de bajarse de una pieza.
+  final bool esGrabacion;
+  final VoidCallback? alPulsar;
   final VoidCallback alEscuchar;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        decoration: BoxDecoration(
-          color: marcado ? Tema.acento.withValues(alpha: 0.16) : Tema.superficie,
+      child: Material(
+        color: Tema.superficie,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: marcado ? Tema.acento : Colors.transparent, width: 1.5),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            onTap: alPulsar,
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Row(
-                children: <Widget>[
-                  Stack(
-                    alignment: Alignment.center,
+          onTap: alPulsar,
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              children: <Widget>[
+                Stack(
+                  children: <Widget>[
+                    PortadaRemota(url: resultado.miniatura),
+                    Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          formatoTiempo(resultado.duracion),
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      PortadaRemota(url: resultado.miniatura),
-                      if (marcado)
-                        const DecoratedBox(
-                          decoration: BoxDecoration(color: Colors.black54),
-                          child: SizedBox(
-                            width: 128,
-                            height: 74,
-                            child: Icon(Icons.check_circle_rounded, color: Tema.acento, size: 34),
-                          ),
-                        ),
-                      Positioned(
-                        right: 4,
-                        bottom: 4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.black87,
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: Text(
-                            formatoTiempo(resultado.duracion),
-                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-                          ),
-                        ),
+                      Text(
+                        resultado.titulo,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        esGrabacion
+                            ? 'Grabacion completa · toca para ver sus pistas'
+                            : resultado.autor,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white54, fontSize: 12),
                       ),
                     ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          resultado.titulo,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(fontSize: 14),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          resultado.autor,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white54, fontSize: 12),
-                        ),
-                      ],
-                    ),
+                ),
+                IconButton(
+                  tooltip: 'Escuchar sin descargar',
+                  onPressed: alEscuchar,
+                  icon: const Icon(
+                    Icons.play_circle_outline_rounded,
+                    size: 30,
+                    color: Colors.white60,
                   ),
-                  IconButton(
-                    tooltip: 'Escuchar sin descargar',
-                    onPressed: alEscuchar,
-                    icon: const Icon(
-                      Icons.play_circle_outline_rounded,
-                      size: 32,
-                      color: Colors.white60,
-                    ),
+                ),
+                // Lo mismo que tocar la tarjeta, pero a la vista: sin el no se
+                // adivinaba que tocarla era la forma de bajarla.
+                IconButton(
+                  tooltip: esGrabacion ? 'Ver sus pistas' : 'Descargar',
+                  onPressed: alPulsar,
+                  icon: Icon(
+                    esGrabacion ? Icons.chevron_right_rounded : Icons.download_rounded,
+                    size: 26,
+                    color: Tema.acento,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -672,33 +724,56 @@ class _AvisoState extends State<_Aviso> {
 }
 
 class _Vacio extends StatelessWidget {
-  const _Vacio({required this.buscando});
-
-  final bool buscando;
+  const _Vacio();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            Icon(
-              buscando ? Icons.travel_explore_rounded : Icons.content_paste_rounded,
-              size: 56,
-              color: Colors.white24,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              buscando
-                  ? 'Busca por nombre y escucha\nantes de descargar.'
-                  : 'Pega una URL, o compartela\ndesde YouTube.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white54, height: 1.5),
-            ),
-          ],
-        ),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(28, 12, 28, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Icon(Icons.travel_explore_rounded, size: 48, color: Colors.white24),
+          const SizedBox(height: 14),
+          Text('Dos formas de encontrar algo', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 14),
+          const _Forma(
+            icono: Icons.search_rounded,
+            texto: 'Escribe una cancion, un artista o un video, y elige donde buscar.',
+          ),
+          const _Forma(
+            icono: Icons.link_rounded,
+            texto: 'Pega un enlace de YouTube, TikTok, Instagram, SoundCloud...',
+          ),
+          const _Forma(
+            icono: Icons.share_rounded,
+            texto: 'O desde su app: Compartir y elige Tumbao. Se abre listo para bajar.',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Forma extends StatelessWidget {
+  const _Forma({required this.icono, required this.texto});
+
+  final IconData icono;
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(icono, size: 20, color: Colors.white38),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(texto, style: const TextStyle(color: Colors.white54, height: 1.4)),
+          ),
+        ],
       ),
     );
   }

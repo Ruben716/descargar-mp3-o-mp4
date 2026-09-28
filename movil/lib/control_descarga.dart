@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalogo.dart';
 import 'listas.dart';
@@ -68,6 +70,65 @@ class ControlDescarga extends ChangeNotifier {
   void cambiarAjustes(Ajustes nuevos) {
     ajustes = nuevos;
     notifyListeners();
+    unawaited(_guardarAjustes());
+  }
+
+  @visibleForTesting
+  static const String claveAjustes = 'ajustes_descarga_v1';
+
+  /// Guarda como se bajo lo ultimo, para no tener que elegirlo cada vez.
+  ///
+  /// El trozo a recortar no: vale para un video concreto, y recordarlo
+  /// cortaria sin avisar lo siguiente que se bajara.
+  Future<void> _guardarAjustes() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.setString(
+        claveAjustes,
+        jsonEncode(<String, dynamic>{
+          'soloAudio': ajustes.soloAudio,
+          'calidad': ajustes.calidad,
+          'formatoAudio': ajustes.formatoAudio,
+          'bitrate': ajustes.bitrate,
+          'subtitulos': ajustes.subtitulos,
+          'sinPatrocinios': ajustes.sinPatrocinios,
+          'normalizar': ajustes.normalizar,
+          'etiquetasLimpias': ajustes.etiquetasLimpias,
+          'portadaOficial': ajustes.portadaOficial,
+        }),
+      );
+    } catch (_) {
+      // Quedarse sin recordarlo no puede impedir descargar.
+    }
+  }
+
+  /// Lo elegido la ultima vez, al abrir la app.
+  ///
+  /// Antes se perdia al cerrarla: cada vez volvia a Video a 720p, aunque la
+  /// hoja de descarga diga que recuerda lo elegido.
+  Future<void> recuperarAjustes() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      final String? crudo = memoria.getString(claveAjustes);
+      if (crudo == null) return;
+      final Map<String, dynamic> d = jsonDecode(crudo) as Map<String, dynamic>;
+      const Ajustes base = Ajustes(url: '');
+      ajustes = Ajustes(
+        url: '',
+        soloAudio: d['soloAudio'] as bool? ?? base.soloAudio,
+        calidad: (d['calidad'] as num?)?.toInt() ?? base.calidad,
+        formatoAudio: d['formatoAudio'] as String? ?? base.formatoAudio,
+        bitrate: d['bitrate'] as String? ?? base.bitrate,
+        subtitulos: d['subtitulos'] as String? ?? base.subtitulos,
+        sinPatrocinios: d['sinPatrocinios'] as bool? ?? base.sinPatrocinios,
+        normalizar: d['normalizar'] as bool? ?? base.normalizar,
+        etiquetasLimpias: d['etiquetasLimpias'] as bool? ?? base.etiquetasLimpias,
+        portadaOficial: d['portadaOficial'] as bool? ?? base.portadaOficial,
+      );
+      notifyListeners();
+    } catch (_) {
+      // Un ajuste guardado que ya no se entiende: se sigue con los de fabrica.
+    }
   }
 
   void limpiarMensaje() {
@@ -183,6 +244,9 @@ class ControlDescarga extends ChangeNotifier {
       }
       _resumen(correctas, fallidas, reutilizadas, ultimoError);
     } finally {
+      // El trozo era para lo que se acaba de bajar. Si se quedara puesto, lo
+      // siguiente tambien saldria recortado sin que nadie lo pidiera.
+      if (ajustes.fragmento.isNotEmpty) ajustes = ajustes.copiar(fragmento: '');
       _reloj?.cancel();
       _activa = false;
       _cancelado = false;

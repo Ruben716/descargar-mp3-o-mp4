@@ -24,6 +24,8 @@ Future<void> main() async {
   );
   Nucleo.escucharVentanaFlotante();
   EstadoReproductor.instancia.recuperarEcualizador();
+  // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
+  unawaited(ControlDescarga.instancia.recuperarAjustes());
   // Sin esperarla: deja la cola como estaba, parada, mientras la app abre.
   unawaited(EstadoReproductor.instancia.restaurarSesion());
   runApp(const AplicacionTumbao());
@@ -50,7 +52,7 @@ class Inicio extends StatefulWidget {
   State<Inicio> createState() => _InicioState();
 }
 
-class _InicioState extends State<Inicio> {
+class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   final GlobalKey<PantallaInicioState> _inicio = GlobalKey<PantallaInicioState>();
   final GlobalKey<PantallaBibliotecaState> _biblioteca = GlobalKey<PantallaBibliotecaState>();
   int _pestana = 0;
@@ -64,6 +66,27 @@ class _InicioState extends State<Inicio> {
       _biblioteca.currentState?.recargar();
       _inicio.currentState?.recargar();
     };
+    // Lo compartido desde otra app lleva a Descargar, este donde este.
+    WidgetsBinding.instance.addObserver(this);
+    Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
+    Nucleo.recogerCompartido();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Con la app ya abierta, lo compartido llega al volver a primer plano.
+    if (state == AppLifecycleState.resumed) Nucleo.recogerCompartido();
+  }
+
+  void _alRecibirEnlace() {
+    if (Nucleo.enlaceCompartido.value != null && mounted) _irA(1);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
+    super.dispose();
   }
 
   /// Las pestanias ya abiertas alguna vez.
