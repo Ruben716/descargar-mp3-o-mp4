@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'calidad.dart';
+
 /// Registro de lo ya descargado, en SQLite.
 ///
 /// Sirve para no bajar dos veces la misma pista: si una lista trae algo que ya
@@ -15,9 +17,10 @@ class Catalogo {
   static const String _tabla = 'descargas';
   static const String _tablaLetras = 'letras';
   static const String _tablaEscuchas = 'escuchas';
+  static const String _tablaCalidades = 'calidades';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 4;
+  static const int _version = 5;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -56,10 +59,25 @@ class Catalogo {
     )
   ''';
 
+  /// De que calidad llego cada descarga, para poder decirlo sin inventar.
+  ///
+  /// Va por URI y no por enlace: lo que se ensenia es la cancion que hay en
+  /// el telefono, venga de YouTube, de SoundCloud o del Archive.
+  static const String _esquemaCalidades = '''
+    CREATE TABLE calidades (
+      uri TEXT PRIMARY KEY,
+      codec TEXT NOT NULL,
+      kbps REAL,
+      hz INTEGER,
+      fecha INTEGER NOT NULL
+    )
+  ''';
+
   static Future<void> _crear(Database bd) async {
     await bd.execute(_esquema);
     await bd.execute(_esquemaLetras);
     await bd.execute(_esquemaEscuchas);
+    await bd.execute(_esquemaCalidades);
   }
 
   static Future<void> _migrar(Database bd, int desde, int hasta) async {
@@ -81,6 +99,40 @@ class Catalogo {
       // para que se vuelvan a buscar bien; volver a bajarlas es barato.
       await bd.delete(_tablaLetras);
     }
+    if (desde < 5) await bd.execute(_esquemaCalidades);
+  }
+
+  /// Apunta de que calidad llego una descarga.
+  Future<void> anotarCalidad(String uri, CalidadAudio calidad) async {
+    if (uri.isEmpty) return;
+    await (await _abierta).insert(
+      _tablaCalidades,
+      <String, Object?>{
+        'uri': uri,
+        'codec': calidad.codec,
+        'kbps': calidad.kbps,
+        'hz': calidad.hz,
+        'fecha': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// La calidad de origen de una cancion, o null si se bajo antes de saberla.
+  Future<CalidadAudio?> calidadDe(String uri) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaCalidades,
+      where: 'uri = ?',
+      whereArgs: <Object>[uri],
+      limit: 1,
+    );
+    if (filas.isEmpty) return null;
+    final Map<String, Object?> f = filas.first;
+    return CalidadAudio(
+      codec: f['codec']! as String,
+      kbps: (f['kbps'] as num?)?.toDouble(),
+      hz: (f['hz'] as num?)?.toInt(),
+    );
   }
 
   /// Se guarda la apertura, no la base ya abierta.
@@ -162,6 +214,7 @@ class Catalogo {
     await bd.delete(_tabla, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaLetras, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaEscuchas, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaCalidades, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
   Future<int> cuantas() async {

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/main.dart';
+import 'package:descargador_movil/busqueda.dart';
+import 'package:descargador_movil/calidad.dart';
 import 'package:descargador_movil/catalogo.dart';
 import 'package:descargador_movil/control_descarga.dart';
 import 'package:descargador_movil/ecualizador.dart';
@@ -58,6 +60,14 @@ void main() {
   Future<void>? frenoBiblioteca;
   /// Lo que otra app le comparte a esta al abrirla.
   String? compartida;
+  /// Lo que responde cada fuente al buscar. Las que no esten, nada.
+  ///
+  /// Buscando en todas a la vez se pregunta a cada una: si todas devolvieran
+  /// lo mismo, cada cancion saldria tres veces.
+  Map<String, String> respuestas = <String, String>{};
+  /// Lo que responde la comprobacion de calidad, por enlace. Por defecto, lo
+  /// que da YouTube de verdad: Opus a 127 kb/s.
+  Map<String, String> calidades = <String, String>{};
   /// Lo mismo con las caratulas, que es donde espera la cancion que va a sonar.
   Future<void>? frenoCaratula;
 
@@ -74,6 +84,9 @@ void main() {
     frenoBiblioteca = null;
     compartida = null;
     Nucleo.enlaceCompartido.value = null;
+    respuestas = <String, String>{'youtube': _busqueda};
+    calidades = <String, String>{};
+    PantallaDescargaState.olvidarBusquedas();
     frenoCaratula = null;
     SharedPreferences.setMockInitialValues(<String, Object>{});
     // El reproductor y la descarga son unicos para toda la app: sin esto
@@ -96,7 +109,10 @@ void main() {
       return switch (llamada.method) {
         'urlCompartida' => compartida,
         'biblioteca' => biblioteca,
-        'buscar' => _busqueda,
+        'buscar' => respuestas[(llamada.arguments as Map<dynamic, dynamic>)['fuente']] ??
+            '{"ok":true,"resultados":[]}',
+        'calidad' => calidades[(llamada.arguments as Map<dynamic, dynamic>)['url']] ??
+            '{"ok":true,"codec":"opus","kbps":127.0,"hz":48000,"sinPerdida":false}',
         'importarLista' =>
           '{"ok":true,"titulo":"Mis temas","resultados":'
               '${_busqueda.substring(_busqueda.indexOf('['), _busqueda.length - 1)}}',
@@ -118,8 +134,17 @@ void main() {
         .setMockMethodCallHandler(_canal, null);
   });
 
+  /// La pantalla del telefono de verdad (1080x2400), no la de 800x600 de
+  /// las pruebas: en esa, lo que va debajo ni se llega a construir.
+  void comoElTelefono(WidgetTester tester) {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.75;
+    addTearDown(tester.view.reset);
+  }
+
   /// Abre la app y salta a Descargar, que ya no es la primera pestania.
   Future<void> abrir(WidgetTester tester) async {
+    comoElTelefono(tester);
     await tester.pumpWidget(const AplicacionTumbao());
     await tester.pumpAndSettle();
     await tester.tap(find.text('Descargar').last);
@@ -128,12 +153,14 @@ void main() {
 
   /// Abre la app y se queda en Inicio.
   Future<void> abrirInicio(WidgetTester tester) async {
+    comoElTelefono(tester);
     await tester.pumpWidget(const AplicacionTumbao());
     await tester.pumpAndSettle();
   }
 
   /// Abre la app y salta a Biblioteca.
   Future<void> abrirBiblioteca(WidgetTester tester) async {
+    comoElTelefono(tester);
     await tester.pumpWidget(const AplicacionTumbao());
     await tester.pumpAndSettle();
     await tester.tap(find.text('Biblioteca').last);
@@ -344,6 +371,15 @@ void main() {
     expect(barra.selectedIndex, 1, reason: 'se queda en Descargar, donde se vera el progreso');
   });
 
+  testWidgets('un nombre compartido se busca directamente', (WidgetTester tester) async {
+    compartida = 'cancion';
+
+    await abrirInicio(tester);
+
+    expect(find.text('Cancion uno'), findsOneWidget);
+    expect(llamadas.any((MethodCall c) => c.method == 'buscar'), isTrue);
+  });
+
   testWidgets('una lista traida dice cuantas trae y ofrece bajarla entera',
       (WidgetTester tester) async {
     await abrir(tester);
@@ -372,11 +408,12 @@ void main() {
 
     await tester.tap(find.text('Descargar todo'));
     await tester.pumpAndSettle();
-    expect(find.text('Descargar las 2 en video'), findsOneWidget);
-
-    await tester.tap(find.text('Musica'));
-    await tester.pumpAndSettle();
+    // La primera vez, musica: es una app para escuchar.
     expect(find.text('Descargar las 2 en musica'), findsOneWidget);
+
+    await tester.tap(find.text('Video'));
+    await tester.pumpAndSettle();
+    expect(find.text('Descargar las 2 en video'), findsOneWidget);
   });
 
   testWidgets('los resultados de una busqueda no ofrecen descargar todo',
@@ -487,6 +524,7 @@ void main() {
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.textContaining('Listas ('));
     await tester.tap(find.textContaining('Listas ('));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Nueva lista'));
@@ -504,6 +542,7 @@ void main() {
     await abrir(tester);
     await tester.tap(find.text('Biblioteca'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.textContaining('Listas ('));
     await tester.tap(find.textContaining('Listas ('));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Nueva lista'));
@@ -647,17 +686,17 @@ void main() {
   test('lo elegido para descargar se recuerda al volver a abrir la app', () async {
     final ControlDescarga control = ControlDescarga.instancia;
     control.cambiarAjustes(
-      const Ajustes(url: '', soloAudio: true, formatoAudio: 'flac', fragmento: '1:00-2:00'),
+      const Ajustes(url: '', calidad: 1080, fragmento: '1:00-2:00'),
     );
     await Future<void>.delayed(Duration.zero);
 
     // Como si se cerrara la app: vuelve a lo de fabrica y se recupera.
     control.reiniciar();
-    expect(control.ajustes.soloAudio, isFalse);
+    expect(control.ajustes.soloAudio, isTrue, reason: 'de fabrica es musica');
     await control.recuperarAjustes();
 
-    expect(control.ajustes.soloAudio, isTrue);
-    expect(control.ajustes.formatoAudio, 'flac');
+    expect(control.ajustes.soloAudio, isFalse, reason: 'pero se eligio video');
+    expect(control.ajustes.calidad, 1080);
     expect(control.ajustes.fragmento, isEmpty,
         reason: 'el trozo era para un video concreto, no para todos');
   });
@@ -987,15 +1026,16 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      // Salta tres versiones de una vez, que es lo que le pasa a quien no
+      // Salta cuatro versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 4);
+      expect(await nueva.getVersion(), 5);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
       // Y las tablas nuevas ya estan, listas para usarse.
       expect(await nueva.query('letras'), isEmpty);
       expect(await nueva.query('escuchas'), isEmpty);
+      expect(await nueva.query('calidades'), isEmpty);
     } finally {
       await nueva.close();
       await temporal.delete(recursive: true);
@@ -1131,7 +1171,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 4);
+      expect(await nueva.getVersion(), 5);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
@@ -1734,6 +1774,59 @@ void main() {
     });
   });
 
+  group('calidad de origen', () {
+    test('la etiqueta dice lo que llego, no en que se guardo', () {
+      expect(const CalidadAudio(codec: 'opus', kbps: 127, hz: 48000).etiqueta, 'Opus 127 kb/s');
+      expect(const CalidadAudio(codec: 'aac', kbps: 160).etiqueta, 'AAC 160 kb/s');
+      expect(const CalidadAudio(codec: 'flac').etiqueta, 'FLAC · sin perdida');
+      expect(const CalidadAudio(codec: 'flac', hz: 96000).etiqueta, 'FLAC · sin perdida · 96 kHz');
+    });
+
+    test('los niveles separan lo que se midio', () {
+      expect(const CalidadAudio(codec: 'flac', hz: 96000).nivel, NivelCalidad.hiRes);
+      expect(const CalidadAudio(codec: 'flac', hz: 44100).nivel, NivelCalidad.sinPerdida);
+      expect(const CalidadAudio(codec: 'aac', kbps: 160).nivel, NivelCalidad.alta);
+      expect(const CalidadAudio(codec: 'opus', kbps: 127).nivel, NivelCalidad.buena);
+      expect(const CalidadAudio(codec: 'mp3', kbps: 64).nivel, NivelCalidad.basica);
+    });
+
+    test('sin perdida gana siempre; entre comprimidos, el bitrate', () {
+      const CalidadAudio youtube = CalidadAudio(codec: 'opus', kbps: 127);
+      const CalidadAudio soundcloud = CalidadAudio(codec: 'aac', kbps: 160);
+      const CalidadAudio archive = CalidadAudio(codec: 'flac');
+      expect(soundcloud.mejorQue(youtube), isTrue);
+      expect(archive.mejorQue(soundcloud), isTrue);
+      expect(youtube.mejorQue(soundcloud), isFalse);
+    });
+
+    test('el consejo de formato no deja inflar ni desperdiciar', () {
+      const CalidadAudio comprimido = CalidadAudio(codec: 'opus', kbps: 127);
+      const CalidadAudio entero = CalidadAudio(codec: 'flac');
+      expect(consejoDeFormato(comprimido, 'flac'), contains('sonara igual'));
+      expect(consejoDeFormato(comprimido, 'mp3'), isNull);
+      expect(consejoDeFormato(entero, 'mp3'), contains('FLAC'));
+      expect(consejoDeFormato(entero, 'flac'), isNull);
+    });
+  });
+
+  group('es la misma cancion', () {
+    test('con las palabras buscadas en el titulo o el autor', () {
+      expect(pareceLaMisma('armin sarabande',
+          titulo: 'Sarabande (feat. Anna Timofei)', autor: 'Armin van Buuren'), isTrue);
+      expect(pareceLaMisma('armin sarabande', titulo: 'Blah Blah Blah', autor: 'Armin'), isFalse);
+    });
+
+    test('un remix o un directo no es la cancion, salvo que se pida', () {
+      expect(pareceLaMisma('sarabande', titulo: 'Sarabande (Deka Remix)'), isFalse);
+      expect(pareceLaMisma('sarabande', titulo: 'Sarabande - Live at Tomorrowland'), isFalse);
+      expect(pareceLaMisma('sarabande remix', titulo: 'Sarabande (Deka Remix)'), isTrue);
+    });
+
+    test('las tildes y las mayusculas no cuentan', () {
+      expect(pareceLaMisma('corazon partio', titulo: 'CORAZÓN PARTÍO'), isTrue);
+    });
+  });
+
   group('que es lo escrito', () {
     test('nada, texto o enlace', () {
       expect(Entrada.de('   ').tipo, TipoEntrada.vacia);
@@ -1930,6 +2023,7 @@ void main() {
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.textContaining('Videos ('));
     await tester.tap(find.textContaining('Videos ('));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
@@ -2031,6 +2125,8 @@ void main() {
   testWidgets('la fuente elegida viaja al nucleo', (WidgetTester tester) async {
     await abrir(tester);
 
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'SoundCloud'));
+
     await tester.tap(find.widgetWithText(ChoiceChip, 'SoundCloud'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'algo');
@@ -2041,14 +2137,117 @@ void main() {
     expect(envio.arguments['fuente'], 'soundcloud');
   });
 
-  testWidgets('por defecto se busca en YouTube', (WidgetTester tester) async {
+  testWidgets('por defecto se busca en todas a la vez', (WidgetTester tester) async {
     await abrir(tester);
     await tester.enterText(find.byType(TextField).first, 'algo');
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
 
-    final MethodCall envio = llamadas.lastWhere((MethodCall c) => c.method == 'buscar');
-    expect(envio.arguments['fuente'], 'youtube');
+    final Set<Object?> donde = llamadas
+        .where((MethodCall c) => c.method == 'buscar')
+        .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
+        .toSet();
+    expect(donde, <String>{'youtube', 'soundcloud', 'archive'});
+  });
+
+  testWidgets('en todas, cada resultado va bajo su fuente y se marca la mejor calidad',
+      (WidgetTester tester) async {
+    // Lo que se midio de verdad: YouTube da Opus a 127 y SoundCloud, cuando
+    // no lleva DRM, AAC a 160. La mejor tiene que ser la de SoundCloud.
+    respuestas['soundcloud'] = '{"ok":true,"resultados":['
+        '{"titulo":"Cancion uno","autor":"Grupo","duracion":180,'
+        '"url":"https://soundcloud.com/grupo/cancion-uno","miniatura":""}]}';
+    calidades['https://soundcloud.com/grupo/cancion-uno'] =
+        '{"ok":true,"codec":"aac","kbps":160.0,"hz":44100,"sinPerdida":false}';
+    await abrir(tester);
+
+    await tester.enterText(find.byType(TextField), 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('YOUTUBE'), findsOneWidget);
+    expect(find.text('SOUNDCLOUD'), findsOneWidget);
+    expect(find.text('Mejor calidad encontrada'), findsOneWidget);
+    expect(find.text('«Cancion uno»'), findsOneWidget, reason: 'dice que cancion es');
+    expect(find.text('En SoundCloud  '), findsOneWidget);
+    expect(find.text('AAC 160 kb/s'), findsWidgets);
+    expect(find.text('Opus 127 kb/s'), findsOneWidget);
+  });
+
+  testWidgets('lo que tiene DRM se dice antes de intentarlo y no se recomienda',
+      (WidgetTester tester) async {
+    respuestas['soundcloud'] = '{"ok":true,"resultados":['
+        '{"titulo":"Cancion uno","autor":"Sello","duracion":180,'
+        '"url":"https://soundcloud.com/sello/cancion-uno","miniatura":""}]}';
+    calidades['https://soundcloud.com/sello/cancion-uno'] =
+        '{"ok":false,"error":"Esa pista esta protegida por su sello y no se puede descargar."}';
+    comoElTelefono(tester);
+    await abrir(tester);
+
+    await tester.enterText(find.byType(TextField), 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    await tester.dragUntilVisible(
+      find.text('Protegida: no se puede bajar'),
+      find.byType(ListView),
+      const Offset(0, -200),
+    );
+    expect(find.text('Protegida: no se puede bajar'), findsOneWidget);
+    // La mejor es la que si se puede bajar, aunque sea de menos bitrate.
+    expect(find.text('En YouTube  '), findsOneWidget);
+  });
+
+  testWidgets('una fuente que no responde no tapa lo que dieron las demas',
+      (WidgetTester tester) async {
+    respuestas['soundcloud'] = '{"ok":false,"error":"sin conexion"}';
+    await abrir(tester);
+
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancion uno'), findsOneWidget);
+    expect(find.text('SoundCloud no respondio: sin conexion'), findsOneWidget);
+  });
+
+  testWidgets('repetir una busqueda no vuelve a preguntar', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'otra cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    final int antes = llamadas.where((MethodCall c) => c.method == 'buscar').length;
+
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(llamadas.where((MethodCall c) => c.method == 'buscar').length, antes);
+  });
+
+  testWidgets('la hoja dice con que calidad llega y aconseja el formato',
+      (WidgetTester tester) async {
+    comoElTelefono(tester);
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancion uno'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Llega en  '), findsOneWidget);
+
+    // Pedir FLAC de algo que llego comprimido no lo mejora: se avisa.
+    await tester.tap(find.text('Mas opciones'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('FLAC'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Aplicar'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('sonara igual'), findsOneWidget);
+
+    await tester.tap(find.text('Usar MP3'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('sonara igual'), findsNothing);
   });
 
   testWidgets('cambiar de fuente limpia lo encontrado en la anterior',
@@ -2058,6 +2257,8 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.search);
     await tester.pumpAndSettle();
     expect(find.text('Cancion uno'), findsOneWidget);
+
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Archive'));
 
     await tester.tap(find.widgetWithText(ChoiceChip, 'Archive'));
     await tester.pumpAndSettle();
@@ -2075,7 +2276,9 @@ void main() {
 
   testWidgets('tocar un concierto del Archive trae sus pistas',
       (WidgetTester tester) async {
+    respuestas['archive'] = _busqueda;
     await abrir(tester);
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Archive'));
     await tester.tap(find.widgetWithText(ChoiceChip, 'Archive'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField).first, 'grateful dead');

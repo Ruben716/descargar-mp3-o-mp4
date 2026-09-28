@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'busqueda.dart';
+import 'calidad.dart';
 import 'cargando.dart';
 import 'control_descarga.dart';
 import 'entrada.dart';
@@ -39,7 +41,49 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   String _nombreLista = '';
   String _aviso = '';
   bool _fallo = false;
-  Fuente _fuente = Fuente.youtube;
+  Fuente _fuente = Fuente.todas;
+
+  /// Lo que se busco la ultima vez, para saber que resultados son la cancion.
+  String _buscado = '';
+
+  /// Fuentes a las que aun se esta preguntando.
+  final Set<Fuente> _pendientes = <Fuente>{};
+
+  /// Las que no respondieron, con el porque.
+  final Map<Fuente, String> _sinRespuesta = <Fuente, String>{};
+
+  /// Cada busqueda nueva deja atras lo que aun llegara de la anterior: sin
+  /// esto, una respuesta lenta de antes se colaba entre los resultados nuevos.
+  int _busqueda = 0;
+
+  /// Lo ya buscado en esta sesion. Repetir una busqueda es instantaneo.
+  static final Map<String, List<Resultado>> _recuerdo = <String, List<Resultado>>{};
+
+  /// Lo que se sabe de cada resultado tras comprobarlo, por enlace.
+  ///
+  /// Sobrevive a la busqueda: si el mismo tema vuelve a salir, ya se sabe.
+  static final Map<String, _Comprobacion> _comprobadas = <String, _Comprobacion>{};
+
+  /// Cuantos resultados se comprueban de cada fuente, empezando por arriba.
+  ///
+  /// De YouTube basta uno: su calidad es siempre la misma (medido, Opus a
+  /// unos 127 kb/s) y solo hace falta saber que se deja bajar. En SoundCloud
+  /// se miran mas, porque lo de los sellos grandes viene con DRM y no se puede
+  /// bajar, y lo que no lo lleva llega a AAC 160 kb/s, mejor que YouTube.
+  static const Map<Fuente, int> _aComprobar = <Fuente, int>{
+    Fuente.youtube: 1,
+    Fuente.soundcloud: 3,
+  };
+
+  /// Para las pruebas: lo recordado de una no puede decidir la siguiente.
+  @visibleForTesting
+  static void olvidarBusquedas() {
+    _recuerdo.clear();
+    _comprobadas.clear();
+  }
+
+  /// El Archive solo devuelve grabaciones con FLAC: su calidad ya se sabe.
+  static const CalidadAudio _flac = CalidadAudio(codec: 'flac');
 
   /// Lo que esta mal de lo escrito, debajo del campo.
   ///
@@ -59,6 +103,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     // Si la pantalla nace precisamente porque se compartio algo, ya esta ahi.
     _alRecibirEnlace();
+    // Quien abre Descargar va a buscar: se carga el motor mientras escribe.
+    unawaited(Nucleo.precalentar());
   }
 
   void _refrescar() {
@@ -97,6 +143,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     final Entrada e = _entrada;
     if (e.tipo == TipoEntrada.enlace) await _descargarEnlace(e);
     if (e.tipo == TipoEntrada.lista) await _importarLista(e.url);
+    // Un nombre compartido (desde las notas, un chat...) se busca sin mas.
+    if (e.tipo == TipoEntrada.busqueda) await _buscar(e.texto);
   }
 
   /// Deja un texto en el campo como si se hubiera escrito.
@@ -145,37 +193,115 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     }
   }
 
+  /// Busca en una fuente o en todas a la vez.
+  ///
+  /// Con todas, se pregunta a cada una en paralelo y se ensenia lo que llega
+  /// segun llega: la espera es la de la mas lenta, no la suma, y lo primero
+  /// aparece en cuanto responde la mas rapida.
   Future<void> _buscar(String texto) async {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
+    final int esta = ++_busqueda;
+    final List<Fuente> donde = _fuente == Fuente.todas ? Fuente.reales : <Fuente>[_fuente];
     setState(() {
-      _buscandoAhora = true;
+      _buscado = texto;
       _aviso = '';
       _fallo = false;
+      _importada = false;
       _resultados = <Resultado>[];
+      _sinRespuesta.clear();
+      _pendientes
+        ..clear()
+        ..addAll(donde);
     });
+    await Future.wait(donde.map((Fuente f) => _buscarEn(f, texto, esta)));
+    if (!mounted || esta != _busqueda || _resultados.isNotEmpty) return;
+    setState(() {
+      _fallo = true;
+      _aviso = _sinRespuesta.length == donde.length
+          ? _sinRespuesta.values.first
+          : _fuente == Fuente.todas
+              ? 'Nada para «$texto» en ninguna fuente. Prueba con menos palabras.'
+              : 'Nada para «$texto» en ${_fuente.etiqueta}. '
+                  'Prueba con menos palabras o busca en todas.';
+    });
+  }
+
+  Future<void> _buscarEn(Fuente f, String texto, int esta) async {
+    final String clave = '${f.clave}|${texto.toLowerCase()}';
     try {
-      final List<Resultado> encontrados = await Nucleo.buscar(texto, fuente: _fuente.clave);
-      if (!mounted) return;
+      final List<Resultado> encontrados = _recuerdo[clave] ??
+          (await Nucleo.buscar(texto, fuente: f.clave))
+              .map((Resultado r) => r.deFuente(f))
+              .toList();
+      _recuerdo[clave] = encontrados;
+      if (!mounted || esta != _busqueda) return;
       setState(() {
-        _resultados = encontrados;
-        _importada = false;
-        if (encontrados.isEmpty) {
-          _aviso = 'Nada para «$texto» en ${_fuente.etiqueta}. '
-              'Prueba con menos palabras o busca en otra fuente.';
-          _fallo = true;
-        }
+        // Cada fuente en su sitio y siempre en el mismo orden: lo que llega
+        // despues no empuja lo que ya se estaba leyendo.
+        _resultados = <Resultado>[
+          for (final Fuente g in Fuente.reales)
+            ...(g == f ? encontrados : _resultados.where((Resultado r) => r.fuente == g)),
+        ];
       });
+      _comprobar(f, encontrados, texto);
     } catch (error) {
-      if (mounted) {
-        setState(() {
-          _aviso = '$error';
-          _fallo = true;
-        });
+      if (mounted && esta == _busqueda) {
+        setState(() => _sinRespuesta[f] = error is ErrorNucleo ? error.mensaje : '$error');
       }
     } finally {
-      if (mounted) setState(() => _buscandoAhora = false);
+      if (mounted && esta == _busqueda) setState(() => _pendientes.remove(f));
     }
+  }
+
+  /// Comprueba de verdad los mejores candidatos, sin bajarlos.
+  ///
+  /// Pregunta por cada uno lo mismo que preguntaria la descarga: que audio
+  /// llegaria y si se deja bajar. Asi la «mejor calidad» no es una suposicion
+  /// por la fuente, y lo que tiene DRM se sabe antes de intentarlo.
+  void _comprobar(Fuente f, List<Resultado> encontrados, String texto) {
+    final int cuantos = _aComprobar[f] ?? 0;
+    final Iterable<Resultado> candidatos = encontrados
+        .where((Resultado r) => pareceLaMisma(texto, titulo: r.titulo, autor: r.autor))
+        .take(cuantos);
+    for (final Resultado r in candidatos) {
+      if (_comprobadas.containsKey(r.url)) continue;
+      _comprobadas[r.url] = const _Comprobacion.enCurso();
+      Nucleo.calidad(r.url).then(
+        (CalidadAudio c) => _comprobado(r.url, _Comprobacion.hecha(c)),
+        onError: (Object e) =>
+            _comprobado(r.url, _Comprobacion.fallida(e is ErrorNucleo ? e.mensaje : '$e')),
+      );
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _comprobado(String url, _Comprobacion resultado) {
+    _comprobadas[url] = resultado;
+    if (mounted) setState(() {});
+  }
+
+  /// La calidad que se sabe de un resultado, comprobada o conocida de antes.
+  CalidadAudio? _calidadDe(Resultado r) =>
+      r.fuente == Fuente.archive ? _flac : _comprobadas[r.url]?.calidad;
+
+  /// El resultado comprobado con mejor calidad que sea la cancion buscada.
+  ///
+  /// Los conciertos del Archive quedan fuera: son sin perdida, pero son un
+  /// concierto entero, no la cancion que se busco.
+  Resultado? get _mejor {
+    Resultado? mejor;
+    CalidadAudio? suya;
+    for (final Resultado r in _resultados) {
+      if (r.fuente == Fuente.archive) continue;
+      final CalidadAudio? c = _comprobadas[r.url]?.calidad;
+      if (c == null || !pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor)) continue;
+      if (suya == null || c.mejorQue(suya)) {
+        mejor = r;
+        suya = c;
+      }
+    }
+    return mejor;
   }
 
   /// Pregunta como bajarlo y, si se confirma, lo baja.
@@ -199,7 +325,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
 
   Future<void> _descargarResultado(Resultado r) => _descargar(
         r.url,
-        QueSeDescarga(titulo: r.titulo, subtitulo: r.autor, miniatura: r.miniatura),
+        QueSeDescarga(
+          titulo: r.titulo,
+          subtitulo: r.autor,
+          miniatura: r.miniatura,
+          origen: _calidadDe(r),
+        ),
       );
 
   /// Baja la lista entera. Al terminar se recrea en la app con su nombre.
@@ -236,7 +367,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     );
   }
 
-  Future<void> _importarLista(String url) async {
+  /// Trae las pistas de una lista. [fuente] marca de donde son, si se sabe.
+  Future<void> _importarLista(String url, {Fuente? fuente}) async {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     setState(() {
@@ -249,7 +381,9 @@ class PantallaDescargaState extends State<PantallaDescarga> {
       final ListaTraida lista = await Nucleo.importarLista(url);
       if (!mounted) return;
       setState(() {
-        _resultados = lista.pistas;
+        _resultados = fuente == null
+            ? lista.pistas
+            : lista.pistas.map((Resultado r) => r.deFuente(fuente)).toList();
         _importada = lista.pistas.isNotEmpty;
         _nombreLista = lista.titulo;
         if (lista.pistas.isEmpty) {
@@ -384,18 +518,23 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   }
 
   /// Donde se busca. Solo tiene sentido buscando: un enlace ya dice de donde es.
+  ///
+  /// Compactas y sin la marca de elegida (ya lo dice el color): con «Todas»
+  /// son cuatro, y en un telefono normal la ultima quedaba fuera de la vista.
+  /// Se deja el desplazamiento por si la letra del sistema es grande.
   Widget _fuentes() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
         children: <Widget>[
-          const Text('Buscar en', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          const SizedBox(width: 8),
           for (final Fuente f in Fuente.values)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 6),
               child: ChoiceChip(
                 selected: _fuente == f,
+                showCheckmark: false,
+                visualDensity: VisualDensity.compact,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 6),
                 label: Text(f.etiqueta, style: const TextStyle(fontSize: 12)),
                 tooltip: f.pista,
                 selectedColor: Tema.acento.withValues(alpha: 0.25),
@@ -404,7 +543,11 @@ class PantallaDescargaState extends State<PantallaDescarga> {
                     ? null
                     : (_) => setState(() {
                           _fuente = f;
-                          // Lo encontrado en otra fuente ya no viene al caso.
+                          // Lo encontrado en otra fuente ya no viene al caso,
+                          // ni lo que aun este por llegar de ella.
+                          _busqueda++;
+                          _pendientes.clear();
+                          _sinRespuesta.clear();
                           _importada = false;
                           _resultados = <Resultado>[];
                         }),
@@ -416,10 +559,10 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   }
 
   Widget _cuerpo() {
-    if (_buscandoAhora) {
-      return CargandoMusica(
-        texto: _entrada.tipo == TipoEntrada.busqueda ? 'Buscando...' : 'Trayendo la lista...',
-      );
+    if (_buscandoAhora) return const CargandoMusica(texto: 'Trayendo la lista...');
+    // Mientras no llegue nada se espera; en cuanto llega algo, se ensenia.
+    if (_pendientes.isNotEmpty && _resultados.isEmpty) {
+      return CargandoMusica(texto: 'Buscando en ${_nombres(_pendientes)}...');
     }
     final String mensaje = _aviso.isNotEmpty ? _aviso : _control.mensaje;
     final bool fallo = _aviso.isNotEmpty ? _fallo : _control.fallo;
@@ -461,25 +604,188 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     );
   }
 
+  static String _nombres(Iterable<Fuente> fuentes) {
+    final List<String> n = fuentes.map((Fuente f) => f.etiqueta).toList();
+    return n.length <= 1 ? n.join() : '${n.sublist(0, n.length - 1).join(', ')} y ${n.last}';
+  }
+
   Widget _lista() {
-    // Un resultado del Archive es un concierto entero: se abre, no se baja.
-    final bool sonGrabaciones = _fuente.daListas && !_importada;
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      itemCount: _resultados.length,
-      itemBuilder: (BuildContext context, int i) {
-        final Resultado r = _resultados[i];
-        return _TarjetaResultado(
-          resultado: r,
-          esGrabacion: sonGrabaciones,
-          alPulsar: _ocupado
-              ? null
-              : () => sonGrabaciones ? _importarLista(r.url) : _descargarResultado(r),
-          alEscuchar: () => _escuchar(r),
-        );
-      },
+    final Resultado? mejor = _importada ? null : _mejor;
+    final bool variasFuentes = _fuente == Fuente.todas && !_importada;
+    final List<Widget> filas = <Widget>[
+      if (mejor != null)
+        _MejorOpcion(
+          titulo: mejor.titulo,
+          fuente: mejor.fuente?.etiqueta ?? '',
+          calidad: _calidadDe(mejor)!,
+          alPulsar: _ocupado ? null : () => _descargarResultado(mejor),
+        ),
+      if (_pendientes.isNotEmpty)
+        _Nota(icono: Icons.hourglass_top_rounded, texto: 'Aun buscando en ${_nombres(_pendientes)}...'),
+      for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
+        _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
+    ];
+    Fuente? anterior;
+    for (final Resultado r in _resultados) {
+      // Un resultado del Archive es un concierto entero: se abre, no se baja.
+      final bool esGrabacion = (r.fuente ?? _fuente).daListas && !_importada;
+      if (variasFuentes && r.fuente != anterior) {
+        filas.add(_Seccion(texto: r.fuente?.etiqueta ?? ''));
+        anterior = r.fuente;
+      }
+      filas.add(_TarjetaResultado(
+        resultado: r,
+        esGrabacion: esGrabacion,
+        esLaMejor: identical(r, mejor),
+        calidad: _calidadDe(r),
+        comprobacion: _comprobadas[r.url],
+        alPulsar: _ocupado
+            ? null
+            : () => esGrabacion
+                ? _importarLista(r.url, fuente: r.fuente)
+                : _descargarResultado(r),
+        alEscuchar: () => _escuchar(r),
+      ));
+    }
+    return ListView(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: filas);
+  }
+}
+
+/// Lo que se sabe de un resultado tras comprobarlo.
+class _Comprobacion {
+  const _Comprobacion.enCurso()
+      : calidad = null,
+        error = null,
+        enCurso = true;
+  const _Comprobacion.hecha(CalidadAudio this.calidad)
+      : error = null,
+        enCurso = false;
+  const _Comprobacion.fallida(String this.error)
+      : calidad = null,
+        enCurso = false;
+
+  final CalidadAudio? calidad;
+  final String? error;
+  final bool enCurso;
+}
+
+/// Arriba de todo, la mejor opcion encontrada: un toque y a descargar.
+class _MejorOpcion extends StatelessWidget {
+  const _MejorOpcion({
+    required this.titulo,
+    required this.fuente,
+    required this.calidad,
+    required this.alPulsar,
+  });
+
+  /// Que cancion es: sin el, habia que bajar hasta su fuente para saberlo.
+  final String titulo;
+  final String fuente;
+  final CalidadAudio calidad;
+  final VoidCallback? alPulsar;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Tema.acento.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: alPulsar,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: Row(
+              children: <Widget>[
+                const Icon(Icons.workspace_premium_rounded, color: Tema.acento),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Text(
+                        'Mejor calidad encontrada',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '«$titulo»',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      // Wrap y no Row: con un sello largo, en un telefono
+                      // estrecho, pasa a la linea de abajo en vez de salirse.
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        runSpacing: 4,
+                        children: <Widget>[
+                          Text('En $fuente  ',
+                              style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                          SelloCalidad(calidad: calidad),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.download_rounded, color: Tema.acento),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
+}
+
+/// El nombre de la fuente encima de sus resultados, buscando en todas.
+class _Seccion extends StatelessWidget {
+  const _Seccion({required this.texto});
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+        child: Text(
+          texto.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.1,
+            color: Colors.white54,
+          ),
+        ),
+      );
+}
+
+/// Una linea pequena de aviso entre los resultados.
+class _Nota extends StatelessWidget {
+  const _Nota({required this.icono, required this.texto});
+
+  final IconData icono;
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+        child: Row(
+          children: <Widget>[
+            Icon(icono, size: 14, color: Colors.white38),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                texto,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 /// Una linea con lo que va a pasar, y a veces algo mas que se puede hacer.
@@ -511,6 +817,9 @@ class _TarjetaResultado extends StatelessWidget {
     required this.esGrabacion,
     required this.alPulsar,
     required this.alEscuchar,
+    this.esLaMejor = false,
+    this.calidad,
+    this.comprobacion,
   });
 
   final Resultado resultado;
@@ -519,14 +828,54 @@ class _TarjetaResultado extends StatelessWidget {
   final bool esGrabacion;
   final VoidCallback? alPulsar;
   final VoidCallback alEscuchar;
+  final bool esLaMejor;
+
+  /// Lo que se sabe de su calidad, comprobado o conocido de antemano.
+  final CalidadAudio? calidad;
+  final _Comprobacion? comprobacion;
+
+  /// Lo que se sabe de el, en una linea bajo el autor.
+  Widget? _estado() {
+    final _Comprobacion? c = comprobacion;
+    if (c != null && c.enCurso) {
+      return const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
+          SizedBox(width: 6),
+          Text('comprobando calidad', style: TextStyle(color: Colors.white38, fontSize: 10)),
+        ],
+      );
+    }
+    if (c?.error != null) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const Icon(Icons.block_rounded, size: 12, color: Color(0xFFFF6B81)),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              c!.error!.toLowerCase().contains('protegida') ? 'Protegida: no se puede bajar' : 'No se puede bajar',
+              style: const TextStyle(color: Color(0xFFFF6B81), fontSize: 10),
+            ),
+          ),
+        ],
+      );
+    }
+    final CalidadAudio? q = calidad;
+    return q == null ? null : SelloCalidad(calidad: q);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
-        color: Tema.superficie,
-        borderRadius: BorderRadius.circular(20),
+        color: esLaMejor ? Tema.acento.withValues(alpha: 0.10) : Tema.superficie,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: esLaMejor ? const BorderSide(color: Tema.acento, width: 1.2) : BorderSide.none,
+        ),
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
           onTap: alPulsar,
@@ -536,7 +885,9 @@ class _TarjetaResultado extends StatelessWidget {
               children: <Widget>[
                 Stack(
                   children: <Widget>[
-                    PortadaRemota(url: resultado.miniatura),
+                    // Algo menor que la de siempre: con los dos botones, el
+                    // titulo se quedaba en un hilo en un telefono normal.
+                    PortadaRemota(url: resultado.miniatura, ancho: 104, alto: 60),
                     Positioned(
                       right: 4,
                       bottom: 4,
@@ -574,11 +925,16 @@ class _TarjetaResultado extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white54, fontSize: 12),
                       ),
+                      if (_estado() case final Widget estado) ...<Widget>[
+                        const SizedBox(height: 6),
+                        estado,
+                      ],
                     ],
                   ),
                 ),
                 IconButton(
                   tooltip: 'Escuchar sin descargar',
+                  visualDensity: VisualDensity.compact,
                   onPressed: alEscuchar,
                   icon: const Icon(
                     Icons.play_circle_outline_rounded,
@@ -590,6 +946,7 @@ class _TarjetaResultado extends StatelessWidget {
                 // adivinaba que tocarla era la forma de bajarla.
                 IconButton(
                   tooltip: esGrabacion ? 'Ver sus pistas' : 'Descargar',
+                  visualDensity: VisualDensity.compact,
                   onPressed: alPulsar,
                   icon: Icon(
                     esGrabacion ? Icons.chevron_right_rounded : Icons.download_rounded,

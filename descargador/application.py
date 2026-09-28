@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from .domain import (
+    AudioQuality,
     DownloadError,
     DownloadOptions,
     DownloadRequest,
@@ -12,6 +13,18 @@ from .domain import (
     VideoDownloader,
     VideoInfo,
 )
+
+
+class CheckQuality:
+    """Qué audio llegaría de un enlace y si se puede bajar, sin bajarlo."""
+
+    def __init__(self, downloader: VideoDownloader):
+        self.downloader = downloader
+
+    def execute(self, url: str) -> AudioQuality:
+        # Como música: es la calidad del audio lo que se quiere saber.
+        request = DownloadRequest(url, Path("."), DownloadOptions(audio_only=True))
+        return self.downloader.quality(request)
 
 
 class DownloadVideo:

@@ -130,12 +130,19 @@ class BotonDegradado extends StatelessWidget {
                 children: <Widget>[
                   Icon(icono, color: Colors.black87),
                   const SizedBox(width: 10),
-                  Text(
-                    texto,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 16,
+                  // Flexible: con la letra grande del sistema o un texto
+                  // largo («Descargar las 12 en musica») se recorta en vez de
+                  // salirse del boton.
+                  Flexible(
+                    child: Text(
+                      texto,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
                 ],

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'calidad.dart';
 import 'catalogo.dart';
 import 'listas.dart';
 import 'nucleo.dart';
@@ -18,7 +19,13 @@ class ControlDescarga extends ChangeNotifier {
 
   static final ControlDescarga instancia = ControlDescarga._();
 
-  Ajustes ajustes = const Ajustes(url: '');
+  /// Como se baja la primera vez, antes de haber elegido nada.
+  ///
+  /// Musica y no video: es una app para escuchar, y quien quiere el video lo
+  /// elige una vez y ya se recuerda.
+  static const Ajustes deFabrica = Ajustes(url: '', soloAudio: true);
+
+  Ajustes ajustes = deFabrica;
 
   bool _activa = false;
   bool get activa => _activa;
@@ -112,7 +119,7 @@ class ControlDescarga extends ChangeNotifier {
       final String? crudo = memoria.getString(claveAjustes);
       if (crudo == null) return;
       final Map<String, dynamic> d = jsonDecode(crudo) as Map<String, dynamic>;
-      const Ajustes base = Ajustes(url: '');
+      const Ajustes base = deFabrica;
       ajustes = Ajustes(
         url: '',
         soloAudio: d['soloAudio'] as bool? ?? base.soloAudio,
@@ -153,7 +160,7 @@ class ControlDescarga extends ChangeNotifier {
     _total = 0;
     _cancelado = false;
     _listaCreada = '';
-    ajustes = const Ajustes(url: '');
+    ajustes = deFabrica;
     notifyListeners();
   }
 
@@ -213,11 +220,15 @@ class ControlDescarga extends ChangeNotifier {
             continue;
           }
           // En un lote no avisa cada pista: al final se manda uno solo.
-          final List<String> nuevos =
+          final ({List<String> archivos, CalidadAudio? origen}) bajada =
               await Nucleo.descargar(ajustes.copiar(url: url), avisar: !esLote);
+          final List<String> nuevos = bajada.archivos;
           guardados.addAll(nuevos);
           for (final String uri in nuevos) {
             await Catalogo.instancia.registrar(url, audio: ajustes.soloAudio, uri: uri);
+            // Para poder decir despues, sin inventar, de donde salio el sonido.
+            final CalidadAudio? origen = bajada.origen;
+            if (origen != null) await Catalogo.instancia.anotarCalidad(uri, origen);
           }
           correctas++;
           alTerminar?.call();

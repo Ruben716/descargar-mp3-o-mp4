@@ -28,6 +28,9 @@ FUENTES_DE_LISTAS = ("archive",)
 #: entrega opus y aac, así que con esos destinos puede no reconvertir.
 FORMATOS_SIN_NORMALIZAR = ("best", "opus", "m4a", "aac")
 
+#: Códecs que guardan el audio entero, sin tirar nada al comprimir.
+CODECS_SIN_PERDIDA = ("flac", "alac", "wav", "pcm", "aiff")
+
 #: Categorías de SponsorBlock que se eliminan con --sin-patrocinios.
 SPONSOR_CATEGORIES = ("sponsor", "selfpromo", "interaction")
 
@@ -225,8 +228,33 @@ class Playlist:
 
 
 @dataclass(frozen=True)
+class AudioQuality:
+    """La calidad real del audio en su origen, antes de convertirlo a nada.
+
+    Es el techo de cualquier descarga: pasar a FLAC un Opus de 128 kb/s no le
+    devuelve lo que se perdió al comprimirlo, solo ocupa cinco veces más. Por
+    eso lo que se enseña y se compara es esto, no el formato del archivo final.
+    """
+
+    codec: str
+    kbps: float | None = None
+    hz: int | None = None
+
+    @property
+    def lossless(self) -> bool:
+        return self.codec.lower() in CODECS_SIN_PERDIDA
+
+    @property
+    def rank(self) -> tuple[int, float]:
+        """Para ordenar: primero lo que no pierde nada, luego más bitrate."""
+        return (1 if self.lossless else 0, float(self.kbps or 0))
+
+
+@dataclass(frozen=True)
 class DownloadResult:
     files: tuple[Path, ...]
+    #: Qué audio llegó de verdad. None si el motor no lo dijo.
+    quality: AudioQuality | None = None
 
 
 class VideoDownloader(Protocol):
@@ -239,3 +267,5 @@ class VideoDownloader(Protocol):
     def playlist(self, url: str) -> Playlist: ...
 
     def stream(self, request: DownloadRequest) -> PlaybackSource: ...
+
+    def quality(self, request: DownloadRequest) -> AudioQuality: ...

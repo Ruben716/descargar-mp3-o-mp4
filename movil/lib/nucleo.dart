@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'calidad.dart';
+
 /// Acceso al nucleo Python, el mismo que usa la version de consola.
 ///
 /// Todo viaja como JSON por el canal de plataforma: Dart no entiende los
@@ -61,14 +63,41 @@ class Nucleo {
     );
   }
 
-  static Future<List<String>> descargar(Ajustes ajustes, {bool avisar = true}) async {
+  /// Descarga y devuelve los archivos y la calidad con la que llego el audio.
+  static Future<({List<String> archivos, CalidadAudio? origen})> descargar(
+    Ajustes ajustes, {
+    bool avisar = true,
+  }) async {
     final Map<String, dynamic> datos = await _pedir('descargar', <String, dynamic>{
       ...ajustes.aMapa(),
       'avisar': avisar,
     });
-    return ((datos['archivos'] as List<dynamic>?) ?? <dynamic>[])
-        .map((dynamic a) => a.toString())
-        .toList();
+    return (
+      archivos: ((datos['archivos'] as List<dynamic>?) ?? <dynamic>[])
+          .map((dynamic a) => a.toString())
+          .toList(),
+      origen: CalidadAudio.tal(datos['origen']),
+    );
+  }
+
+  /// Que audio llegaria de un enlace, y si se puede bajar, sin bajarlo.
+  ///
+  /// Falla con [ErrorNucleo] si no se puede: con DRM, retirado, privado...
+  static Future<CalidadAudio> calidad(String url) async {
+    final Map<String, dynamic> datos = await _pedir('calidad', <String, dynamic>{'url': url});
+    return CalidadAudio.desdeJson(datos);
+  }
+
+  /// Carga el motor de descargas sin esperar a necesitarlo.
+  ///
+  /// Arrancarlo es lo que mas tarda de la primera busqueda. Hecho mientras
+  /// el usuario aun mira la pantalla o escribe, esa espera no se nota.
+  static Future<void> precalentar() async {
+    try {
+      await _pedir('precalentar');
+    } catch (_) {
+      // Si falla, la primera busqueda lo cargara igualmente.
+    }
   }
 
   /// Un solo aviso al terminar un lote, en vez de uno por pista.
@@ -276,6 +305,7 @@ class Resultado {
     required this.duracion,
     required this.url,
     this.miniatura = '',
+    this.fuente,
   });
 
   factory Resultado.desdeJson(Map<String, dynamic> j) => Resultado(
@@ -291,6 +321,18 @@ class Resultado {
   final double duracion;
   final String url;
   final String miniatura;
+
+  /// De donde salio. Buscando en todas a la vez hace falta saberlo por pista.
+  final Fuente? fuente;
+
+  Resultado deFuente(Fuente f) => Resultado(
+        titulo: titulo,
+        autor: autor,
+        duracion: duracion,
+        url: url,
+        miniatura: miniatura,
+        fuente: f,
+      );
 }
 
 /// Una lista ajena tal y como llega: con su nombre, para poder recrearla.
@@ -362,6 +404,9 @@ class Avance {
 /// Espeja FUENTES del nucleo. Bandcamp queda fuera porque su reproductor sirve
 /// 128 kb/s y el FLAC esta detras del pago; Tidal y companiia llevan DRM.
 enum Fuente {
+  /// Todas a la vez. No existe en el nucleo: la app pregunta a cada una en
+  /// paralelo y junta lo que va llegando.
+  todas('todas', 'Todas', 'Busca en todas a la vez y compara la calidad'),
   youtube('youtube', 'YouTube', 'Lo mas y lo mas nuevo'),
   soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
   archive('archive', 'Archive', 'Conciertos sin perdida');
@@ -379,6 +424,9 @@ enum Fuente {
   /// El Archive guarda conciertos enteros: cada resultado es una lista de
   /// pistas, asi que se abre como tal en vez de bajarse de una pieza.
   bool get daListas => this == Fuente.archive;
+
+  /// Las que existen de verdad en el nucleo, en el orden en que se ensenian.
+  static const List<Fuente> reales = <Fuente>[Fuente.youtube, Fuente.soundcloud, Fuente.archive];
 }
 
 /// Formatos de audio en los que no se puede igualar el volumen.

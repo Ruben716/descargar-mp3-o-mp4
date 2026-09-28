@@ -17,6 +17,7 @@ import android.util.Rational
 import android.util.Size
 import android.system.Os
 import android.webkit.CookieManager
+import android.webkit.MimeTypeMap
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.app.ActivityCompat
@@ -174,6 +175,13 @@ class MainActivity : AudioServiceActivity() {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHiloSuelto(respuesta) { caratula(uri) }
                     }
+                    "calidad" -> {
+                        val url = llamada.argument<String>("url").orEmpty()
+                        enHilo(respuesta) { puente -> puente.callAttr("calidad", url).toString() }
+                    }
+                    "precalentar" -> enHilo(respuesta) { puente ->
+                        puente.callAttr("precalentar").toString()
+                    }
                     // Consulta ligera: Flutter la repite mientras dura la descarga.
                     "progreso" -> enHilo(respuesta) { puente ->
                         puente.callAttr("progreso").toString()
@@ -241,7 +249,13 @@ class MainActivity : AudioServiceActivity() {
                     ServicioDescarga.avisarCompletada(this, archivo.name, ajustes.soloAudio)
                 }
             }
-            return JSONObject().put("ok", true).put("archivos", guardados).toString()
+            // La calidad del origen viaja tal cual: Flutter la guarda para
+            // poder decir despues, sin mentir, de donde salio cada cancion.
+            return JSONObject()
+                .put("ok", true)
+                .put("archivos", guardados)
+                .put("origen", datos.opt("origen") ?: JSONObject.NULL)
+                .toString()
         } finally {
             ServicioDescarga.detener(this)
         }
@@ -413,6 +427,17 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
+     * El tipo del archivo segun su extension.
+     *
+     * Antes todo audio se registraba como MP3 y todo video como MP4. Con un
+     * FLAC, un WAV o un M4A eso es falso, y Android, al ver que la extension no
+     * casa con el tipo, puede cambiarle el nombre al archivo al guardarlo.
+     */
+    private fun tipoDe(archivo: File, esAudio: Boolean): String =
+        MimeTypeMap.getSingleton().getMimeTypeFromExtension(archivo.extension.lowercase())
+            ?: if (esAudio) "audio/mpeg" else "video/mp4"
+
+    /**
      * Copia el archivo a Musica/ o Peliculas/ mediante MediaStore y borra el
      * temporal. Asi lo ven el resto de apps del telefono.
      */
@@ -427,7 +452,7 @@ class MainActivity : AudioServiceActivity() {
             val carpeta = if (esAudio) CARPETAS_AUDIO.first() else CARPETAS_VIDEO.first()
             val valores = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, archivo.name)
-                put(MediaStore.MediaColumns.MIME_TYPE, if (esAudio) "audio/mpeg" else "video/mp4")
+                put(MediaStore.MediaColumns.MIME_TYPE, tipoDe(archivo, esAudio))
                 put(MediaStore.MediaColumns.RELATIVE_PATH, carpeta)
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from descargador.application import (
+    CheckQuality,
     DownloadVideo,
     ImportPlaylist,
     InspectVideo,
@@ -16,6 +17,7 @@ from descargador.application import (
     StreamVideo,
 )
 from descargador.domain import (
+    AudioQuality,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -50,6 +52,45 @@ def _anotar(avance: DownloadProgress) -> None:
         "velocidad": int(avance.speed) if avance.speed else 0,
         "restante": avance.eta or 0,
     })
+
+
+def _calidad_json(calidad: AudioQuality | None) -> dict | None:
+    if calidad is None:
+        return None
+    return {
+        "codec": calidad.codec,
+        "kbps": calidad.kbps,
+        "hz": calidad.hz,
+        "sinPerdida": calidad.lossless,
+    }
+
+
+def calidad(url: str) -> str:
+    """Que audio llegaria de un enlace y si se puede bajar, sin bajarlo."""
+    try:
+        resultado = CheckQuality(YtDlpDownloader()).execute(url)
+        return _respuesta({"ok": True, **(_calidad_json(resultado) or {})})
+    except DownloadError as exc:
+        return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def precalentar() -> str:
+    """Carga el motor en segundo plano para que la primera busqueda no espere.
+
+    Importar yt-dlp y sus extractores es lo mas lento de la primera busqueda:
+    hacerlo mientras el usuario aun esta escribiendo esconde esa espera.
+    """
+    try:
+        from yt_dlp import YoutubeDL
+
+        with YoutubeDL({"quiet": True, "no_warnings": True}) as motor:
+            for nombre in ("Youtube", "YoutubeSearch", "SoundcloudSearch"):
+                motor.get_info_extractor(nombre)
+        return _respuesta({"ok": True})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
 def progreso() -> str:
@@ -163,7 +204,12 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             _AVANCE["status"] = "portada"
             archivos = [_ponerPortadaOficial(a) for a in archivos]
         _AVANCE["status"] = "listo"
-        return _respuesta({"ok": True, "archivos": [str(a) for a in archivos]})
+        return _respuesta({
+            "ok": True,
+            "archivos": [str(a) for a in archivos],
+            # Lo que llego de verdad: la calidad del origen, no la del archivo.
+            "origen": _calidad_json(resultado.quality),
+        })
     except DownloadError as exc:
         _AVANCE["status"] = "error"
         return _respuesta({"ok": False, "error": str(exc), "registro": registro.lineas})

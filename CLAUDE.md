@@ -37,10 +37,12 @@ diseño: **el caso de uso no conoce yt-dlp**, y las dependencias apuntan siempre
 
 - [domain.py](descargador/domain.py) — `DownloadOptions` (todos los ajustes, con su validación),
   `DownloadRequest` (valida y normaliza la URL en `__post_init__`), `DownloadProgress`, `VideoInfo`,
-  `MediaFormat`, `DownloadError`, los ayudantes `parse_timestamp`/`parse_section` y el `Protocol`
-  `VideoDownloader` (`download` + `inspect`). Sin imports del proyecto.
-- [application.py](descargador/application.py) — `DownloadVideo` e `InspectVideo`. Reciben el
-  `VideoDownloader` por constructor y solo construyen la petición. Deliberadamente mínimos.
+  `MediaFormat`, `AudioQuality` (calidad real del audio en origen), `DownloadError`, los ayudantes
+  `parse_timestamp`/`parse_section` y el `Protocol` `VideoDownloader` (`download`, `inspect`,
+  `search`, `playlist`, `stream`, `quality`). Sin imports del proyecto.
+- [application.py](descargador/application.py) — `DownloadVideo`, `InspectVideo`, `SearchVideos`,
+  `StreamVideo`, `ImportPlaylist` y `CheckQuality`. Reciben el `VideoDownloader` por constructor y
+  solo construyen la petición. Deliberadamente mínimos.
 - [infrastructure.py](descargador/infrastructure.py) — `YtDlpDownloader`, único lugar que toca red,
   disco, yt-dlp y FFmpeg, más las utilidades de sistema (`actualizar_motor`, `abrir_carpeta`,
   `leer_portapapeles`, `incrusta_caratula`). Importa yt-dlp e imageio-ffmpeg **dentro** de
@@ -79,6 +81,11 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **ffprobe no viene con imageio-ffmpeg.** `EmbedThumbnail` lo necesita para contenedores MKV. Por eso
   `incrusta_caratula()` decide si se incrusta la carátula, y `writethumbnail` sigue esa misma condición
   para no dejar `.webp` sueltos. En audio siempre se incrusta (mutagen o FFmpeg lo resuelven).
+- **La calidad que se enseña es la del origen, no la del archivo.** `quality()` usa la misma
+  `_seleccion_formato` que la descarga, así que dice exactamente qué audio llegará; convertir un
+  Opus de 127 kb/s a FLAC no lo hace «sin pérdida», y la app no debe decir lo contrario. Medido sin
+  cuenta: YouTube da Opus ~127 / AAC ~129 kb/s; SoundCloud, AAC 160 si no lleva DRM (lo de los
+  sellos grandes sí lo lleva); el Archive, FLAC.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,
   canales y directos; `continuedl` + `overwrites: False` reanudan sin sobrescribir; el nombre incluye
   `%(id)s`; `bv*+ba/b` une sin recodificar.

@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 from .domain import (
     GUIONES,
     SPONSOR_CATEGORIES,
+    AudioQuality,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -199,6 +200,43 @@ EXPLICACIONES: tuple[tuple[str, str], ...] = (
 )
 
 
+def codec_legible(acodec: str | None, ext: str | None = None) -> str:
+    """El códec como lo diría una persona: «aac» y no «mp4a.40.2».
+
+    Si el motor no lo sabe, se deduce de la extensión: el archivo original que
+    algunos artistas dejan bajar en SoundCloud llega así, sin códec declarado.
+    """
+    codec = (acodec or "").lower()
+    if not codec or codec == "none":
+        codec = (ext or "").lower()
+    if codec.startswith("mp4a") or codec == "m4a":
+        return "aac"
+    if codec.startswith("pcm"):
+        return "pcm"
+    if codec in ("aif", "aiff"):
+        return "aiff"
+    return codec or "desconocido"
+
+
+def calidad_de(info: dict) -> AudioQuality:
+    """La calidad del audio que eligió el motor, venga suelto o junto al vídeo."""
+    elegidos = info.get("requested_formats") or [info]
+    audio = next(
+        (f for f in elegidos if (f.get("acodec") or "none") != "none"
+         or f.get("ext") in ("flac", "wav", "mp3", "m4a", "opus", "ogg")),
+        None,
+    )
+    if audio is None:
+        raise DownloadError("Ese enlace no tiene audio.")
+    kbps = audio.get("abr") or audio.get("tbr")
+    hz = audio.get("asr")
+    return AudioQuality(
+        codec=codec_legible(audio.get("acodec"), audio.get("ext")),
+        kbps=round(float(kbps), 1) if kbps else None,
+        hz=int(hz) if hz else None,
+    )
+
+
 def mensaje_claro(error: Exception) -> str:
     """Convierte un fallo del motor en algo que se entienda."""
     crudo = str(error)
@@ -262,6 +300,34 @@ class YtDlpDownloader:
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo consultar el video: {exc}") from exc
+
+    def quality(self, request: DownloadRequest) -> AudioQuality:
+        """Qué audio se bajaría de verdad, sin bajarlo.
+
+        Elige con la misma selección de formato que la descarga, así que dice
+        exactamente lo que va a llegar. De paso comprueba que se pueda bajar:
+        un tema con DRM o retirado falla aquí, antes de empezar, y no a mitad.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        opciones = {
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+            "format": self._seleccion_formato(request.options),
+        }
+        try:
+            with YoutubeDL(opciones) as engine:
+                info = engine.extract_info(request.url, download=False)
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(mensaje_claro(exc)) from exc
+        if not info:
+            raise DownloadError("No se obtuvo información. Comprueba la URL.")
+        if info.get("_type") in {"playlist", "multi_video"}:
+            raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
+        return calidad_de(info)
 
     # -- reproduccion directa ---------------------------------------------
     def stream(self, request: DownloadRequest) -> PlaybackSource:
@@ -558,17 +624,26 @@ class YtDlpDownloader:
                 info = engine.extract_info(request.url, download=False, process=False)
                 if info and info.get("_type") in {"playlist", "multi_video"}:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
-                if info:
-                    engine.process_ie_result(info, download=True)
+                procesado = engine.process_ie_result(info, download=True) if info else None
             existentes = tuple(dict.fromkeys(p for p in archivos if p.is_file()))
             if not existentes:
                 if opts.use_archive:
                     # Ya figuraba en el registro: se omite, no es un fallo.
                     return DownloadResult(())
                 raise DownloadError("No se obtuvo ningún archivo. Comprueba la URL.")
-            return DownloadResult(existentes)
+            return DownloadResult(existentes, quality=self._calidad_bajada(procesado))
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(mensaje_claro(exc)) from exc
+
+    @staticmethod
+    def _calidad_bajada(info: dict | None) -> AudioQuality | None:
+        """Lo que llegó, para poder decirlo luego. Sin ello no se pierde nada."""
+        if not info:
+            return None
+        try:
+            return calidad_de(info)
+        except DownloadError:
+            return None
 
     @staticmethod
     def _seleccion_formato(opts: DownloadOptions) -> str:

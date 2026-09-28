@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import 'calidad.dart';
+import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_cola.dart';
@@ -207,6 +209,51 @@ class _Audio extends StatefulWidget {
 class _AudioState extends State<_Audio> {
   final EstadoReproductor _estado = EstadoReproductor.instancia;
 
+  /// De que calidad llego esta cancion, pedido una vez por pista.
+  Future<CalidadAudio?>? _calidad;
+  String _calidadPara = '';
+
+  Future<CalidadAudio?> _calidadDe(String uri) {
+    if (uri != _calidadPara || _calidad == null) {
+      _calidadPara = uri;
+      _calidad = Catalogo.instancia.calidadDe(uri);
+    }
+    return _calidad!;
+  }
+
+  /// El sello de calidad, con el archivo si no casa con el origen.
+  ///
+  /// Un FLAC hecho desde YouTube no es sin perdida: el sello dice de donde
+  /// salio el sonido, y aparte en que se guardo, para que no se confunda.
+  Widget _sello(String nombre) {
+    return FutureBuilder<CalidadAudio?>(
+      future: _calidadDe(widget.elemento.uri),
+      builder: (BuildContext context, AsyncSnapshot<CalidadAudio?> datos) {
+        final CalidadAudio? calidad = datos.data;
+        if (calidad == null) return const SizedBox.shrink();
+        final String extension = nombre.contains('.') ? nombre.split('.').last.toLowerCase() : '';
+        final bool inflado =
+            !calidad.sinPerdida && const <String>['flac', 'wav'].contains(extension);
+        return Padding(
+          padding: const EdgeInsets.only(top: 10),
+          child: Wrap(
+            alignment: WrapAlignment.center,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: <Widget>[
+              SelloCalidad(calidad: calidad, grande: true),
+              if (inflado)
+                Text(
+                  'guardado en ${extension.toUpperCase()}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AudioPlayer motor = _estado.motor;
@@ -263,6 +310,7 @@ class _AudioState extends State<_Audio> {
                       ),
                     ),
                   ],
+                  _sello(widget.elemento.nombre),
                   const SizedBox(height: 18),
           StreamBuilder<Duration>(
             stream: motor.positionStream,

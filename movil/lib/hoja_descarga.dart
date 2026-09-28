@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'calidad.dart';
 import 'hoja_ajustes.dart';
 import 'nucleo.dart';
 import 'portadas.dart';
@@ -29,11 +30,15 @@ class QueSeDescarga {
     this.subtitulo = '',
     this.miniatura = '',
     this.cantidad = 1,
+    this.origen,
   });
 
   final String titulo;
   final String subtitulo;
   final String miniatura;
+
+  /// La calidad con la que llegaria el audio, si ya se comprobo.
+  final CalidadAudio? origen;
 
   /// Mas de una cuando se baja una lista entera.
   final int cantidad;
@@ -84,6 +89,38 @@ class _HojaDescargaState extends State<HojaDescarga> {
       builder: (_) => HojaAjustes(inicial: _a),
     );
     if (nuevos != null && mounted) setState(() => _a = nuevos);
+  }
+
+  /// Si lo elegido no le saca partido al origen, se dice y se ofrece arreglarlo.
+  Widget? _consejo() {
+    final CalidadAudio? origen = widget.que.origen;
+    if (origen == null || !_a.soloAudio) return null;
+    final String? texto = consejoDeFormato(origen, _a.formatoAudio);
+    if (texto == null) return null;
+    // Sin perdida en el origen: FLAC lo guarda entero. Con perdida, lo mejor
+    // es no reconvertir, y MP3 es lo que entiende cualquier aparato.
+    final String propuesto = origen.sinPerdida ? 'flac' : 'mp3';
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.lightbulb_outline_rounded, size: 18, color: Colors.white60),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(texto, style: const TextStyle(fontSize: 12, height: 1.35)),
+          ),
+          TextButton(
+            onPressed: () => setState(() => _a = _a.copiar(formatoAudio: propuesto)),
+            child: Text('Usar ${propuesto.toUpperCase()}'),
+          ),
+        ],
+      ),
+    );
   }
 
   String get _textoBoton {
@@ -144,6 +181,17 @@ class _HojaDescargaState extends State<HojaDescarga> {
                 ),
               ],
             ),
+            if (que.origen case final CalidadAudio origen) ...<Widget>[
+              const SizedBox(height: 14),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: 4,
+                children: <Widget>[
+                  const Text('Llega en  ', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  SelloCalidad(calidad: origen, grande: true),
+                ],
+              ),
+            ],
             const SizedBox(height: 22),
             Text('¿Como lo quieres?', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 10),
@@ -170,6 +218,7 @@ class _HojaDescargaState extends State<HojaDescarga> {
                 ),
               ],
             ),
+            if (_consejo() case final Widget consejo) consejo,
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(

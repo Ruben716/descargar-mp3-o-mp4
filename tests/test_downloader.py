@@ -8,6 +8,7 @@ from typing import ClassVar
 from unittest.mock import Mock, patch
 
 from descargador.application import (
+    CheckQuality,
     DownloadVideo,
     ImportPlaylist,
     InspectVideo,
@@ -27,6 +28,7 @@ from descargador.domain import (
     FORMATOS_SIN_NORMALIZAR,
     FUENTES_DE_LISTAS,
     GUIONES,
+    AudioQuality,
     DownloadError,
     DownloadOptions,
     DownloadProgress,
@@ -46,6 +48,8 @@ from descargador.infrastructure import (
     _portada_deezer,
     _portada_itunes,
     buscar_portada,
+    calidad_de,
+    codec_legible,
     escribir_etiquetas,
     incrusta_caratula,
     incrustar_portada,
@@ -1183,6 +1187,66 @@ class CliTests(unittest.TestCase):
         self.assertEqual(formato_tamano(1536), "1.5 KB")
         self.assertEqual(formato_tiempo(90), "01:30")
         self.assertEqual(formato_tiempo(3723), "1:02:03")
+
+
+
+class CalidadTests(unittest.TestCase):
+    """Lo que se enseña y se compara es la calidad del origen, no del archivo."""
+
+    def test_el_codec_se_dice_como_lo_diria_una_persona(self):
+        self.assertEqual(codec_legible("mp4a.40.2"), "aac")
+        self.assertEqual(codec_legible("opus"), "opus")
+        self.assertEqual(codec_legible("pcm_s16le"), "pcm")
+        # El original de SoundCloud llega sin códec: se deduce de la extensión.
+        self.assertEqual(codec_legible(None, "wav"), "wav")
+        self.assertEqual(codec_legible("none", "flac"), "flac")
+
+    def test_audio_suelto(self):
+        # Lo que devuelve YouTube al pedir solo el audio: medido, Opus a 127.
+        c = calidad_de({"acodec": "opus", "abr": 126.995, "asr": 48000, "ext": "webm"})
+        self.assertEqual(c, AudioQuality("opus", 127.0, 48000))
+        self.assertFalse(c.lossless)
+
+    def test_audio_que_viene_junto_al_video(self):
+        info = {"requested_formats": [
+            {"acodec": "none", "vcodec": "avc1", "tbr": 2500},
+            {"acodec": "mp4a.40.2", "abr": 129.5, "asr": 44100},
+        ]}
+        self.assertEqual(calidad_de(info), AudioQuality("aac", 129.5, 44100),
+                         msg="el bitrate del vídeo no cuenta")
+
+    def test_el_original_sin_codec_declarado_es_sin_perdida(self):
+        c = calidad_de({"acodec": None, "ext": "flac", "format_id": "download"})
+        self.assertTrue(c.lossless)
+
+    def test_sin_audio_no_se_inventa_una_calidad(self):
+        with self.assertRaises(DownloadError):
+            calidad_de({"acodec": "none", "vcodec": "avc1", "ext": "mp4"})
+
+    def test_ordenar_pone_primero_lo_sin_perdida_y_luego_el_bitrate(self):
+        youtube = AudioQuality("opus", 127.0)
+        soundcloud = AudioQuality("aac", 160.0)
+        archive = AudioQuality("flac", 900.0)
+        sin_dato = AudioQuality("flac")
+        orden = sorted([youtube, sin_dato, soundcloud, archive], key=lambda c: c.rank, reverse=True)
+        self.assertEqual(orden, [archive, sin_dato, soundcloud, youtube])
+
+    def test_se_consulta_como_musica_y_sin_tocar_la_red(self):
+        adaptador = Mock()
+        adaptador.quality.return_value = AudioQuality("opus", 127.0)
+        CheckQuality(adaptador).execute("https://youtu.be/abc")
+        peticion = adaptador.quality.call_args.args[0]
+        self.assertTrue(peticion.options.audio_only)
+
+    def test_un_enlace_invalido_no_llega_al_adaptador(self):
+        adaptador = Mock()
+        with self.assertRaises(DownloadError):
+            CheckQuality(adaptador).execute("esto no es un enlace")
+        adaptador.quality.assert_not_called()
+
+    def test_el_drm_se_explica(self):
+        texto = mensaje_claro(RuntimeError("[soundcloud] 1916636273: This video is DRM protected"))
+        self.assertIn("protegida", texto)
 
 
 if __name__ == "__main__":
