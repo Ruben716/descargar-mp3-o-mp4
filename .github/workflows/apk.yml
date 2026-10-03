@@ -50,16 +50,34 @@ jobs:
           python -m mypy
           python -m unittest discover -s tests
 
+      - name: Dependencias de la app
+        working-directory: movil
+        run: flutter pub get
+
+      - name: Analisis de la app
+        working-directory: movil
+        run: flutter analyze
+
+      # Cada prueba fallida sale como anotacion, con su nombre y su error: las
+      # anotaciones se leen sin iniciar sesion, los registros no.
+      - name: Dependencias de la app
+        working-directory: movil
+        run: flutter pub get
+
+      - name: Analisis de la app
+        working-directory: movil
+        run: flutter analyze
+
+      # Cada prueba fallida sale como anotacion, con su nombre y su error: las
+      # anotaciones se leen sin iniciar sesion, los registros no.
       - name: Pruebas de la app
         working-directory: movil
-        run: |
-          flutter pub get
-          flutter analyze
-          # Cada prueba fallida sale como anotacion, con su nombre y su error:
-          # las anotaciones se leen sin iniciar sesion, los registros no.
-          flutter test --reporter json > resultados.json || fallo=1
-          python ../.github/anotar_pruebas.py resultados.json
-          exit ${fallo:-0}
+        run: flutter test --reporter json > resultados.json
+
+      - name: Anotar las pruebas fallidas
+        if: always()
+        working-directory: movil
+        run: python ../.github/anotar_pruebas.py resultados.json
 
       # La misma clave de depuracion que el PC: con otra, Android no deja
       # instalar el APK encima de la app que ya hay en el telefono, y habria que

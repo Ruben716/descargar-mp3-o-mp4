@@ -1,10 +1,19 @@
-"""Convierte los fallos de `flutter test --reporter json` en anotaciones de GitHub."""
+"""Convierte los fallos de `flutter test --reporter json` en anotaciones de GitHub.
+
+Las anotaciones se leen sin iniciar sesion; los registros de la compilacion no.
+"""
 import json
 import sys
 
+try:
+    archivo = open(sys.argv[1], encoding="utf-8")
+except OSError:
+    print("::notice title=Pruebas::No hay resultados: las pruebas no llegaron a ejecutarse.")
+    sys.exit(0)
+
 pruebas: dict[int, str] = {}
 errores: dict[int, list[str]] = {}
-with open(sys.argv[1], encoding="utf-8") as archivo:
+with archivo:
     for linea in archivo:
         try:
             evento = json.loads(linea)
@@ -19,8 +28,9 @@ with open(sys.argv[1], encoding="utf-8") as archivo:
             errores[evento["testID"]].append(evento.get("message", ""))
 
 for ident, mensajes in errores.items():
-    texto = " | ".join(m.strip().replace("
-", " ") for m in mensajes if m.strip())[:900]
+    texto = " | ".join(" ".join(m.split()) for m in mensajes if m.strip())[:900]
     # Las comas y los dos puntos rompen el formato de la anotacion.
     titulo = pruebas.get(ident, f"prueba {ident}").replace(",", " ").replace(":", " ")
     print(f"::error title={titulo}::{texto}")
+
+print(f"::notice title=Pruebas::{len(pruebas)} pruebas leidas, {len(errores)} con error.")
