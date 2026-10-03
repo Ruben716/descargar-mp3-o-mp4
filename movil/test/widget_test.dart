@@ -2136,25 +2136,22 @@ void main() {
         reason: 'la cola de la app y la del motor, siempre la misma');
   });
 
-  test('poner una pista sola deja una sola en la cola', () async {
+  testWidgets('poner una pista sola deja una sola en la cola', (WidgetTester tester) async {
     // Sin esperar a play(): en este motor no acaba hasta que la musica se para.
+    // Y con tiempo real, que la carga pasa por canales que lo necesitan.
     final EstadoReproductor estado = EstadoReproductor.instancia;
-    Future<void> hastaQue(bool Function() listo) async {
-      for (int i = 0; i < 100 && !listo(); i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-      }
-    }
+    Future<void> esperar() =>
+        tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
 
     unawaited(estado.reproducirLista(_biblioteca3, 0));
-    await hastaQue(() => estado.motor.audioSources.length == 3);
-    expect(estado.cola.length, 3);
+    await esperar();
+    expect(estado.motor.audioSources.length, 3);
 
     unawaited(estado.reproducirElemento(_biblioteca3[2]));
-    await hastaQue(() => estado.motor.audioSources.length == 1);
+    await esperar();
 
     expect(estado.cola.length, 1, reason: 'si no, el indice 0 del motor apuntaria a otra');
     expect(estado.motor.audioSources.length, 1);
-    await estado.cerrar();
   });
 
   group('que es lo escrito', () {
