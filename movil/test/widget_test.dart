@@ -2115,6 +2115,9 @@ void main() {
 
     await tester.tap(find.text('Bailando'));
     await tester.pumpAndSettle();
+    debugPrint('DIAG tras Bailando actual=${estado.actual?.elemento?.uri} cola=${estado.cola.length} '
+        'motor=${estado.motor.audioSources.length} indice=${estado.motor.currentIndex} '
+        'error=${estado.error}');
     expect(estado.actual?.elemento?.uri, 'content://audio/2');
     expect(estado.motor.audioSources.length, 3, reason: 'la cola entera, no solo esa');
     expect(estado.haySiguiente, isTrue);
@@ -2123,6 +2126,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Amame'));
     await tester.pumpAndSettle();
+    debugPrint('DIAG tras Amame actual=${estado.actual?.elemento?.uri} cola=${estado.cola.length} '
+        'motor=${estado.motor.audioSources.length} indice=${estado.motor.currentIndex} '
+        'error=${estado.error}');
     expect(estado.actual?.elemento?.uri, 'content://audio/3',
         reason: 'la que se toco, no la de antes');
     expect(estado.motor.audioSources.length, 3);
