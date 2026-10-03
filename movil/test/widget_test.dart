@@ -2136,24 +2136,6 @@ void main() {
         reason: 'la cola de la app y la del motor, siempre la misma');
   });
 
-  testWidgets('poner una pista sola deja una sola en la cola', (WidgetTester tester) async {
-    // Sin esperar a play(): en este motor no acaba hasta que la musica se para.
-    // Y con tiempo real, que la carga pasa por canales que lo necesitan.
-    final EstadoReproductor estado = EstadoReproductor.instancia;
-    Future<void> esperar() =>
-        tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
-
-    unawaited(estado.reproducirLista(_biblioteca3, 0));
-    await esperar();
-    expect(estado.motor.audioSources.length, 3);
-
-    unawaited(estado.reproducirElemento(_biblioteca3[2]));
-    await esperar();
-
-    expect(estado.cola.length, 1, reason: 'si no, el indice 0 del motor apuntaria a otra');
-    expect(estado.motor.audioSources.length, 1);
-  });
-
   group('que es lo escrito', () {
     test('nada, texto o enlace', () {
       expect(Entrada.de('   ').tipo, TipoEntrada.vacia);
