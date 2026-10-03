@@ -2115,6 +2115,9 @@ void main() {
 
     await tester.tap(find.text('Bailando'));
     await tester.pumpAndSettle();
+    debugPrint('DIAG tras Bailando (inmediato) motor=${estado.motor.audioSources.length}');
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
+    await tester.pumpAndSettle();
     debugPrint('DIAG tras Bailando actual=${estado.actual?.elemento?.uri} cola=${estado.cola.length} '
         'motor=${estado.motor.audioSources.length} indice=${estado.motor.currentIndex} '
         'error=${estado.error}');
