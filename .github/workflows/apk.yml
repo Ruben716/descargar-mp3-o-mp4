@@ -64,7 +64,7 @@ jobs:
       # anotaciones se leen sin iniciar sesion, los registros no.
       - name: Pruebas de la app
         working-directory: movil
-        run: flutter test --reporter json > resultados.json
+        run: flutter test --reporter json > resultados.json 2>&1
 
       - name: Anotar las pruebas fallidas
         if: always()

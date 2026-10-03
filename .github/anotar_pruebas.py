@@ -9,6 +9,8 @@ pruebas: dict[int, str] = {}
 # Flutter escribe el detalle de un fallo (la excepcion, el «Expected/Actual»)
 # antes del aviso de error, que solo dice «mira arriba»: se guarda todo.
 escrito: dict[int, list[str]] = {}
+# Lo que Flutter escribe fuera del JSON, como el volcado de una excepcion.
+suelto: list[str] = []
 errores: dict[int, list[str]] = {}
 try:
     with open(sys.argv[1], encoding="utf-8") as archivo:
@@ -21,6 +23,7 @@ for linea in lineas:
     try:
         evento = json.loads(linea)
     except ValueError:
+        suelto.append(linea)
         continue
     tipo = evento.get("type")
     if tipo == "testStart":
@@ -45,5 +48,10 @@ for ident, mensajes in errores.items():
     # Las comas y los dos puntos rompen el formato de la anotacion.
     titulo = pruebas.get(ident, f"prueba {ident}").replace(",", " ").replace(":", " ")
     print(f"::error title={titulo}::{texto}")
+
+if errores:
+    utiles = [" ".join(linea.split()) for linea in suelto if any(c in linea for c in CLAVES)]
+    if utiles:
+        print("::error title=Detalle de la excepcion::" + " | ".join(dict.fromkeys(utiles))[:3000])
 
 print(f"::notice title=Pruebas::{len(pruebas)} pruebas leidas, {len(errores)} con error.")
