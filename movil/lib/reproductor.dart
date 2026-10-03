@@ -20,9 +20,18 @@ import 'tema.dart';
 
 /// Reproduce un elemento de la biblioteca a pantalla completa.
 class Reproductor extends StatefulWidget {
-  const Reproductor({required this.elemento, super.key});
+  const Reproductor({required this.elemento, this.arrancar = true, super.key});
 
   final Elemento elemento;
+
+  /// Si al abrirse tiene que poner la pista a sonar.
+  ///
+  /// Desde una lista no: la lista ya la puso, con todas las demas en cola. Antes
+  /// el reproductor lo decidia mirando si «ya sonaba», y esa mirada competia
+  /// con el motor: si el motor avisaba antes de su posicion en la cola nueva,
+  /// parecia que sonaba otra, y el reproductor ponia la pista sola, sin cola.
+  /// Por eso no se podia pasar a la siguiente.
+  final bool arrancar;
 
   @override
   State<Reproductor> createState() => _ReproductorState();
@@ -44,7 +53,7 @@ class _ReproductorState extends State<Reproductor> {
     super.initState();
     // Arrancar la pista se decide aqui y no mas abajo porque ahi el elemento
     // ya es el que suena, y entonces nunca se pondria la que se pidio.
-    if (widget.elemento.audio && !_estado.esActual(widget.elemento.uri)) {
+    if (widget.arrancar && widget.elemento.audio && !_estado.esActual(widget.elemento.uri)) {
       _estado.reproducirElemento(widget.elemento);
     }
   }

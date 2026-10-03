@@ -2103,6 +2103,44 @@ void main() {
     expect(find.text('Z tema 0'), findsOneWidget, reason: 'el indice lleva a la Z');
   });
 
+  testWidgets('tocar una cancion de la biblioteca deja las demas en cola',
+      (WidgetTester tester) async {
+    // El fallo: el reproductor, al abrirse, volvia a poner la cancion sola si
+    // el motor avisaba antes de su posicion en la cola nueva. Sin cola no habia
+    // siguiente, y la cola vieja ensenaba la portada de otra cancion.
+    biblioteca = _conCanciones;
+    comoElTelefono(tester);
+    await abrirBiblioteca(tester);
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    await tester.tap(find.text('Bailando'));
+    await tester.pumpAndSettle();
+    expect(estado.actual?.elemento?.uri, 'content://audio/2');
+    expect(estado.motor.audioSources.length, 3, reason: 'la cola entera, no solo esa');
+    expect(estado.haySiguiente, isTrue);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Amame'));
+    await tester.pumpAndSettle();
+    expect(estado.actual?.elemento?.uri, 'content://audio/3',
+        reason: 'la que se toco, no la de antes');
+    expect(estado.motor.audioSources.length, 3);
+    expect(estado.cola.length, estado.motor.audioSources.length,
+        reason: 'la cola de la app y la del motor, siempre la misma');
+  });
+
+  test('poner una pista sola deja una sola en la cola', () async {
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+    await estado.reproducirLista(_biblioteca3, 0);
+    expect(estado.cola.length, 3);
+
+    await estado.reproducirElemento(_biblioteca3[2]);
+
+    expect(estado.cola.length, 1, reason: 'si no, el indice 0 del motor apuntaria a otra');
+    expect(estado.motor.audioSources.length, 1);
+  });
+
   group('que es lo escrito', () {
     test('nada, texto o enlace', () {
       expect(Entrada.de('   ').tipo, TipoEntrada.vacia);

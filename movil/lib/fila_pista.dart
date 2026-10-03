@@ -121,7 +121,10 @@ class FilaPista extends StatelessWidget {
       estado.reproducirLista(canciones, canciones.indexOf(elemento));
     }
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => Reproductor(elemento: elemento)),
+      // Una cancion ya la puso a sonar la lista; un video lo arranca el reproductor.
+      MaterialPageRoute<void>(
+        builder: (_) => Reproductor(elemento: elemento, arrancar: !elemento.audio),
+      ),
     );
   }
 }

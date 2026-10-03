@@ -314,7 +314,10 @@ class PantallaInicioState extends State<PantallaInicio> {
                 }
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => Reproductor(elemento: recientes[i]),
+                    builder: (_) => Reproductor(
+                      elemento: recientes[i],
+                      arrancar: !recientes[i].audio,
+                    ),
                   ),
                 );
               },
@@ -346,7 +349,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                 _reproductor.reproducirLista(_masOidas, i);
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(
-                    builder: (_) => Reproductor(elemento: _masOidas[i]),
+                    builder: (_) => Reproductor(elemento: _masOidas[i], arrancar: false),
                   ),
                 );
               },

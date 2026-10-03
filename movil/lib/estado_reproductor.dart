@@ -39,6 +39,10 @@ class EstadoReproductor extends ChangeNotifier {
     });
     // Al saltar de pista dentro de la cola hay que actualizar lo que se ve.
     motor.currentIndexStream.listen((int? indice) {
+      // Mientras se carga una cola nueva, el motor aun habla de la vieja (o
+      // pasa un momento por la 0): traducir ese numero con la cola nueva
+      // ensenaba otra cancion, con su portada.
+      if (_cargasEnCurso > 0) return;
       if (indice == null || indice >= _cola.length) return;
       final Elemento actual = _cola[indice];
       if (actual.uri != _anotada) _anotada = null;
@@ -349,9 +353,15 @@ class EstadoReproductor extends ChangeNotifier {
   bool get aleatorio => motor.shuffleModeEnabled;
 
   /// Reproduce desde una pista y deja el resto en cola detras.
+  /// Cargas del motor a medio hacer; ver el oyente de [motor.currentIndexStream].
+  int _cargasEnCurso = 0;
+
   Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
     if (elementos.isEmpty) return;
     final int ordenes = ++_ordenes;
+    // Desde el mismo momento en que cambia la cola: a partir de aqui, un
+    // aviso del motor (que aun suena con la vieja) se traduciria mal.
+    _cargasEnCurso++;
     _cola = List<Elemento>.from(elementos);
     _actual = Pista(
       titulo: elementos[desde].nombre,
@@ -361,14 +371,18 @@ class EstadoReproductor extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      final List<AudioSource> fuentes = await _fuentes(elementos);
-      await _cargarEnMotor(
-        () => motor.setAudioSources(fuentes, initialIndex: desde),
-        ordenes,
-      );
-      // Una cola nueva llega sin barajar. Si el aleatorio seguia puesto de
-      // antes hay que rebarajar, o diria "aleatorio" y sonaria en orden.
-      if (motor.shuffleModeEnabled) await motor.shuffle();
+      try {
+        final List<AudioSource> fuentes = await _fuentes(elementos);
+        await _cargarEnMotor(
+          () => motor.setAudioSources(fuentes, initialIndex: desde),
+          ordenes,
+        );
+        // Una cola nueva llega sin barajar. Si el aleatorio seguia puesto de
+        // antes hay que rebarajar, o diria "aleatorio" y sonaria en orden.
+        if (motor.shuffleModeEnabled) await motor.shuffle();
+      } finally {
+        _cargasEnCurso--;
+      }
       await motor.play();
       unawaited(_guardarSesion());
     } catch (error) {
@@ -640,22 +654,31 @@ class EstadoReproductor extends ChangeNotifier {
 
   Future<void> _poner(Pista pista) async {
     final int ordenes = ++_ordenes;
+    // Una sola pista en el motor, una sola en la cola. Si se quedaba la cola
+    // anterior, el motor decia «voy por la 0» y la app ensenaba la primera
+    // de aquella lista: otra cancion y otra portada.
+    _cargasEnCurso++;
+    _cola = <Elemento>[?pista.elemento];
     _actual = pista;
     _error = null;
     notifyListeners();
     try {
-      // La etiqueta MediaItem es lo que pinta el sistema en la notificacion y
-      // en la pantalla de bloqueo; sin ella saldria vacia.
-      final AudioSource fuente = AudioSource.uri(
-        Uri.parse(pista.fuente),
-        tag: MediaItem(
-          id: pista.fuente,
-          title: nombreLimpio(pista.titulo),
-          album: 'Tumbao',
-          artUri: await Nucleo.caratulaArchivo(pista.fuente),
-        ),
-      );
-      await _cargarEnMotor(() => motor.setAudioSource(fuente), ordenes);
+      try {
+        // La etiqueta MediaItem es lo que pinta el sistema en la notificacion y
+        // en la pantalla de bloqueo; sin ella saldria vacia.
+        final AudioSource fuente = AudioSource.uri(
+          Uri.parse(pista.fuente),
+          tag: MediaItem(
+            id: pista.fuente,
+            title: nombreLimpio(pista.titulo),
+            album: 'Tumbao',
+            artUri: await Nucleo.caratulaArchivo(pista.fuente),
+          ),
+        );
+        await _cargarEnMotor(() => motor.setAudioSource(fuente), ordenes);
+      } finally {
+        _cargasEnCurso--;
+      }
       await motor.play();
     } catch (error) {
       _fallo(error, ordenes);
