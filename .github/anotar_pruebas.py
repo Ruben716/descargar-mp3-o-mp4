@@ -5,16 +5,17 @@ Las anotaciones se leen sin iniciar sesion; los registros de la compilacion no.
 import json
 import sys
 
+pruebas: dict[int, str] = {}
+errores: dict[int, list[str]] = {}
 try:
-    archivo = open(sys.argv[1], encoding="utf-8")
+    with open(sys.argv[1], encoding="utf-8") as archivo:
+        lineas = archivo.readlines()
 except OSError:
     print("::notice title=Pruebas::No hay resultados: las pruebas no llegaron a ejecutarse.")
     sys.exit(0)
 
-pruebas: dict[int, str] = {}
-errores: dict[int, list[str]] = {}
-with archivo:
-    for linea in archivo:
+if lineas:
+    for linea in lineas:
         try:
             evento = json.loads(linea)
         except ValueError:

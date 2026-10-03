@@ -50,14 +50,6 @@ jobs:
           python -m mypy
           python -m unittest discover -s tests
 
-      - name: Dependencias de la app
-        working-directory: movil
-        run: flutter pub get
-
-      - name: Analisis de la app
-        working-directory: movil
-        run: flutter analyze
-
       # Cada prueba fallida sale como anotacion, con su nombre y su error: las
       # anotaciones se leen sin iniciar sesion, los registros no.
       - name: Dependencias de la app
