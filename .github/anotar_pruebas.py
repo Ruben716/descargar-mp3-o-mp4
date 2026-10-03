@@ -6,6 +6,9 @@ import json
 import sys
 
 pruebas: dict[int, str] = {}
+# Flutter escribe el detalle de un fallo (la excepcion, el «Expected/Actual»)
+# antes del aviso de error, que solo dice «mira arriba»: se guarda todo.
+escrito: dict[int, list[str]] = {}
 errores: dict[int, list[str]] = {}
 try:
     with open(sys.argv[1], encoding="utf-8") as archivo:
@@ -14,22 +17,31 @@ except OSError:
     print("::notice title=Pruebas::No hay resultados: las pruebas no llegaron a ejecutarse.")
     sys.exit(0)
 
-if lineas:
-    for linea in lineas:
-        try:
-            evento = json.loads(linea)
-        except ValueError:
-            continue
-        tipo = evento.get("type")
-        if tipo == "testStart":
-            pruebas[evento["test"]["id"]] = evento["test"]["name"]
-        elif tipo == "error":
-            errores.setdefault(evento["testID"], []).append(evento.get("error", ""))
-        elif tipo == "print" and evento.get("testID") in errores:
-            errores[evento["testID"]].append(evento.get("message", ""))
+for linea in lineas:
+    try:
+        evento = json.loads(linea)
+    except ValueError:
+        continue
+    tipo = evento.get("type")
+    if tipo == "testStart":
+        pruebas[evento["test"]["id"]] = evento["test"]["name"]
+    elif tipo == "print":
+        escrito.setdefault(evento.get("testID", -1), []).append(evento.get("message", ""))
+    elif tipo == "error":
+        errores.setdefault(evento["testID"], []).append(evento.get("error", ""))
+
+# Lo que importa de un volcado de Flutter, sin la pila entera.
+CLAVES = ("Expected", "Actual", "Which", "Exception", "Error", "reason", "was thrown",
+          "The following", "Bad state", "RangeError", "Null check")
 
 for ident, mensajes in errores.items():
-    texto = " | ".join(" ".join(m.split()) for m in mensajes if m.strip())[:900]
+    utiles = [
+        " ".join(linea.split())
+        for texto in escrito.get(ident, []) + mensajes
+        for linea in texto.splitlines()
+        if any(clave in linea for clave in CLAVES)
+    ]
+    texto = " | ".join(dict.fromkeys(utiles))[:1500] or " ".join(" ".join(mensajes).split())[:900]
     # Las comas y los dos puntos rompen el formato de la anotacion.
     titulo = pruebas.get(ident, f"prueba {ident}").replace(",", " ").replace(":", " ")
     print(f"::error title={titulo}::{texto}")
