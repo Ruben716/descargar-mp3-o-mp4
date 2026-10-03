@@ -55,8 +55,11 @@ jobs:
         run: |
           flutter pub get
           flutter analyze
-          # Cada prueba fallida sale como anotacion, legible sin iniciar sesion.
-          flutter test --reporter github
+          # Cada prueba fallida sale como anotacion, con su nombre y su error:
+          # las anotaciones se leen sin iniciar sesion, los registros no.
+          flutter test --reporter json > resultados.json || fallo=1
+          python ../.github/anotar_pruebas.py resultados.json
+          exit ${fallo:-0}
 
       # La misma clave de depuracion que el PC: con otra, Android no deja
       # instalar el APK encima de la app que ya hay en el telefono, y habria que
