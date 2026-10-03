@@ -34,7 +34,7 @@ for linea in lineas:
         errores.setdefault(evento["testID"], []).append(evento.get("error", ""))
 
 # Lo que importa de un volcado de Flutter, sin la pila entera.
-CLAVES = ("DIAG", "Expected", "Actual", "Which", "Exception", "Error", "reason", "was thrown",
+CLAVES = ("Expected", "Actual", "Which", "Exception", "Error", "reason", "was thrown",
           "The following", "Bad state", "RangeError", "Null check")
 
 for ident, mensajes in errores.items():

@@ -2115,12 +2115,10 @@ void main() {
 
     await tester.tap(find.text('Bailando'));
     await tester.pumpAndSettle();
-    debugPrint('DIAG tras Bailando (inmediato) motor=${estado.motor.audioSources.length}');
+    // La carga del motor pasa por canales que necesitan tiempo real, no el
+    // reloj de mentira de la prueba.
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
     await tester.pumpAndSettle();
-    debugPrint('DIAG tras Bailando actual=${estado.actual?.elemento?.uri} cola=${estado.cola.length} '
-        'motor=${estado.motor.audioSources.length} indice=${estado.motor.currentIndex} '
-        'error=${estado.error}');
     expect(estado.actual?.elemento?.uri, 'content://audio/2');
     expect(estado.motor.audioSources.length, 3, reason: 'la cola entera, no solo esa');
     expect(estado.haySiguiente, isTrue);
@@ -2129,9 +2127,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Amame'));
     await tester.pumpAndSettle();
-    debugPrint('DIAG tras Amame actual=${estado.actual?.elemento?.uri} cola=${estado.cola.length} '
-        'motor=${estado.motor.audioSources.length} indice=${estado.motor.currentIndex} '
-        'error=${estado.error}');
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 800)));
+    await tester.pumpAndSettle();
     expect(estado.actual?.elemento?.uri, 'content://audio/3',
         reason: 'la que se toco, no la de antes');
     expect(estado.motor.audioSources.length, 3);
@@ -2140,14 +2137,24 @@ void main() {
   });
 
   test('poner una pista sola deja una sola en la cola', () async {
+    // Sin esperar a play(): en este motor no acaba hasta que la musica se para.
     final EstadoReproductor estado = EstadoReproductor.instancia;
-    await estado.reproducirLista(_biblioteca3, 0);
+    Future<void> hastaQue(bool Function() listo) async {
+      for (int i = 0; i < 100 && !listo(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+
+    unawaited(estado.reproducirLista(_biblioteca3, 0));
+    await hastaQue(() => estado.motor.audioSources.length == 3);
     expect(estado.cola.length, 3);
 
-    await estado.reproducirElemento(_biblioteca3[2]);
+    unawaited(estado.reproducirElemento(_biblioteca3[2]));
+    await hastaQue(() => estado.motor.audioSources.length == 1);
 
     expect(estado.cola.length, 1, reason: 'si no, el indice 0 del motor apuntaria a otra');
     expect(estado.motor.audioSources.length, 1);
+    await estado.cerrar();
   });
 
   group('que es lo escrito', () {
