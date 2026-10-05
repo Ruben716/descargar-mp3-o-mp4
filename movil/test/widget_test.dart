@@ -12,6 +12,7 @@ import 'package:descargador_movil/control_descarga.dart';
 import 'package:descargador_movil/ecualizador.dart';
 import 'package:descargador_movil/entrada.dart';
 import 'package:descargador_movil/estado_reproductor.dart';
+import 'package:descargador_movil/hoja_fundido.dart';
 import 'package:descargador_movil/hoja_descarga.dart';
 import 'package:descargador_movil/lista_secciones.dart';
 import 'package:descargador_movil/listas.dart';
@@ -2423,6 +2424,61 @@ void main() {
       await Atajos.pulsarWidget('siguiente');
       await Atajos.pulsarWidget('desconocido');
       expect(EstadoReproductor.instancia.actual, isNull);
+    });
+  });
+
+  group('fundido entre canciones', () {
+    double volumen(int posicion, {int total = 200, int fundido = 6, bool entrando = false}) =>
+        EstadoReproductor.volumenConFundido(
+          posicion: Duration(seconds: posicion),
+          total: Duration(seconds: total),
+          fundido: Duration(seconds: fundido),
+          entrando: entrando,
+        );
+
+    test('apagado no toca el volumen nunca', () {
+      expect(volumen(199, fundido: 0), 1);
+      expect(volumen(0, fundido: 0, entrando: true), 1);
+    });
+
+    test('baja en los ultimos segundos hasta casi nada', () {
+      expect(volumen(100), 1, reason: 'a mitad, entero');
+      expect(volumen(194), 1, reason: 'justo antes del fundido');
+      expect(volumen(197), closeTo(0.5, 0.001));
+      expect(volumen(200), 0);
+    });
+
+    test('la que entra tras un fundido sube desde cero', () {
+      expect(volumen(0, entrando: true), 0);
+      expect(volumen(3, entrando: true), closeTo(0.5, 0.001));
+      expect(volumen(6, entrando: true), 1);
+      expect(volumen(0), 1, reason: 'elegida a mano empieza entera');
+    });
+
+    test('una pista muy corta no se apaga entera', () {
+      expect(volumen(8, total: 10), 1);
+    });
+
+    test('lo elegido se guarda y se recupera al abrir', () async {
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      expect(estado.fundido, Duration.zero, reason: 'viene apagado');
+      await estado.ponerFundido(const Duration(seconds: 8));
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      expect(memoria.getInt(EstadoReproductor.claveFundido), 8);
+
+      estado.reiniciar();
+      expect(estado.fundido, Duration.zero);
+      await estado.recuperarFundido();
+      expect(estado.fundido, const Duration(seconds: 8));
+    });
+
+    testWidgets('se elige desde su hoja', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const Scaffold(body: HojaFundido())));
+      expect(find.text('Apagado'), findsOneWidget);
+      await tester.tap(find.text('4 s'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.fundido, const Duration(seconds: 4));
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '4 s')).selected, isTrue);
     });
   });
 

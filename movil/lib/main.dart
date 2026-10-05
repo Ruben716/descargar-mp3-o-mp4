@@ -37,6 +37,7 @@ Future<void> main() async {
   Nucleo.alPulsarWidget = Atajos.pulsarWidget;
   SincroWidget.empezar();
   EstadoReproductor.instancia.recuperarEcualizador();
+  unawaited(EstadoReproductor.instancia.recuperarFundido());
   unawaited(Favoritas.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());

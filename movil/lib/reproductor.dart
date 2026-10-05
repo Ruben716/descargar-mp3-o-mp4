@@ -19,6 +19,7 @@ import 'pantalla_lista_auto.dart';
 import 'paleta.dart';
 import 'panel_letras.dart';
 import 'portadas.dart';
+import 'hoja_fundido.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -144,6 +145,8 @@ class _ReproductorState extends State<Reproductor> {
                 onSelected: (String elegido) {
                   if (elegido == 'compartir') {
                     Nucleo.compartirArchivo(elemento.uri, audio: elemento.audio);
+                  } else if (elegido == 'fundido') {
+                    abrirFundido(context);
                   } else {
                     abrirEcualizador(context);
                   }
@@ -155,6 +158,15 @@ class _ReproductorState extends State<Reproductor> {
                       child: ListTile(
                         leading: Icon(Icons.graphic_eq_rounded),
                         title: Text('Ecualizador'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  if (elemento.audio)
+                    const PopupMenuItem<String>(
+                      value: 'fundido',
+                      child: ListTile(
+                        leading: Icon(Icons.blur_linear_rounded),
+                        title: Text('Fundido entre canciones'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),

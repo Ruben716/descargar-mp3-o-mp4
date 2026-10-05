@@ -35,6 +35,7 @@ class EstadoReproductor extends ChangeNotifier {
     motor.playerStateStream.listen((_) => notifyListeners());
     motor.positionStream.listen((Duration instante) {
       _anotarSiYaCuenta(instante);
+      _aplicarFundido(instante);
       _quizasGuardarSesion();
     });
     // Al saltar de pista dentro de la cola hay que actualizar lo que se ve.
@@ -665,6 +666,106 @@ class EstadoReproductor extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- Fundido entre canciones -------------------------------------------
+
+  /// Donde se guarda cuanto dura el fundido, en segundos.
+  static const String claveFundido = 'fundido_segundos';
+
+  /// Lo que se ofrece: apagado y unos cuantos segundos.
+  static const List<int> segundosDeFundido = <int>[0, 2, 4, 6, 8, 12];
+
+  Duration _fundido = Duration.zero;
+
+  /// Cuanto dura el fundido. Cero, apagado.
+  Duration get fundido => _fundido;
+
+  /// Si la pista empezo viniendo del final de otra, con el volumen bajado.
+  bool _entrando = false;
+  Duration _posicionAnterior = Duration.zero;
+  double _volumen = 1;
+
+  /// Recupera el fundido elegido la ultima vez.
+  Future<void> recuperarFundido() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      _fundido = Duration(seconds: memoria.getInt(claveFundido) ?? 0);
+      notifyListeners();
+    } catch (_) {
+      // Sin preferencias se queda apagado, que es como venia.
+    }
+  }
+
+  Future<void> ponerFundido(Duration duracion) async {
+    _fundido = duracion;
+    _entrando = false;
+    notifyListeners();
+    // Apagarlo a mitad de un fundido no puede dejar la musica baja.
+    if (duracion == Duration.zero) await _ponerVolumen(1);
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.setInt(claveFundido, duracion.inSeconds);
+    } catch (_) {
+      // Dura hasta cerrar la app; no merece un error.
+    }
+  }
+
+  /// El volumen que toca en este punto de la pista, de 0 a 1.
+  ///
+  /// No es un fundido cruzado de verdad (dos canciones sonando a la vez): eso
+  /// exige dos reproductores, y los controles del telefono y la pantalla de
+  /// bloqueo solo saben de uno. Se baja el volumen al final de cada cancion y,
+  /// si la siguiente llega asi, se sube al empezar. Suena parecido y no rompe
+  /// nada de lo demas.
+  ///
+  /// Las pistas muy cortas no se apagan al final: se irian casi enteras.
+  static double volumenConFundido({
+    required Duration posicion,
+    required Duration? total,
+    required Duration fundido,
+    required bool entrando,
+  }) {
+    if (fundido <= Duration.zero) return 1;
+    final int ms = fundido.inMilliseconds;
+    double volumen = 1;
+    if (entrando && posicion < fundido) {
+      volumen = posicion.inMilliseconds / ms;
+    }
+    if (total != null && total > fundido * 2) {
+      final Duration resta = total - posicion;
+      if (resta < fundido) volumen = min(volumen, resta.inMilliseconds / ms);
+    }
+    return volumen.clamp(0.0, 1.0);
+  }
+
+  void _aplicarFundido(Duration posicion) {
+    final Duration antes = _posicionAnterior;
+    _posicionAnterior = posicion;
+    if (_fundido == Duration.zero) return;
+    // Un salto hacia atras con el volumen bajado es una pista que empieza
+    // tras apagarse la otra (o la misma al repetir): sube desde ahi, sin golpe.
+    if (posicion + const Duration(seconds: 2) < antes && _volumen < 0.98) _entrando = true;
+    if (_entrando && posicion >= _fundido) _entrando = false;
+    unawaited(_ponerVolumen(volumenConFundido(
+      posicion: posicion,
+      total: motor.duration,
+      fundido: _fundido,
+      entrando: _entrando,
+    )));
+  }
+
+  Future<void> _ponerVolumen(double volumen) async {
+    // La posicion llega varias veces por segundo: solo se cruza el canal
+    // cuando el cambio se nota, y siempre al volver al maximo.
+    final bool alMaximo = volumen >= 1 && _volumen < 1;
+    if (!alMaximo && (volumen - _volumen).abs() < 0.02) return;
+    _volumen = volumen;
+    try {
+      await motor.setVolume(volumen);
+    } catch (_) {
+      // Un volumen que no se pudo poner se corrige con la siguiente posicion.
+    }
+  }
+
   Pista? _actual;
   Pista? get actual => _actual;
 
@@ -799,6 +900,10 @@ class EstadoReproductor extends ChangeNotifier {
     // siguiente se saltaba el retomado entero sin que se notara.
     _sesionRestaurada = false;
     _restaurando = null;
+    _fundido = Duration.zero;
+    _entrando = false;
+    _posicionAnterior = Duration.zero;
+    _volumen = 1;
     _ordenes = 0;
     _artes.clear();
     _relojSuenio?.cancel();
