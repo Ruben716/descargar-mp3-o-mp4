@@ -79,9 +79,12 @@ jobs:
         env:
           CLAVE: ${{ secrets.DEBUG_KEYSTORE }}
         run: |
-          mkdir -p ~/.android
           if [ -n "$CLAVE" ]; then
-            echo "$CLAVE" | base64 -d > ~/.android/debug.keystore
+            echo "$CLAVE" | tr -d '
+ ' | base64 -d > "$RUNNER_TEMP/firma.keystore"
+            echo "CLAVE_FIRMA=$RUNNER_TEMP/firma.keystore" >> "$GITHUB_ENV"
+            # La huella, para comprobar que es la del PC sin ensenar la clave.
+            keytool -J-Duser.language=en -list -v -keystore "$RUNNER_TEMP/firma.keystore" -storepass android               | grep -m1 SHA256 | sed 's/^/::notice title=Firma::/'
           else
             echo "::warning::Sin el secreto DEBUG_KEYSTORE: el APK no se podra instalar encima del actual."
           fi

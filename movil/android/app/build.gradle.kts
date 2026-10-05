@@ -32,6 +32,20 @@ android {
         }
     }
 
+    // La firma de siempre, la del PC de desarrollo. En GitHub Actions llega en
+    // CLAVE_FIRMA: sin decirle el archivo, la maquina de GitHub firmaba con una
+    // clave suya y el telefono rechazaba el APK como actualizacion.
+    signingConfigs {
+        getByName("debug") {
+            System.getenv("CLAVE_FIRMA")?.takeIf { it.isNotBlank() }?.let { ruta ->
+                storeFile = file(ruta)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
