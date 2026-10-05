@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:descargador_movil/atajos.dart';
 import 'package:descargador_movil/main.dart';
 import 'package:descargador_movil/busqueda.dart';
 import 'package:descargador_movil/calidad.dart';
@@ -62,6 +63,7 @@ void main() {
   Future<void>? frenoBiblioteca;
   /// Lo que otra app le comparte a esta al abrirla.
   String? compartida;
+  String? atajo;
   /// Lo que responde cada fuente al buscar. Las que no esten, nada.
   ///
   /// Buscando en todas a la vez se pregunta a cada una: si todas devolvieran
@@ -91,6 +93,7 @@ void main() {
     biblioteca = '{"ok":true,"elementos":[]}';
     frenoBiblioteca = null;
     compartida = null;
+    atajo = null;
     Nucleo.enlaceCompartido.value = null;
     respuestas = <String, String>{'youtube': _busqueda};
     calidades = <String, String>{};
@@ -118,6 +121,11 @@ void main() {
       }
       return switch (llamada.method) {
         'urlCompartida' => compartida,
+        'atajoPendiente' => () {
+            final String? pendiente = atajo;
+            atajo = null;
+            return pendiente;
+          }(),
         'biblioteca' => biblioteca,
         'buscar' => respuestas[(llamada.arguments as Map<dynamic, dynamic>)['fuente']] ??
             '{"ok":true,"resultados":[]}',
@@ -2275,7 +2283,146 @@ void main() {
       }
       await tester.pump(const Duration(seconds: 1));
       expect(find.text('Bailando'), findsOneWidget);
-      expect(find.text('1 canciones  ·  1:40'), findsOneWidget);
+      expect(find.text('1 cancion  ·  1:40'), findsOneWidget);
+    });
+  });
+
+  group('atajos del icono y widget', () {
+    int pestanaVisible(WidgetTester tester) =>
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
+
+    testWidgets('el atajo Descargar abre esa pestania', (WidgetTester tester) async {
+      atajo = 'descargar';
+      await abrirInicio(tester);
+      await tester.pumpAndSettle();
+
+      expect(pestanaVisible(tester), 1);
+      expect(find.text('Busca o pega un enlace'), findsOneWidget);
+      expect(llamadas.where((MethodCall l) => l.method == 'atajoPendiente'), isNotEmpty);
+    });
+
+    testWidgets('sin atajo la app abre en Inicio como siempre', (WidgetTester tester) async {
+      await abrirInicio(tester);
+      expect(pestanaVisible(tester), 0);
+    });
+
+    testWidgets('Aleatorio sin canciones lo explica en vez de no hacer nada',
+        (WidgetTester tester) async {
+      atajo = 'aleatorio';
+      await abrirInicio(tester);
+      await tester.pumpAndSettle();
+
+      expect(pestanaVisible(tester), 2);
+      expect(find.textContaining('Todavia no tienes canciones'), findsOneWidget);
+      expect(EstadoReproductor.instancia.cola, isEmpty);
+    });
+
+    testWidgets('Me gusta vacio avisa de como llenarlo', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      atajo = 'me_gusta';
+      await abrirInicio(tester);
+      // El catalogo es una base de datos de verdad: necesita tiempo real.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Aun no tienes canciones en Me gusta'), findsOneWidget);
+      expect(EstadoReproductor.instancia.cola, isEmpty);
+    });
+
+    test('quien pide retomar mientras se retoma espera a esa misma vuelta', () async {
+      // Es lo que hace «Continuar»: llega mientras la app ya esta retomando.
+      // Antes la segunda peticion volvia al instante sin nada cargado.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+          'uris': <String>['content://audio/1', 'content://audio/2'],
+          'indice': 1,
+          'posicion': 0,
+        }),
+      });
+      biblioteca = _conCanciones;
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      final Completer<void> puerta = Completer<void>();
+      frenoBiblioteca = puerta.future;
+
+      final Future<void> primera = estado.restaurarSesion();
+      final Future<void> segunda = estado.restaurarSesion();
+      await Future<void>.delayed(Duration.zero);
+      expect(estado.cola, isEmpty, reason: 'aun leyendo la biblioteca');
+      puerta.complete();
+      await segunda;
+
+      expect(estado.actual?.elemento?.uri, 'content://audio/2');
+      await primera;
+    });
+
+    test('continuar sin nada guardado dice que no habia nada', () async {
+      biblioteca = _conCanciones;
+      expect(await EstadoReproductor.instancia.continuar(), isFalse);
+    });
+
+    test('el widget recibe la cancion con tema y artista por separado', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EstadoReproductor.claveSesion: jsonEncode(<String, dynamic>{
+          'uris': <String>['content://audio/2'],
+          'indice': 0,
+          'posicion': 0,
+        }),
+      });
+      biblioteca = '{"ok":true,"elementos":['
+          '{"nombre":"Shakira - Bailando [c2].mp3","tamano":100,"duracion":100,'
+          '"audio":true,"uri":"content://audio/2"}]}';
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      expect(ContenidoWidget.de(estado).titulo, isNull, reason: 'sin nada puesto');
+
+      SincroWidget.reiniciar();
+      addTearDown(SincroWidget.empezar(estado));
+      await estado.restaurarSesion();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final ContenidoWidget ahora = ContenidoWidget.de(estado);
+      expect(ahora.titulo, 'Bailando');
+      expect(ahora.artista, 'Shakira');
+      expect(ahora.sonando, isFalse);
+      final Iterable<MethodCall> pintados =
+          llamadas.where((MethodCall l) => l.method == 'actualizarWidget');
+      expect(pintados.first.arguments['titulo'], isNull, reason: 'primero, cerrado');
+      expect(pintados.last.arguments['titulo'], 'Bailando');
+      expect(pintados.last.arguments['artista'], 'Shakira');
+    });
+
+    test('el widget no se repinta si no cambia lo que ensenia', () async {
+      SincroWidget.reiniciar();
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      addTearDown(SincroWidget.empezar(estado));
+      await Future<void>.delayed(Duration.zero);
+      final int antes = llamadas.where((MethodCall l) => l.method == 'actualizarWidget').length;
+      // Avisos del reproductor que no cambian nada visible.
+      estado.reiniciar();
+      estado.reiniciar();
+      await Future<void>.delayed(Duration.zero);
+      expect(llamadas.where((MethodCall l) => l.method == 'actualizarWidget').length, antes);
+    });
+
+    test('los botones del widget llegan a quien los atiende', () async {
+      final List<String> pulsados = <String>[];
+      Nucleo.escucharVentanaFlotante();
+      Nucleo.alPulsarWidget = (String accion) async => pulsados.add(accion);
+      addTearDown(() => Nucleo.alPulsarWidget = null);
+
+      for (final String boton in <String>['anterior', 'alternar', 'siguiente']) {
+        await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.handlePlatformMessage(
+          _canal.name,
+          _canal.codec.encodeMethodCall(MethodCall('widget', boton)),
+          (ByteData? _) {},
+        );
+      }
+      expect(pulsados, <String>['anterior', 'alternar', 'siguiente']);
+    });
+
+    test('siguiente sin cola no rompe nada', () async {
+      await Atajos.pulsarWidget('siguiente');
+      await Atajos.pulsarWidget('desconocido');
+      expect(EstadoReproductor.instancia.actual, isNull);
     });
   });
 

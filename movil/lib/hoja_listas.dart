@@ -103,7 +103,7 @@ class _HojaAnadirAListaState extends State<HojaAnadirALista> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.queue_music_rounded),
                         title: Text(nombre),
-                        subtitle: Text('${_listas.contenido(nombre).length} canciones'),
+                        subtitle: Text(_cuantas(_listas.contenido(nombre).length)),
                         trailing: const Icon(Icons.playlist_add_rounded, color: Tema.acento),
                         onTap: () => _meterEn(nombre),
                       )
@@ -182,3 +182,5 @@ class _DialogoNuevaListaState extends State<DialogoNuevaLista> {
     );
   }
 }
+
+String _cuantas(int n) => n == 1 ? '1 cancion' : '$n canciones';

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'animaciones.dart';
+import 'atajos.dart';
 
 import 'control_descarga.dart';
 import 'estado_reproductor.dart';
@@ -32,6 +33,9 @@ Future<void> main() async {
   Nucleo.escucharVentanaFlotante();
   // Cerrar la app desde recientes con la musica en pausa la cierra de verdad.
   Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararSiNoSuena;
+  // El widget de la pantalla de inicio: sus botones y lo que ensenia.
+  Nucleo.alPulsarWidget = Atajos.pulsarWidget;
+  SincroWidget.empezar();
   EstadoReproductor.instancia.recuperarEcualizador();
   unawaited(Favoritas.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
@@ -48,6 +52,7 @@ class AplicacionTumbao extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Tumbao',
+      scaffoldMessengerKey: Navegacion.mensajes,
       debugShowCheckedModeBanner: false,
       theme: Tema.construir(),
       home: const Inicio(),
@@ -90,6 +95,13 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     Nucleo.recogerCompartido();
     Navegacion.pestanaPedida.addListener(_alPedirPestana);
+    unawaited(_atenderAtajo());
+  }
+
+  /// El atajo del icono con que se abrio (o se volvio a) la app.
+  Future<void> _atenderAtajo() async {
+    final String? atajo = await Nucleo.atajoPendiente();
+    if (atajo != null && mounted) await Atajos.atender(atajo);
   }
 
   void _alPedirPestana() {
@@ -100,7 +112,10 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Con la app ya abierta, lo compartido llega al volver a primer plano.
-    if (state == AppLifecycleState.resumed) Nucleo.recogerCompartido();
+    if (state == AppLifecycleState.resumed) {
+      Nucleo.recogerCompartido();
+      unawaited(_atenderAtajo());
+    }
   }
 
   void _alRecibirEnlace() {

@@ -3,6 +3,7 @@ package com.ruben.descargador_movil
 import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
@@ -60,6 +61,10 @@ class MainActivity : AudioServiceActivity() {
     @Volatile
     private var urlCompartida: String? = null
 
+    /** Atajo del icono o del widget, a la espera de que Flutter lo atienda. */
+    @Volatile
+    private var atajoPendiente: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recogerEnlace(intent)
@@ -100,6 +105,10 @@ class MainActivity : AudioServiceActivity() {
         }
 
         canalFlutter = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, canal)
+        // El motor sobrevive a la actividad (lo guarda el servicio de audio):
+        // mientras viva, el widget le manda sus botones por este canal.
+        WidgetTumbao.canalVivo = canalFlutter
+        flutterEngine.addEngineLifecycleListener(vigiaDelMotor(applicationContext))
         canalFlutter!!.setMethodCallHandler { llamada, respuesta ->
                 when (llamada.method) {
                     "diagnostico" -> enHilo(respuesta) { puente ->
@@ -233,6 +242,23 @@ class MainActivity : AudioServiceActivity() {
                         puente.callAttr("progreso").toString()
                     }
                     // Flutter la consulta al abrir y al volver del segundo plano.
+                    "atajoPendiente" -> {
+                        val pendiente = atajoPendiente
+                        atajoPendiente = null
+                        respuesta.success(pendiente)
+                    }
+                    "actualizarWidget" -> {
+                        WidgetTumbao.actualizar(
+                            this,
+                            EstadoWidget(
+                                titulo = llamada.argument<String>("titulo"),
+                                artista = llamada.argument<String>("artista") ?: "",
+                                sonando = llamada.argument<Boolean>("sonando") ?: false,
+                                caratula = llamada.argument<String>("caratula"),
+                            ),
+                        )
+                        respuesta.success(null)
+                    }
                     "urlCompartida" -> {
                         val pendiente = urlCompartida
                         urlCompartida = null
@@ -581,6 +607,11 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private fun recogerEnlace(intent: Intent?) {
+        intent?.getStringExtra("atajo")?.let {
+            atajoPendiente = it
+            // Que no se repita al recrear la actividad (al girar, por ejemplo).
+            intent.removeExtra("atajo")
+        }
         if (intent?.action != Intent.ACTION_SEND) return
         val texto = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
         // Lo compartido suele traer titulo y enlace juntos; se queda el enlace.
@@ -904,6 +935,22 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private companion object {
+        /**
+         * Un unico vigilante para todo el proceso: la actividad se recrea y
+         * configureFlutterEngine se repite con el mismo motor, y el motor
+         * guarda sus vigilantes en un conjunto, asi que no se duplica.
+         */
+        private var vigia: FlutterEngine.EngineLifecycleListener? = null
+
+        private fun vigiaDelMotor(contexto: Context): FlutterEngine.EngineLifecycleListener =
+            vigia ?: object : FlutterEngine.EngineLifecycleListener {
+                override fun onPreEngineRestart() {}
+
+                override fun onEngineWillDestroy() {
+                    WidgetTumbao.alMorirFlutter(contexto)
+                }
+            }.also { vigia = it }
+
         /**
          * Carpetas de la biblioteca del telefono, de la actual a la mas vieja.
          *

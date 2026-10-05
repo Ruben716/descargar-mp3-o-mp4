@@ -32,6 +32,10 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Los atajos que salen al mantener pulsado el icono. -->
+            <meta-data
+              android:name="android.app.shortcuts"
+              android:resource="@xml/atajos" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
@@ -63,6 +67,25 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Widget de la pantalla de inicio. Tiene que ser exportado: es el
+             sistema quien le pide que se pinte. -->
+        <receiver
+            android:name=".WidgetTumbao"
+            android:exported="true"
+            android:label="Tumbao">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_tumbao" />
+        </receiver>
+
+        <!-- Los botones del widget. Solo los manda la propia app. -->
+        <receiver
+            android:name=".ReceptorWidget"
+            android:exported="false" />
 
         <!-- stopWithTask="false": por defecto Android detiene el servicio al
              quitar la app de recientes, y con el se llevaba la descarga a

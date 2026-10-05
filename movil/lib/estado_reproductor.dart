@@ -158,7 +158,29 @@ class EstadoReproductor extends ChangeNotifier {
   /// se haya borrado desde la ultima vez se cae de la cola, y el sitio donde
   /// ibas se busca por su URI y no por el numero que tenia, porque si algo de
   /// antes ya no esta ese numero apuntaria a otra cancion.
-  Future<void> restaurarSesion() async {
+  Future<void> restaurarSesion() {
+    // Si ya se esta retomando, quien pregunta espera a esa misma vuelta: el
+    // atajo «Continuar» llega justo mientras la app la esta haciendo.
+    final Future<void>? enCurso = _restaurando;
+    if (enCurso != null) return enCurso;
+    if (_sesionRestaurada || _cola.isNotEmpty) return Future<void>.value();
+    final Future<void> vuelta = _restaurar();
+    _restaurando = vuelta;
+    return vuelta.whenComplete(() => _restaurando = null);
+  }
+
+  Future<void>? _restaurando;
+
+  /// Sigue por donde se quedo. Devuelve si habia algo que seguir.
+  Future<bool> continuar() async {
+    await restaurarSesion();
+    if (_actual == null || _cola.isEmpty) return false;
+    // Sin esperar: play() no vuelve hasta que la musica se para.
+    if (!motor.playing) unawaited(motor.play());
+    return true;
+  }
+
+  Future<void> _restaurar() async {
     if (_sesionRestaurada || _cola.isNotEmpty) return;
     _sesionRestaurada = true;
     final int ordenes = _ordenes;
@@ -776,6 +798,7 @@ class EstadoReproductor extends ChangeNotifier {
     // Sin esto, una prueba que ya retomo la sesion dejaba la marca puesta y la
     // siguiente se saltaba el retomado entero sin que se notara.
     _sesionRestaurada = false;
+    _restaurando = null;
     _ordenes = 0;
     _artes.clear();
     _relojSuenio?.cancel();

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sin refresco periodico (updatePeriodMillis = 0): lo pinta la app cada
+     vez que cambia lo que suena, asi que no gasta bateria esperando. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="180dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="1"
+    android:resizeMode="horizontal"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_tumbao"
+    android:previewLayout="@layout/widget_tumbao"
+    android:previewImage="@mipmap/ic_launcher"
+    android:description="@string/widget_descripcion"
+    android:widgetCategory="home_screen" />

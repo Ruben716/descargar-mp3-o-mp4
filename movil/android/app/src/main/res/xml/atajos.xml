@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Atajos del icono: se ven al mantenerlo pulsado y se pueden arrastrar a la
+     pantalla de inicio. Cada uno abre la app con un extra «atajo» que
+     MainActivity guarda y Flutter recoge al arrancar o al volver. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="aleatorio"
+        android:enabled="true"
+        android:icon="@drawable/atajo_aleatorio"
+        android:shortcutShortLabel="@string/atajo_aleatorio"
+        android:shortcutLongLabel="@string/atajo_aleatorio_largo">
+        <intent
+            android:action="com.ruben.descargador_movil.ATAJO"
+            android:targetPackage="com.ruben.descargador_movil"
+            android:targetClass="com.ruben.descargador_movil.MainActivity">
+            <extra android:name="atajo" android:value="aleatorio" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="me_gusta"
+        android:enabled="true"
+        android:icon="@drawable/atajo_me_gusta"
+        android:shortcutShortLabel="@string/atajo_me_gusta"
+        android:shortcutLongLabel="@string/atajo_me_gusta_largo">
+        <intent
+            android:action="com.ruben.descargador_movil.ATAJO"
+            android:targetPackage="com.ruben.descargador_movil"
+            android:targetClass="com.ruben.descargador_movil.MainActivity">
+            <extra android:name="atajo" android:value="me_gusta" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="continuar"
+        android:enabled="true"
+        android:icon="@drawable/atajo_continuar"
+        android:shortcutShortLabel="@string/atajo_continuar"
+        android:shortcutLongLabel="@string/atajo_continuar_largo">
+        <intent
+            android:action="com.ruben.descargador_movil.ATAJO"
+            android:targetPackage="com.ruben.descargador_movil"
+            android:targetClass="com.ruben.descargador_movil.MainActivity">
+            <extra android:name="atajo" android:value="continuar" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="descargar"
+        android:enabled="true"
+        android:icon="@drawable/atajo_descargar"
+        android:shortcutShortLabel="@string/atajo_descargar"
+        android:shortcutLongLabel="@string/atajo_descargar_largo">
+        <intent
+            android:action="com.ruben.descargador_movil.ATAJO"
+            android:targetPackage="com.ruben.descargador_movil"
+            android:targetClass="com.ruben.descargador_movil.MainActivity">
+            <extra android:name="atajo" android:value="descargar" />
+        </intent>
+    </shortcut>
+</shortcuts>

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 /// Pedir desde cualquier pantalla que se cambie de pestania.
 ///
@@ -12,6 +12,15 @@ class Navegacion {
   static const int biblioteca = 2;
 
   static final ValueNotifier<int?> pestanaPedida = ValueNotifier<int?>(null);
+
+  /// Para avisar sin tener un `context` a mano (los atajos del icono).
+  static final GlobalKey<ScaffoldMessengerState> mensajes = GlobalKey<ScaffoldMessengerState>();
+
+  static void avisar(String texto) {
+    mensajes.currentState?.showSnackBar(
+      SnackBar(behavior: SnackBarBehavior.floating, content: Text(texto)),
+    );
+  }
 
   static void irA(int pestana) {
     // Se pasa por null para que pedir dos veces la misma pestania avise igual.

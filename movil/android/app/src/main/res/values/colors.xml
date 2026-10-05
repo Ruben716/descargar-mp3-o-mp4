@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fondo de los iconos de los atajos: el mismo morado de la app. -->
+    <color name="atajo_fondo">#2A2140</color>
+    <color name="atajo_fondo_me_gusta">#3A1C28</color>
+</resources>

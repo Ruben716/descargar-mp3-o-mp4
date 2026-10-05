@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Atajos: lo que sale al mantener pulsado el icono de la app. -->
+    <string name="atajo_aleatorio">Aleatorio</string>
+    <string name="atajo_aleatorio_largo">Todo en aleatorio</string>
+    <string name="atajo_me_gusta">Me gusta</string>
+    <string name="atajo_me_gusta_largo">Escuchar lo que te gusta</string>
+    <string name="atajo_continuar">Continuar</string>
+    <string name="atajo_continuar_largo">Seguir por donde ibas</string>
+    <string name="atajo_descargar">Descargar</string>
+    <string name="atajo_descargar_largo">Descargar algo nuevo</string>
+
+    <!-- Widget de la pantalla de inicio. -->
+    <string name="widget_descripcion">Lo que suena, con sus controles</string>
+    <string name="widget_sin_nada">Tumbao</string>
+    <string name="widget_toca_para_abrir">Toca para escuchar</string>
+    <string name="widget_anterior">Anterior</string>
+    <string name="widget_alternar">Reproducir o pausar</string>
+    <string name="widget_siguiente">Siguiente</string>
+</resources>

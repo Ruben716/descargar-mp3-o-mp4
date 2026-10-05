@@ -72,7 +72,7 @@ class _PantallaListaAutoState extends State<PantallaListaAuto> {
                   children: <Widget>[
                     Expanded(
                       child: Text(
-                        '${pistas.length} canciones  ·  ${formatoTiempo(segundos)}',
+                        '${pistas.length == 1 ? '1 cancion' : '${pistas.length} canciones'}  ·  ${formatoTiempo(segundos)}',
                         style: const TextStyle(color: Colors.white54, fontSize: 12),
                       ),
                     ),

@@ -182,8 +182,40 @@ class Nucleo {
         enVentanaFlotante.value = llamada.arguments == true;
       }
       if (llamada.method == 'tareaCerrada') await alCerrarTarea?.call();
+      if (llamada.method == 'widget') await alPulsarWidget?.call('${llamada.arguments}');
       return null;
     });
+  }
+
+  /// Un boton del widget de la pantalla de inicio: anterior, alternar o siguiente.
+  static Future<void> Function(String accion)? alPulsarWidget;
+
+  /// El atajo del icono con que se abrio la app, si lo hay. Se entrega una vez.
+  static Future<String?> atajoPendiente() async {
+    try {
+      return await _canal.invokeMethod<String>('atajoPendiente');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Pinta el widget de la pantalla de inicio. Sin titulo, sale como cerrado.
+  static Future<void> actualizarWidget({
+    String? titulo,
+    String artista = '',
+    bool sonando = false,
+    String? caratula,
+  }) async {
+    try {
+      await _canal.invokeMethod<void>('actualizarWidget', <String, dynamic>{
+        'titulo': titulo,
+        'artista': artista,
+        'sonando': sonando,
+        'caratula': caratula,
+      });
+    } catch (_) {
+      // Sin widget (o en un telefono que no los tiene) no pasa nada.
+    }
   }
 
   static Future<String?> urlCompartida() => _canal.invokeMethod<String>('urlCompartida');
