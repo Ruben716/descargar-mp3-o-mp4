@@ -15,6 +15,7 @@ import 'nucleo.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
 import 'pantalla_inicio.dart';
+import 'pantalla_ver.dart';
 import 'tema.dart';
 
 Future<void> main() async {
@@ -181,6 +182,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
             ),
             _siSeHaVisto(1, () => const PantallaDescarga()),
             _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
+            _siSeHaVisto(3, () => const PantallaVer()),
           ],
         ),
           ),
@@ -209,6 +211,11 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
                 icon: Icon(Icons.library_music_outlined),
                 selectedIcon: Icon(Icons.library_music_rounded),
                 label: 'Biblioteca',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.live_tv_outlined),
+                selectedIcon: Icon(Icons.live_tv_rounded),
+                label: 'Ver',
               ),
             ],
           ),

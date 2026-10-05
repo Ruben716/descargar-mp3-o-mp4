@@ -113,6 +113,10 @@ class Nucleo {
   static Future<void> compartirEnlace(String url, {String titulo = ''}) =>
       _pedir('compartirEnlace', <String, dynamic>{'url': url, 'titulo': titulo});
 
+  /// Abre un enlace en su app (Crunchyroll, Netflix...) o en el navegador.
+  static Future<void> abrirEnlace(String url) =>
+      _pedir('abrirEnlace', <String, dynamic>{'url': url});
+
   static Future<Avance> progreso() async => Avance.desdeJson(await _pedir('progreso'));
 
   /// Reescribe titulo y artista de una pista y la renombra.

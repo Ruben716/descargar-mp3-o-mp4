@@ -204,6 +204,9 @@ class MainActivity : AudioServiceActivity() {
                             llamada.argument<Boolean>("audio") ?: true,
                         ),
                     )
+                    "abrirEnlace" -> respuesta.success(
+                        abrirEnlace(llamada.argument<String>("url").orEmpty()),
+                    )
                     "compartirEnlace" -> respuesta.success(
                         compartirEnlace(
                             llamada.argument<String>("url").orEmpty(),
@@ -383,6 +386,19 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /** Comparte el enlace de algo que todavia no esta descargado. */
+    /** Abre la web o la app que la atiende (la de Crunchyroll, por ejemplo). */
+    private fun abrirEnlace(url: String): String {
+        if (!url.startsWith("https://") && !url.startsWith("http://")) {
+            return fallo("Ese enlace no se puede abrir.")
+        }
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            JSONObject().put("ok", true).toString()
+        } catch (error: Exception) {
+            fallo("No hay ninguna app para abrir ese enlace.")
+        }
+    }
+
     private fun compartirEnlace(url: String, titulo: String): String {
         if (url.isEmpty()) return fallo("No hay enlace que compartir.")
         return try {

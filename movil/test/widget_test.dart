@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:descargador_movil/pantalla_episodio.dart';
+import 'package:descargador_movil/pantalla_anime.dart';
+import 'package:descargador_movil/canales_oficiales.dart';
+import 'package:descargador_movil/anime.dart';
 import 'package:descargador_movil/atajos.dart';
 import 'package:descargador_movil/main.dart';
 import 'package:descargador_movil/busqueda.dart';
@@ -70,6 +74,9 @@ void main() {
   /// Buscando en todas a la vez se pregunta a cada una: si todas devolvieran
   /// lo mismo, cada cancion saldria tres veces.
   Map<String, String> respuestas = <String, String>{};
+
+  /// Lo que devuelve cada lista o canal, por su URL. Las que no esten, la de siempre.
+  Map<String, String> listas = <String, String>{};
   /// Lo que responde la comprobacion de calidad, por enlace. Por defecto, lo
   /// que da YouTube de verdad: Opus a 127 kb/s.
   Map<String, String> calidades = <String, String>{};
@@ -97,6 +104,9 @@ void main() {
     atajo = null;
     Nucleo.enlaceCompartido.value = null;
     respuestas = <String, String>{'youtube': _busqueda};
+    listas = <String, String>{};
+    AniList.olvidar();
+    AniList.transporte = (String _) async => _aniListFalso;
     calidades = <String, String>{};
     respuestaDescarga = null;
     PantallaDescargaState.olvidarBusquedas();
@@ -132,9 +142,9 @@ void main() {
             '{"ok":true,"resultados":[]}',
         'calidad' => calidades[(llamada.arguments as Map<dynamic, dynamic>)['url']] ??
             '{"ok":true,"codec":"opus","kbps":127.0,"hz":48000,"sinPerdida":false}',
-        'importarLista' =>
-          '{"ok":true,"titulo":"Mis temas","resultados":'
-              '${_busqueda.substring(_busqueda.indexOf('['), _busqueda.length - 1)}}',
+        'importarLista' => listas[(llamada.arguments as Map<dynamic, dynamic>)['url']] ??
+            '{"ok":true,"titulo":"Mis temas","resultados":'
+                '${_busqueda.substring(_busqueda.indexOf('['), _busqueda.length - 1)}}',
         'caratula' => '{"ok":true,"imagen":""}',
         'previsualizar' =>
           '{"ok":true,"url":"https://cdn/p","titulo":"Cancion uno","cabeceras":{}}',
@@ -2482,6 +2492,204 @@ void main() {
     });
   });
 
+  group('anime gratis y legal', () {
+    final Anime megalobox = AniList.desdeRespuesta(_aniListFalso).first;
+
+    String lista(List<String> videos) =>
+        '{"ok":true,"titulo":"Canal","resultados":[${videos.join(',')}]}';
+    String video(String titulo, String url, {num duracion = 0}) =>
+        '{"titulo":"$titulo","autor":"","duracion":$duracion,"url":"$url","miniatura":""}';
+
+    test('la ficha de AniList se entiende y se limpia', () {
+      expect(megalobox.titulo, 'Megalo Box');
+      expect(megalobox.romaji, 'MEGALOBOX');
+      expect(megalobox.sinopsis, 'Joe pelea por salir de abajo.',
+          reason: 'sin etiquetas ni la nota de la fuente');
+      expect(megalobox.formatoLegible, 'Serie');
+      expect(megalobox.trailerYoutube, 'abc123');
+      expect(megalobox.enlaces.map((EnlaceLegal e) => e.sitio), <String>['Crunchyroll'],
+          reason: 'solo donde se puede ver, no sus redes');
+      expect(megalobox.color, 0xFFE4A15D);
+    });
+
+    test('un error de AniList se cuenta, no se traga', () {
+      expect(
+        () => AniList.desdeRespuesta('{"errors":[{"message":"Too Many Requests"}]}'),
+        throwsA(isA<ErrorCatalogo>()),
+      );
+    });
+
+    test('la temporada sale de la fecha', () {
+      expect(AniList.temporadaDe(DateTime(2026, 10, 5)), (temporada: 'FALL', anio: 2026));
+      expect(AniList.temporadaDe(DateTime(2027, 1, 20)), (temporada: 'WINTER', anio: 2027));
+      expect(AniList.temporadaDe(DateTime(2026, 6, 30)).temporada, 'SPRING');
+    });
+
+    test('se busca con el nombre corto, sin subtitulo ni temporada', () {
+      expect(CanalesOficiales.corto('Lupin III: Part 4'), 'Lupin III');
+      expect(CanalesOficiales.corto("Frieren: Beyond Journey's End"), 'Frieren');
+      expect(CanalesOficiales.corto('Attack on Titan Season 2'), 'Attack on Titan');
+      expect(CanalesOficiales.consultas(megalobox), <String>['Megalo Box', 'MEGALOBOX']);
+    });
+
+    test('reconoce sus videos aunque esten escritos distinto, y no los de otros', () {
+      expect(CanalesOficiales.esDe('MEGALOBOX (Español Latino) | Joe salva Sachio', megalobox), isTrue);
+      expect(CanalesOficiales.esDe('Megalo Box - Capítulo 1', megalobox), isTrue);
+      expect(CanalesOficiales.esDe('LUPIN III Parte 6 | Capítulo 1', megalobox), isFalse);
+    });
+
+    test('de los canales salen sus listas y sus episodios completos, sin clips ni ajenos', () async {
+      final String tms = CanalesOficiales.canales.first.buscarUrl('MEGALOBOX');
+      listas = <String, String>{
+        tms: lista(<String>[
+          video('MEGALOBOX (Español Latino)', 'https://www.youtube.com/playlist?list=PL1'),
+          video('MEGALOBOX | Joe vs Yuri', 'https://www.youtube.com/watch?v=clip', duracion: 173),
+          video('MEGALOBOX | Capítulo 1', 'https://www.youtube.com/watch?v=ep1', duracion: 1440),
+          video('Lady Oscar | Capítulo 1', 'https://www.youtube.com/watch?v=otro', duracion: 1455),
+        ]),
+      };
+
+      final OfertaGratis oferta = await CanalesOficiales.buscar(megalobox);
+
+      expect(oferta.series.map((Resultado r) => r.titulo), <String>['MEGALOBOX (Español Latino)']);
+      expect(oferta.series.single.autor, 'TMS Anime Latino', reason: 'se sabe de que canal es');
+      expect(oferta.episodios.map((Resultado r) => r.url), <String>['https://www.youtube.com/watch?v=ep1']);
+      final Iterable<String> pedidas = llamadas
+          .where((MethodCall l) => l.method == 'importarLista')
+          .map((MethodCall l) => '${(l.arguments as Map<dynamic, dynamic>)['url']}');
+      expect(pedidas.every((String u) => u.contains('/search?query=')), isTrue,
+          reason: 'se busca dentro de cada canal, nunca en todo YouTube');
+      expect(pedidas.length, CanalesOficiales.canales.length * 2);
+    });
+
+    test('un canal que falla no deja sin los demas', () async {
+      listas = <String, String>{
+        CanalesOficiales.canales[0].buscarUrl('Megalo Box'): '{"ok":false,"error":"sin red"}',
+        CanalesOficiales.canales[1].buscarUrl('Megalo Box'):
+            lista(<String>[video('Megalo Box ep 1', 'https://www.youtube.com/watch?v=g1', duracion: 1400)]),
+      };
+      final OfertaGratis oferta = await CanalesOficiales.buscar(megalobox);
+      expect(oferta.episodios.single.autor, 'Gundam Channel');
+    });
+
+    test('de una lista quedan los episodios, sin borrados ni avances', () async {
+      const Resultado serie = Resultado(
+        titulo: 'Lady Oscar',
+        autor: 'TMS Anime Latino',
+        duracion: 0,
+        url: 'https://www.youtube.com/playlist?list=PL2',
+      );
+      listas = <String, String>{
+        serie.url: lista(<String>[
+          video('Lady Oscar | Avance', 'https://www.youtube.com/watch?v=a', duracion: 60),
+          video('(sin título)', 'https://www.youtube.com/watch?v=borrado'),
+          video('Lady Oscar | Capítulo 1', 'https://www.youtube.com/watch?v=c1', duracion: 1455),
+          video('Lady Oscar | Capítulo 2', 'https://www.youtube.com/watch?v=c2', duracion: 1455),
+        ]),
+      };
+      final ({List<Resultado> episodios, bool soloClips}) r = await CanalesOficiales.episodiosDe(serie);
+      expect(r.soloClips, isFalse);
+      expect(r.episodios.map((Resultado e) => e.url), <String>[
+        'https://www.youtube.com/watch?v=c1',
+        'https://www.youtube.com/watch?v=c2',
+      ]);
+      expect(r.episodios.first.autor, 'TMS Anime Latino');
+
+      listas[serie.url] = lista(<String>[video('Tráiler', 'https://www.youtube.com/watch?v=t', duracion: 90)]);
+      final ({List<Resultado> episodios, bool soloClips}) clips = await CanalesOficiales.episodiosDe(serie);
+      expect(clips.soloClips, isTrue, reason: 'se dice, en vez de ensenar una lista vacia');
+      expect(clips.episodios, hasLength(1));
+    });
+
+    test('el anime se baja como video aunque la app este en musica', () async {
+      final ControlDescarga control = ControlDescarga.instancia;
+      expect(control.ajustes.soloAudio, isTrue);
+
+      await descargarComoVideo(<String>['https://www.youtube.com/watch?v=ep1']);
+
+      final MethodCall bajada = llamadas.lastWhere((MethodCall l) => l.method == 'descargar');
+      expect((bajada.arguments as Map<dynamic, dynamic>)['soloAudio'], isFalse);
+      expect(control.ajustes.soloAudio, isTrue, reason: 'lo elegido para la musica no se toca');
+    });
+
+    testWidgets('la pestania Ver ensenia el anime y las series gratis', (WidgetTester tester) async {
+      listas = <String, String>{
+        CanalesOficiales.conSeries.first.listasUrl:
+            lista(<String>[video('Lady Oscar | Subtítulo Español', 'https://www.youtube.com/playlist?list=PL2')]),
+      };
+      await abrirInicio(tester);
+      await tester.tap(find.text('Ver').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('COMPLETAS Y GRATIS'), findsOneWidget);
+      expect(find.text('Lady Oscar | Subtítulo Español'), findsOneWidget);
+      expect(find.text('ESTA TEMPORADA'), findsOneWidget);
+      expect(find.text('Megalo Box'), findsWidgets);
+
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Peliculas'));
+      await tester.pumpAndSettle();
+      expect(find.text('Peliculas: muy pronto'), findsOneWidget);
+    });
+
+    testWidgets('buscar un anime ensenia lo que encuentra', (WidgetTester tester) async {
+      String? pedido;
+      AniList.transporte = (String cuerpo) async {
+        pedido = cuerpo;
+        return _aniListFalso;
+      };
+      await abrirInicio(tester);
+      await tester.tap(find.text('Ver').last);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'megalo');
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      expect(pedido, contains('"q":"megalo"'));
+      expect(find.text('ESTA TEMPORADA'), findsNothing);
+      expect(find.text('Frieren'), findsOneWidget);
+    });
+
+    testWidgets('sin AniList se explica y se puede reintentar', (WidgetTester tester) async {
+      AniList.transporte = (String _) async => throw const ErrorCatalogo('Sin conexion a internet.');
+      await abrirInicio(tester);
+      await tester.tap(find.text('Ver').last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sin conexion a internet.'), findsWidgets);
+      expect(find.text('Reintentar'), findsWidgets);
+    });
+
+    testWidgets('la ficha ensenia lo gratis y donde verla', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      listas = <String, String>{
+        CanalesOficiales.canales.first.buscarUrl('MEGALOBOX'):
+            lista(<String>[video('MEGALOBOX (Español Latino)', 'https://www.youtube.com/playlist?list=PL1')]),
+      };
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaAnime(anime: megalobox)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Joe pelea por salir de abajo.'), findsOneWidget);
+      expect(find.text('Ver trailer'), findsOneWidget);
+      expect(find.text('MEGALOBOX (Español Latino)'), findsOneWidget);
+      expect(find.text('Lista oficial · TMS Anime Latino'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Crunchyroll'), 200);
+      expect(find.text('DONDE VERLA'), findsOneWidget);
+    });
+
+    testWidgets('si no esta gratis lo dice claro', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      listas = <String, String>{
+        for (final CanalOficial canal in CanalesOficiales.canales)
+          for (final String c in CanalesOficiales.consultas(megalobox)) canal.buscarUrl(c): lista(<String>[]),
+      };
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaAnime(anime: megalobox)));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('no esta gratis en los canales oficiales'), findsOneWidget);
+    });
+  });
+
   group('que es lo escrito', () {
     test('nada, texto o enlace', () {
       expect(Entrada.de('   ').tipo, TipoEntrada.vacia);
@@ -3041,3 +3249,15 @@ const String _conCanciones = '{"ok":true,"elementos":['
     '{"nombre":"Corazon Partio [c1].mp3","tamano":100,"duracion":300,"audio":true,"uri":"content://audio/1"},'
     '{"nombre":"Bailando [c2].mp3","tamano":100,"duracion":100,"audio":true,"uri":"content://audio/2"},'
     '{"nombre":"Amame [c3].mp3","tamano":100,"duracion":200,"audio":true,"uri":"content://audio/3"}]}';
+
+/// Lo que responde AniList, con un anime completo y otro minimo.
+const String _aniListFalso = '{"data":{"Page":{"media":['
+    '{"id":1,"title":{"romaji":"MEGALOBOX","english":"Megalo Box","native":"メガロボクス"},'
+    '"synonyms":["Megalobox"],"coverImage":{"large":"","color":"#e4a15d"},"bannerImage":"",'
+    '"description":"Joe pelea por <i>salir</i> de abajo.<br><br>(Source: Crunchyroll)",'
+    '"genres":["Action","Drama"],"episodes":13,"averageScore":79,"seasonYear":2018,'
+    '"format":"TV","status":"FINISHED","trailer":{"id":"abc123","site":"youtube"},'
+    '"externalLinks":[{"site":"Crunchyroll","url":"https://www.crunchyroll.com/megalobox",'
+    '"type":"STREAMING"},{"site":"Twitter","url":"https://x.com/m","type":"SOCIAL"}]},'
+    '{"id":2,"title":{"romaji":"Frieren","english":null,"native":null},"coverImage":{}}'
+    ']}}}';

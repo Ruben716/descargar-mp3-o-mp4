@@ -164,7 +164,7 @@ class ControlDescarga extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> iniciar(String url) => iniciarVarios(<String>[url]);
+  Future<void> iniciar(String url, {Ajustes? con}) => iniciarVarios(<String>[url], con: con);
 
   /// Descarga una lista entera, una detras de otra.
   ///
@@ -177,8 +177,12 @@ class ControlDescarga extends ChangeNotifier {
   /// arriesga que YouTube empiece a rechazar peticiones.
   static const int simultaneas = 3;
 
-  Future<void> iniciarVarios(List<String> urls, {String nombreLista = ''}) async {
+  ///
+  /// Con [con] se baja con esos ajustes sin tocar los guardados: el anime
+  /// siempre como video aunque la app este puesta en musica.
+  Future<void> iniciarVarios(List<String> urls, {String nombreLista = '', Ajustes? con}) async {
     if (_activa || urls.isEmpty) return;
+    final Ajustes usados = con ?? ajustes;
     _activa = true;
     _cancelado = false;
     _indice = 0;
@@ -209,7 +213,7 @@ class ControlDescarga extends ChangeNotifier {
         try {
           final String? ya = await Catalogo.instancia.buscar(
             url,
-            audio: ajustes.soloAudio,
+            audio: usados.soloAudio,
           );
           if (ya != null && enBiblioteca.contains(ya)) {
             // Ya esta bajada: se aprovecha y solo entra en la lista.
@@ -221,11 +225,11 @@ class ControlDescarga extends ChangeNotifier {
           }
           // En un lote no avisa cada pista: al final se manda uno solo.
           final ({List<String> archivos, CalidadAudio? origen}) bajada =
-              await Nucleo.descargar(ajustes.copiar(url: url), avisar: !esLote);
+              await Nucleo.descargar(usados.copiar(url: url), avisar: !esLote);
           final List<String> nuevos = bajada.archivos;
           guardados.addAll(nuevos);
           for (final String uri in nuevos) {
-            await Catalogo.instancia.registrar(url, audio: ajustes.soloAudio, uri: uri);
+            await Catalogo.instancia.registrar(url, audio: usados.soloAudio, uri: uri);
             // Para poder decir despues, sin inventar, de donde salio el sonido.
             final CalidadAudio? origen = bajada.origen;
             if (origen != null) await Catalogo.instancia.anotarCalidad(uri, origen);
@@ -251,9 +255,9 @@ class ControlDescarga extends ChangeNotifier {
       await Future.wait(List<Future<void>>.generate(cuantos, (_) => trabajador()));
       await _recrearLista(nombreLista, guardados);
       _ultimas = List<String>.unmodifiable(guardados);
-      _ultimasSonAudio = ajustes.soloAudio;
+      _ultimasSonAudio = usados.soloAudio;
       if (esLote && correctas > 0) {
-        await Nucleo.avisarLote(correctas, audio: ajustes.soloAudio);
+        await Nucleo.avisarLote(correctas, audio: usados.soloAudio);
       }
       _resumen(correctas, fallidas, reutilizadas, ultimoError);
     } finally {

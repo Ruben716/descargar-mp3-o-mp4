@@ -10,6 +10,7 @@ class Navegacion {
   static const int inicio = 0;
   static const int descargar = 1;
   static const int biblioteca = 2;
+  static const int ver = 3;
 
   static final ValueNotifier<int?> pestanaPedida = ValueNotifier<int?>(null);
 
