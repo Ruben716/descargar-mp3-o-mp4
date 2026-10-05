@@ -18,9 +18,10 @@ class Catalogo {
   static const String _tablaLetras = 'letras';
   static const String _tablaEscuchas = 'escuchas';
   static const String _tablaCalidades = 'calidades';
+  static const String _tablaFavoritas = 'favoritas';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 6;
+  static const int _version = 7;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -74,11 +75,21 @@ class Catalogo {
     )
   ''';
 
+  /// Lo que se marco con el corazon, y cuando: «Me gusta» va de lo ultimo
+  /// marcado a lo primero.
+  static const String _esquemaFavoritas = '''
+    CREATE TABLE favoritas (
+      uri TEXT PRIMARY KEY,
+      fecha INTEGER NOT NULL
+    )
+  ''';
+
   static Future<void> _crear(Database bd) async {
     await bd.execute(_esquema);
     await bd.execute(_esquemaLetras);
     await bd.execute(_esquemaEscuchas);
     await bd.execute(_esquemaCalidades);
+    await bd.execute(_esquemaFavoritas);
   }
 
   static Future<void> _migrar(Database bd, int desde, int hasta) async {
@@ -104,6 +115,8 @@ class Catalogo {
     // bits; solo a una tabla creada en la 5 hay que anadirsela.
     if (desde < 5) await bd.execute(_esquemaCalidades);
     if (desde == 5) await bd.execute('ALTER TABLE $_tablaCalidades ADD COLUMN bits INTEGER');
+    // Solo se anade una tabla: lo que ya habia no se toca.
+    if (desde < 7) await bd.execute(_esquemaFavoritas);
   }
 
   /// Apunta de que calidad llego una descarga.
@@ -221,6 +234,7 @@ class Catalogo {
     await bd.delete(_tablaLetras, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaEscuchas, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaCalidades, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaFavoritas, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
   Future<int> cuantas() async {
@@ -316,6 +330,60 @@ class Catalogo {
     return filas.isEmpty ? 0 : (filas.first['veces'] as int? ?? 0);
   }
 
+  /// De lo ultimo escuchado a lo mas antiguo: el historial.
+  Future<List<String>> recientes({int limite = 50}) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaEscuchas,
+      columns: <String>['uri'],
+      orderBy: 'ultima DESC',
+      limit: limite,
+    );
+    return <String>[for (final Map<String, Object?> f in filas) f['uri']! as String];
+  }
+
+  /// Todo lo que se ha escuchado alguna vez, para saber lo que no.
+  Future<Set<String>> escuchadas() async {
+    final List<Map<String, Object?>> filas =
+        await (await _abierta).query(_tablaEscuchas, columns: <String>['uri']);
+    return <String>{for (final Map<String, Object?> f in filas) f['uri']! as String};
+  }
+
+  /// Lo que se bajo sin perdida (FLAC, WAV...), segun la calidad de origen.
+  Future<List<String>> sinPerdida() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaCalidades,
+      columns: <String>['uri'],
+      where: "codec IN ('flac', 'alac', 'wav', 'pcm', 'aiff')",
+      orderBy: 'fecha DESC',
+    );
+    return <String>[for (final Map<String, Object?> f in filas) f['uri']! as String];
+  }
+
+  // --- Me gusta ---------------------------------------------------------------
+
+  /// Lo marcado con el corazon, de lo ultimo a lo primero.
+  Future<List<String>> favoritas() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tablaFavoritas,
+      columns: <String>['uri'],
+      orderBy: 'fecha DESC',
+    );
+    return <String>[for (final Map<String, Object?> f in filas) f['uri']! as String];
+  }
+
+  Future<void> marcarFavorita(String uri, {required bool favorita}) async {
+    final Database bd = await _abierta;
+    if (favorita) {
+      await bd.insert(
+        _tablaFavoritas,
+        <String, Object>{'uri': uri, 'fecha': DateTime.now().millisecondsSinceEpoch},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } else {
+      await bd.delete(_tablaFavoritas, where: 'uri = ?', whereArgs: <Object>[uri]);
+    }
+  }
+
   /// Solo para las pruebas: base en memoria y sin filas.
   ///
   /// Se abre una sola vez y luego se vacia. Cerrarla entre prueba y prueba
@@ -325,5 +393,7 @@ class Catalogo {
     await (await _abierta).delete(_tabla);
     await (await _abierta).delete(_tablaLetras);
     await (await _abierta).delete(_tablaEscuchas);
+    await (await _abierta).delete(_tablaCalidades);
+    await (await _abierta).delete(_tablaFavoritas);
   }
 }

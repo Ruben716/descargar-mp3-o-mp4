@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'animaciones.dart';
 
 import 'estado_reproductor.dart';
+import 'favoritas.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'portadas.dart';
@@ -65,7 +66,8 @@ class FilaPista extends StatelessWidget {
     final EstadoReproductor estado = EstadoReproductor.instancia;
     final ({String artista, String tema}) partes = elemento.partes;
     return ListenableBuilder(
-      listenable: estado,
+      // Tambien las favoritas: el corazon de la fila cambia al marcarla.
+      listenable: Listenable.merge(<Listenable>[estado, Favoritas.instancia]),
       builder: (BuildContext context, _) {
         final bool activo = estado.esActual(elemento.uri);
         return Padding(
@@ -105,13 +107,24 @@ class FilaPista extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 3),
-                          Text(
-                            partes.artista.isEmpty
-                                ? formatoTiempo(elemento.duracion)
-                                : '${partes.artista}  ·  ${formatoTiempo(elemento.duracion)}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                          Row(
+                            children: <Widget>[
+                              if (Favoritas.instancia.contiene(elemento.uri))
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 4),
+                                  child: Icon(Icons.favorite_rounded, size: 12, color: Color(0xFFFF6B81)),
+                                ),
+                              Expanded(
+                                child: Text(
+                                  partes.artista.isEmpty
+                                      ? formatoTiempo(elemento.duracion)
+                                      : '${partes.artista}  ·  ${formatoTiempo(elemento.duracion)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),

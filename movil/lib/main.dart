@@ -7,6 +7,7 @@ import 'animaciones.dart';
 
 import 'control_descarga.dart';
 import 'estado_reproductor.dart';
+import 'favoritas.dart';
 import 'mini_reproductor.dart';
 import 'navegacion.dart';
 import 'nucleo.dart';
@@ -32,6 +33,7 @@ Future<void> main() async {
   // Cerrar la app desde recientes con la musica en pausa la cierra de verdad.
   Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararSiNoSuena;
   EstadoReproductor.instancia.recuperarEcualizador();
+  unawaited(Favoritas.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());
   // Sin esperarla: deja la cola como estaba, parada, mientras la app abre.

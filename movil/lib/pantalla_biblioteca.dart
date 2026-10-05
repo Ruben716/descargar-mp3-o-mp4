@@ -4,6 +4,7 @@ import 'catalogo.dart';
 import 'dialogo_etiquetas.dart';
 import 'estado_reproductor.dart';
 import 'dialogos.dart';
+import 'favoritas.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
 import 'hoja_listas.dart';
@@ -13,6 +14,7 @@ import 'nucleo.dart';
 import 'paleta.dart';
 import 'pantalla_artista.dart';
 import 'pantalla_lista.dart';
+import 'pantalla_lista_auto.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
@@ -164,6 +166,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
       Paleta.olvidar(elemento.uri);
       await EstadoReproductor.instancia.olvidarSiEs(elemento.uri);
       await _listas.olvidar(elemento.uri);
+      Favoritas.instancia.olvidar(elemento.uri);
       // Sin esto el catalogo seguiria creyendo que la tenemos y no se
       // volveria a descargar nunca.
       await Catalogo.instancia.olvidar(elemento.uri);
@@ -289,6 +292,14 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
   }
 
   List<AccionPista> _accionesDe(Elemento elemento) => <AccionPista>[
+    if (elemento.audio)
+      AccionPista(
+        icono: Favoritas.instancia.contiene(elemento.uri)
+            ? Icons.favorite_rounded
+            : Icons.favorite_border_rounded,
+        texto: Favoritas.instancia.contiene(elemento.uri) ? 'Quitar de Me gusta' : 'Me gusta',
+        alElegir: () => Favoritas.instancia.alternar(elemento.uri),
+      ),
     AccionPista(
       icono: Icons.playlist_add_rounded,
       texto: 'Anadir a lista',
@@ -542,37 +553,104 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
 
   Widget _seccionListas() {
     final List<String> nombres = _nombresListas;
-    return Column(
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 20),
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _crearLista,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Nueva lista'),
+        // Las que se hacen solas, en fichas que se deslizan a los lados.
+        SizedBox(
+          height: 112,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            children: <Widget>[
+              for (final ListaAuto lista in ListaAuto.values)
+                _FichaListaAuto(lista: lista, biblioteca: _elementos),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, 8),
+          child: Text(
+            'TUS LISTAS',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+              color: Colors.white54,
             ),
           ),
         ),
-        Expanded(
-          child: nombres.isEmpty
-              ? const _Vacio(
-                  texto: 'Todavia no tienes listas.\n'
-                      'Crea una, o baja una entera desde un enlace.',
-                  icono: Icons.queue_music_rounded,
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  itemCount: nombres.length,
-                  itemBuilder: (BuildContext context, int i) => _FilaLista(
-                    nombre: nombres[i],
-                    biblioteca: _elementos,
-                    alBorrar: () => _borrarLista(nombres[i]),
-                  ),
-                ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: OutlinedButton.icon(
+            onPressed: _crearLista,
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Nueva lista'),
+          ),
         ),
+        if (nombres.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(32, 24, 32, 0),
+            child: Text(
+              'Todavia no tienes listas.\nCrea una, o baja una entera desde un enlace.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white54, height: 1.5),
+            ),
+          )
+        else
+          for (final String nombre in nombres)
+            _FilaLista(
+              nombre: nombre,
+              biblioteca: _elementos,
+              alBorrar: () => _borrarLista(nombre),
+            ),
       ],
+    );
+  }
+}
+
+/// Una lista automatica, como ficha: su icono, su nombre y cuantas tiene.
+class _FichaListaAuto extends StatelessWidget {
+  const _FichaListaAuto({required this.lista, required this.biblioteca});
+
+  final ListaAuto lista;
+  final List<Elemento> biblioteca;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: Material(
+        color: lista.color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PantallaListaAuto(lista: lista, biblioteca: biblioteca),
+            ),
+          ),
+          child: SizedBox(
+            width: 128,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: <Widget>[
+                  Icon(lista.icono, color: lista.color, size: 28),
+                  Text(
+                    lista.titulo,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, height: 1.2),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

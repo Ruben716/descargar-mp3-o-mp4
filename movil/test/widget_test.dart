@@ -14,6 +14,7 @@ import 'package:descargador_movil/estado_reproductor.dart';
 import 'package:descargador_movil/hoja_descarga.dart';
 import 'package:descargador_movil/lista_secciones.dart';
 import 'package:descargador_movil/listas.dart';
+import 'package:descargador_movil/favoritas.dart';
 import 'package:descargador_movil/fila_pista.dart';
 import 'package:descargador_movil/formato.dart';
 import 'package:descargador_movil/letras.dart';
@@ -102,6 +103,7 @@ void main() {
     EstadoReproductor.instancia.reiniciar();
     ControlDescarga.instancia.reiniciar();
     Listas.instancia.reiniciar();
+    Favoritas.instancia.reiniciar();
     Nucleo.olvidarCaratulas();
     Paleta.vaciar();
     await Catalogo.instancia.usarEnMemoria();
@@ -1103,7 +1105,7 @@ void main() {
     try {
       // Salta cinco versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 6);
+      expect(await nueva.getVersion(), 7);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -1111,6 +1113,7 @@ void main() {
       expect(await nueva.query('letras'), isEmpty);
       expect(await nueva.query('escuchas'), isEmpty);
       expect(await nueva.query('calidades'), isEmpty);
+      expect(await nueva.query('favoritas'), isEmpty);
     } finally {
       await nueva.close();
       await temporal.delete(recursive: true);
@@ -1251,7 +1254,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 6);
+      expect(await nueva.getVersion(), 7);
       final List<Map<String, Object?>> filas = await nueva.query('calidades');
       expect(filas.single['codec'], 'opus', reason: 'lo anotado no se pierde');
       expect(filas.single.containsKey('bits'), isTrue, reason: 'y la columna nueva ya esta');
@@ -1289,7 +1292,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 6);
+      expect(await nueva.getVersion(), 7);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
@@ -2214,6 +2217,59 @@ void main() {
         unorderedEquals(<String>['content://audio/2', 'content://audio/3']));
     expect(find.text('2 anadidas a «Favoritas»'), findsOneWidget);
     expect(find.text('Buscar en lo que tienes'), findsOneWidget, reason: 'sale del modo seleccion');
+  });
+
+  group('me gusta y listas automaticas', () {
+    test('el corazon se guarda y «Me gusta» va de lo ultimo a lo primero', () async {
+      final Favoritas favoritas = Favoritas.instancia;
+      expect(await favoritas.alternar('content://audio/1'), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(await favoritas.alternar('content://audio/3'), isTrue);
+      expect(favoritas.contiene('content://audio/1'), isTrue);
+
+      final List<Elemento> me = await ListaAuto.meGusta.pistas(_biblioteca3);
+      expect(me.map((Elemento e) => e.uri).toList(), <String>['content://audio/3', 'content://audio/1']);
+
+      expect(await favoritas.alternar('content://audio/1'), isFalse, reason: 'se desmarca');
+      expect((await ListaAuto.meGusta.pistas(_biblioteca3)).length, 1);
+    });
+
+    test('lo escuchado sale en recientes y lo demas en sin escuchar', () async {
+      await Catalogo.instancia.anotarEscucha('content://audio/2');
+      final List<Elemento> oidas = await ListaAuto.recientes.pistas(_biblioteca3);
+      final List<Elemento> sin = await ListaAuto.nuncaEscuchadas.pistas(_biblioteca3);
+      expect(oidas.map((Elemento e) => e.uri), <String>['content://audio/2']);
+      expect(sin.map((Elemento e) => e.uri), <String>['content://audio/1', 'content://audio/3']);
+    });
+
+    test('sin perdida sale de la calidad con que llego cada cancion', () async {
+      await Catalogo.instancia.anotarCalidad('content://audio/3', const CalidadAudio(codec: 'flac'));
+      await Catalogo.instancia.anotarCalidad('content://audio/1', const CalidadAudio(codec: 'opus', kbps: 127));
+      final List<Elemento> enteras = await ListaAuto.sinPerdida.pistas(_biblioteca3);
+      expect(enteras.map((Elemento e) => e.uri), <String>['content://audio/3']);
+    });
+
+    test('borrar una descarga la quita de Me gusta', () async {
+      await Favoritas.instancia.alternar('content://audio/2');
+      await Catalogo.instancia.olvidar('content://audio/2');
+      expect(await Catalogo.instancia.favoritas(), isEmpty);
+    });
+
+    testWidgets('las listas automaticas salen en Listas y se abren', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await Favoritas.instancia.alternar('content://audio/2');
+      await abrirBiblioteca(tester);
+      await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Listas'));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Listas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Me gusta'), findsOneWidget);
+      expect(find.text('TUS LISTAS'), findsOneWidget);
+      await tester.tap(find.text('Me gusta'));
+      await tester.pumpAndSettle();
+      expect(find.text('Bailando'), findsOneWidget);
+      expect(find.text('1 canciones  ·  1:40'), findsOneWidget);
+    });
   });
 
   group('que es lo escrito', () {

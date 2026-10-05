@@ -14,6 +14,7 @@ import 'hoja_cola.dart';
 import 'hoja_ecualizador.dart';
 import 'hoja_suenio.dart';
 import 'nucleo.dart';
+import 'pantalla_lista_auto.dart';
 import 'paleta.dart';
 import 'panel_letras.dart';
 import 'portadas.dart';
@@ -118,6 +119,7 @@ class _ReproductorState extends State<Reproductor> {
             ),
             actions: <Widget>[
               if (elemento.audio) ...<Widget>[
+                BotonMeGusta(uri: elemento.uri, color: Theme.of(context).colorScheme.primary),
                 IconButton(
                   tooltip: _letras ? 'Ver la caratula' : 'Ver la letra',
                   onPressed: () => setState(() => _letras = !_letras),
