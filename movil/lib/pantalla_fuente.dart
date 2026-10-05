@@ -344,6 +344,7 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
   VideoPlayerController? _motor;
   String? _error;
   bool _cargando = false;
+  int _colchon = 0;
 
   @override
   void dispose() {
@@ -361,6 +362,7 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
     setState(() {
       _cargando = true;
       _error = null;
+      _colchon = 0;
     });
     try {
       final StreamResuelto resuelto = await FuenteAnime.resolver(servidor.url);
@@ -370,6 +372,13 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
         formatHint: resuelto.url.contains('m3u8') ? VideoFormat.hls : null,
       );
       await motor.initialize().timeout(const Duration(seconds: 20));
+      if (!mounted) {
+        await motor.dispose();
+        return;
+      }
+      // Colchon: antes de arrancar, deja cargar varios segundos por delante.
+      // Es lo que evita el "3 s y se corta" en conexiones justas.
+      await _esperarColchon(motor);
       if (!mounted) {
         await motor.dispose();
         return;
@@ -390,6 +399,29 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
       // se reproduce dentro con el reproductor de la propia web.
       _abrirWeb(servidor);
     }
+  }
+
+  /// Espera a tener bastante video cargado por delante antes de reproducir.
+  Future<void> _esperarColchon(VideoPlayerController motor) async {
+    const Duration objetivo = Duration(seconds: 30);
+    const Duration tope = Duration(seconds: 40);
+    final DateTime inicio = DateTime.now();
+    while (mounted && motor.value.isInitialized) {
+      final Duration porDelante = _finCargado(motor.value) - motor.value.position;
+      setState(() => _colchon = porDelante.inSeconds);
+      if (porDelante >= objetivo) break;
+      if (DateTime.now().difference(inicio) > tope) break;
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    }
+  }
+
+  /// Hasta donde llega lo ya cargado.
+  Duration _finCargado(VideoPlayerValue valor) {
+    Duration fin = Duration.zero;
+    for (final DurationRange rango in valor.buffered) {
+      if (rango.end > fin) fin = rango.end;
+    }
+    return fin;
   }
 
   /// Reproduce el servidor con su reproductor, dentro de la app (WebView).
@@ -477,9 +509,23 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
   Widget _reproductor() {
     final VideoPlayerController? motor = _motor;
     if (_cargando) {
-      return const AspectRatio(
+      return AspectRatio(
         aspectRatio: 16 / 9,
-        child: Center(child: CircularProgressIndicator()),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const CircularProgressIndicator(),
+              const SizedBox(height: 12),
+              Text(
+                _colchon > 0
+                    ? 'Cargando video... ${_colchon}s en colchon'
+                    : 'Cargando video...',
+                style: const TextStyle(color: Colors.white54),
+              ),
+            ],
+          ),
+        ),
       );
     }
     if (motor == null || !motor.value.isInitialized) {
