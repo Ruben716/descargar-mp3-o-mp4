@@ -8,7 +8,8 @@ name: APK
 
 on:
   push:
-    # ademas de movil, la rama de trabajo del anime en espanol
+    # ademas de movil, la rama de trabajo del anime en espanol.
+    # (Reintento tras la caida de Actions del 5 de octubre.)
     branches: [movil, anime-fuentes]
     paths: ["movil/**", "descargador/**", "tests/**", ".github/workflows/apk.yml"]
   workflow_dispatch:
