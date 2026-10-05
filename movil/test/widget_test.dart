@@ -259,6 +259,7 @@ void main() {
 
     expect(find.text('Cancion dos'), findsOneWidget, reason: 'la lista sigue ahi');
     expect(find.text('Guardado en tu biblioteca.'), findsOneWidget);
+    expect(find.text('¿La escuchas ahora?'), findsOneWidget, reason: 'pregunta si ir a oirla');
   });
 
   testWidgets('un fallo al descargar tambien se ve, con su detalle', (WidgetTester tester) async {
@@ -2142,6 +2143,77 @@ void main() {
     // En pausa al acabar: si se queda «sonando», la preparacion de la prueba
     // siguiente espera a que pare y se cuelga.
     await tester.runAsync(estado.motor.pause);
+  });
+
+  test('las listas se pueden deshacer: borrar, quitar y anadir varias', () async {
+    final Listas listas = Listas.instancia;
+    await listas.crear('Fiesta');
+    expect(await listas.anadirVarias('Fiesta', <String>['u1', 'u2', 'u3']), 3);
+    expect(await listas.anadirVarias('Fiesta', <String>['u2', 'u4']), 1, reason: 'sin repetir');
+
+    final int sitio = await listas.quitar('Fiesta', 'u2');
+    expect(sitio, 1);
+    await listas.reponer('Fiesta', 'u2', sitio);
+    expect(listas.contenido('Fiesta'), <String>['u1', 'u2', 'u3', 'u4'], reason: 'en su sitio');
+
+    final List<String> tenia = await listas.borrar('Fiesta');
+    expect(listas.nombres, isNot(contains('Fiesta')));
+    await listas.restaurar('Fiesta', tenia);
+    expect(listas.contenido('Fiesta'), <String>['u1', 'u2', 'u3', 'u4']);
+  });
+
+  testWidgets('borrar una lista pregunta antes y deja deshacerlo', (WidgetTester tester) async {
+    await Listas.instancia.crear('Para correr');
+    await abrirBiblioteca(tester);
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Listas'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Listas'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Mas opciones'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar lista'));
+    await tester.pumpAndSettle();
+    // Pregunta, y si se cancela no pasa nada.
+    expect(find.text('¿Eliminar «Para correr»?'), findsOneWidget);
+    await tester.tap(find.text('Cancelar'));
+    await tester.pumpAndSettle();
+    expect(Listas.instancia.nombres, contains('Para correr'));
+
+    await tester.tap(find.byTooltip('Mas opciones'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Eliminar lista'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Eliminar lista'));
+    await tester.pumpAndSettle();
+    expect(Listas.instancia.nombres, isNot(contains('Para correr')));
+
+    await tester.tap(find.text('Deshacer'));
+    await tester.pumpAndSettle();
+    expect(Listas.instancia.nombres, contains('Para correr'));
+  });
+
+  testWidgets('mantener pulsado elige varias y se anaden a una lista de golpe',
+      (WidgetTester tester) async {
+    biblioteca = _conCanciones;
+    await Listas.instancia.crear('Favoritas');
+    await abrirBiblioteca(tester);
+
+    await tester.longPress(find.text('Bailando'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 seleccionada'), findsOneWidget);
+    await tester.tap(find.text('Amame'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 seleccionadas'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Anadir a lista'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Favoritas'));
+    await tester.pumpAndSettle();
+
+    expect(Listas.instancia.contenido('Favoritas'),
+        unorderedEquals(<String>['content://audio/2', 'content://audio/3']));
+    expect(find.text('2 anadidas a «Favoritas»'), findsOneWidget);
+    expect(find.text('Buscar en lo que tienes'), findsOneWidget, reason: 'sale del modo seleccion');
   });
 
   group('que es lo escrito', () {

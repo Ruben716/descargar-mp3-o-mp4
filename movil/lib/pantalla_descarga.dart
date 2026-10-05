@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'animaciones.dart';
+
 import 'busqueda.dart';
 import 'calidad.dart';
 import 'cargando.dart';
@@ -11,6 +13,7 @@ import 'entrada.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_descarga.dart';
+import 'navegacion.dart';
 import 'nucleo.dart';
 import 'pantalla_previa.dart';
 import 'portadas.dart';
@@ -118,7 +121,15 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     final bool acaba = _estabaDescargando && !_control.activa;
     _estabaDescargando = _control.activa;
     setState(() {});
-    if (acaba && _control.mensaje.isNotEmpty) _avisarResultado();
+    if (acaba && _control.mensaje.isNotEmpty) {
+      // Bien bajado: se pregunta si se quiere ir a escucharlo. Si fallo, el
+      // aviso con el detalle.
+      if (!_control.fallo && _control.ultimas.isNotEmpty) {
+        unawaited(_ofrecerEscuchar());
+      } else {
+        _avisarResultado();
+      }
+    }
   }
 
   /// Dice como acabo la descarga, siempre.
@@ -127,6 +138,69 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// resultados. Descargando algo de una busqueda, que es lo normal, la lista
   /// estaba llena y el aviso no salia nunca: una descarga podia fallar sin
   /// que nadie se enterase.
+  /// Tras bajar algo, pregunta si se quiere oir ya o ir a verlo.
+  Future<void> _ofrecerEscuchar() async {
+    final List<String> uris = _control.ultimas;
+    final bool audio = _control.ultimasSonAudio;
+    final String? eleccion = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Tema.superficie,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (BuildContext contexto) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const Icon(Icons.check_circle_rounded, color: Color(0xFF57D9A3), size: 48),
+              const SizedBox(height: 12),
+              Text(
+                _control.mensaje,
+                textAlign: TextAlign.center,
+                style: Theme.of(contexto).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                uris.length == 1
+                    ? (audio ? '¿La escuchas ahora?' : '¿Lo ves ahora?')
+                    : '¿Las escuchas ahora?',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white54),
+              ),
+              const SizedBox(height: 20),
+              BotonDegradado(
+                texto: audio ? 'Reproducir' : 'Ver en la biblioteca',
+                icono: audio ? Icons.play_arrow_rounded : Icons.library_music_rounded,
+                alPulsar: () => Navigator.of(contexto).pop(audio ? 'oir' : 'ir'),
+              ),
+              if (audio)
+                TextButton(
+                  onPressed: () => Navigator.of(contexto).pop('ir'),
+                  child: const Text('Ir a la biblioteca'),
+                ),
+              TextButton(
+                onPressed: () => Navigator.of(contexto).pop(),
+                child: const Text('Ahora no', style: TextStyle(color: Colors.white54)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (eleccion == null || !mounted) return;
+    if (eleccion == 'oir') {
+      final List<Elemento> todo = await Nucleo.biblioteca();
+      final List<Elemento> nuevas = <Elemento>[
+        for (final String uri in uris) ...todo.where((Elemento e) => e.uri == uri),
+      ];
+      if (nuevas.isNotEmpty) unawaited(_reproductor.reproducirEnOrden(nuevas));
+    }
+    Navegacion.irA(Navegacion.biblioteca);
+  }
+
   void _avisarResultado() {
     final String mensaje = _control.mensaje;
     final bool fallo = _control.fallo;
@@ -505,8 +579,15 @@ class PantallaDescargaState extends State<PantallaDescarga> {
               const SizedBox(height: 6),
               _queVaAPasar(e),
               const SizedBox(height: 12),
-              if (_control.activa)
-                _TarjetaProgreso(
+              AnimatedSwitcher(
+                duration: Movimiento.de(context, Movimiento.medio),
+                transitionBuilder: (Widget hijo, Animation<double> anim) => FadeTransition(
+                  opacity: anim,
+                  child: SizeTransition(sizeFactor: anim, alignment: Alignment.topCenter, child: hijo),
+                ),
+                child: _control.activa
+                ? _TarjetaProgreso(
+                  key: const ValueKey<String>('progreso'),
                   porcentaje: _control.porcentaje,
                   estado: _control.estado,
                   lote: _control.progresoLote,
@@ -514,8 +595,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
                       ? _control.cancelar
                       : null,
                 )
-              else
-                BotonDegradado(
+                : BotonDegradado(
+                  key: const ValueKey<String>('boton'),
                   texto: switch (e.tipo) {
                     TipoEntrada.lista => 'Ver la lista',
                     TipoEntrada.enlace || TipoEntrada.enlaceRoto => 'Descargar',
@@ -528,6 +609,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
                   },
                   alPulsar: _ocupado ? null : _continuar,
                 ),
+              ),
             ],
           ),
         ),
@@ -707,7 +789,11 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
           _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
         for (final Resultado r in orden)
-          _tarjeta(r, esLaMejor: identical(r, mejor), fuenteVisible: variasFuentes),
+          AparecerEscalonado(
+            key: ValueKey<String>('aparece-${r.url}'),
+            indice: orden.indexOf(r),
+            child: _tarjeta(r, esLaMejor: identical(r, mejor), fuenteVisible: variasFuentes),
+          ),
       ],
     );
   }
@@ -993,6 +1079,7 @@ class _TarjetaProgreso extends StatelessWidget {
     required this.estado,
     this.lote = '',
     this.alCancelar,
+    super.key,
   });
 
   final double? porcentaje;

@@ -250,6 +250,8 @@ class ControlDescarga extends ChangeNotifier {
       final int cuantos = urls.length < simultaneas ? urls.length : simultaneas;
       await Future.wait(List<Future<void>>.generate(cuantos, (_) => trabajador()));
       await _recrearLista(nombreLista, guardados);
+      _ultimas = List<String>.unmodifiable(guardados);
+      _ultimasSonAudio = ajustes.soloAudio;
       if (esLote && correctas > 0) {
         await Nucleo.avisarLote(correctas, audio: ajustes.soloAudio);
       }
@@ -291,6 +293,14 @@ class ControlDescarga extends ChangeNotifier {
   }
 
   String _listaCreada = '';
+
+  /// Lo que dejo en la biblioteca la ultima descarga, para poder ir a oirlo.
+  List<String> _ultimas = const <String>[];
+  List<String> get ultimas => _ultimas;
+
+  /// Si la ultima descarga era musica (y no video).
+  bool _ultimasSonAudio = true;
+  bool get ultimasSonAudio => _ultimasSonAudio;
 
   /// Nombre de la lista recien creada, para poder mencionarla al terminar.
   String get listaCreada => _listaCreada;

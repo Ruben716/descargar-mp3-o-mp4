@@ -9,6 +9,7 @@ import 'calidad.dart';
 import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
+import 'gestos.dart';
 import 'hoja_cola.dart';
 import 'hoja_ecualizador.dart';
 import 'hoja_suenio.dart';
@@ -289,12 +290,18 @@ class _AudioState extends State<_Audio> {
         else
           // A sangre: la portada llega a los dos bordes, sin margen ni
           // esquinas. Es lo que hace que mande en la pantalla.
-          Hero(
-            tag: widget.elemento.uri,
-            child: PortadaLocal(
-              elemento: widget.elemento,
-              lado: MediaQuery.of(context).size.width,
-              radio: 0,
+          // Deslizar la portada cambia de cancion, como en cualquier app de
+          // musica: hacia la izquierda la siguiente, hacia la derecha la anterior.
+          DeslizarParaCambiar(
+            alSiguiente: _estado.haySiguiente ? _estado.siguiente : null,
+            alAnterior: _estado.hayAnterior ? _estado.irALaAnterior : null,
+            child: Hero(
+              tag: widget.elemento.uri,
+              child: PortadaLocal(
+                elemento: widget.elemento,
+                lado: MediaQuery.of(context).size.width,
+                radio: 0,
+              ),
             ),
           ),
         // Centrado cuando cabe y con desplazamiento cuando no: un titulo

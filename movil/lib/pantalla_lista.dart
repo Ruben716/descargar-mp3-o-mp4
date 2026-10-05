@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'dialogos.dart';
 import 'estado_reproductor.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
@@ -32,6 +33,17 @@ class _PantallaListaState extends State<PantallaLista> {
       for (final String uri in uris)
         ...widget.biblioteca.where((Elemento e) => e.uri == uri),
     ];
+  }
+
+  /// Quita la cancion de la lista (no del telefono) y deja deshacerlo.
+  Future<void> _quitar(Elemento pista) async {
+    final int sitio = await _listas.quitar(widget.nombre, pista.uri);
+    if (!mounted || sitio < 0) return;
+    avisarConDeshacer(
+      context,
+      'Quitada de «${widget.nombre}»',
+      () => _listas.reponer(widget.nombre, pista.uri, sitio),
+    );
   }
 
   Future<void> _reproducirTodo() async {
@@ -96,8 +108,7 @@ class _PantallaListaState extends State<PantallaLista> {
                             AccionPista(
                               icono: Icons.playlist_remove_rounded,
                               texto: 'Quitar de ${widget.nombre}',
-                              alElegir: () =>
-                                  _listas.alternar(widget.nombre, pistas[i].uri),
+                              alElegir: () => _quitar(pistas[i]),
                             ),
                           ],
                         ),

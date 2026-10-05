@@ -3,9 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
+import 'animaciones.dart';
+
 import 'control_descarga.dart';
 import 'estado_reproductor.dart';
 import 'mini_reproductor.dart';
+import 'navegacion.dart';
 import 'nucleo.dart';
 import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
@@ -19,10 +22,15 @@ Future<void> main() async {
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.ruben.descargador.reproduccion',
     androidNotificationChannelName: 'Reproduccion',
-    androidNotificationOngoing: true,
+    // Borrable en pausa: «en curso» la hacia imborrable, y si el sistema
+    // cerraba la app quedaba una notificacion huerfana que no habia forma de
+    // quitar. Sonando sigue fija, que es lo que exige Android.
+    androidNotificationOngoing: false,
     androidStopForegroundOnPause: true,
   );
   Nucleo.escucharVentanaFlotante();
+  // Cerrar la app desde recientes con la musica en pausa la cierra de verdad.
+  Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararSiNoSuena;
   EstadoReproductor.instancia.recuperarEcualizador();
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());
@@ -52,7 +60,16 @@ class Inicio extends StatefulWidget {
   State<Inicio> createState() => _InicioState();
 }
 
-class _InicioState extends State<Inicio> with WidgetsBindingObserver {
+class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  /// Al cambiar de pestania, lo nuevo aparece con un fundido y un zoom muy
+  /// leve («fade through» de Material). Las pestanias siguen vivas debajo: se
+  /// anima lo que se ve, no se reconstruye nada.
+  late final AnimationController _cambio = AnimationController(
+    vsync: this,
+    duration: Movimiento.medio,
+    value: 1,
+  );
+
   final GlobalKey<PantallaInicioState> _inicio = GlobalKey<PantallaInicioState>();
   final GlobalKey<PantallaBibliotecaState> _biblioteca = GlobalKey<PantallaBibliotecaState>();
   int _pestana = 0;
@@ -70,6 +87,12 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     Nucleo.recogerCompartido();
+    Navegacion.pestanaPedida.addListener(_alPedirPestana);
+  }
+
+  void _alPedirPestana() {
+    final int? pestana = Navegacion.pestanaPedida.value;
+    if (pestana != null && mounted) _irA(pestana);
   }
 
   @override
@@ -86,6 +109,8 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
+    Navegacion.pestanaPedida.removeListener(_alPedirPestana);
+    _cambio.dispose();
     super.dispose();
   }
 
@@ -99,6 +124,10 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
   final Set<int> _vistas = <int>{0};
 
   void _irA(int pestana) {
+    if (pestana != _pestana) {
+      _cambio.duration = Movimiento.de(context, Movimiento.medio);
+      _cambio.forward(from: 0);
+    }
     setState(() {
       _pestana = pestana;
       _vistas.add(pestana);
@@ -116,7 +145,12 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: IndexedStack(
+        child: FadeTransition(
+          opacity: CurvedAnimation(parent: _cambio, curve: Curves.easeOut),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.985, end: 1)
+                .animate(CurvedAnimation(parent: _cambio, curve: Curves.easeOutCubic)),
+            child: IndexedStack(
           index: _pestana,
           children: <Widget>[
             _siSeHaVisto(
@@ -130,6 +164,8 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver {
             _siSeHaVisto(1, () => const PantallaDescarga()),
             _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
           ],
+        ),
+          ),
         ),
       ),
       bottomNavigationBar: Column(

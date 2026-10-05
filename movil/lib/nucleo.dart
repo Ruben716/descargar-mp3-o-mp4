@@ -164,11 +164,15 @@ class Nucleo {
       false;
 
   /// Android avisa por el mismo canal al entrar o salir de la ventana.
+  /// Lo que hacer cuando el usuario cierra la app (la quita de recientes).
+  static Future<void> Function()? alCerrarTarea;
+
   static void escucharVentanaFlotante() {
     _canal.setMethodCallHandler((MethodCall llamada) async {
       if (llamada.method == 'ventanaFlotante') {
         enVentanaFlotante.value = llamada.arguments == true;
       }
+      if (llamada.method == 'tareaCerrada') await alCerrarTarea?.call();
       return null;
     });
   }

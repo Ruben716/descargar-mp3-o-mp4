@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'catalogo.dart';
 import 'dialogo_etiquetas.dart';
 import 'estado_reproductor.dart';
+import 'dialogos.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
+import 'hoja_listas.dart';
 import 'lista_secciones.dart';
 import 'listas.dart';
 import 'nucleo.dart';
@@ -180,23 +182,106 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     }
   }
 
-  Future<void> _elegirLista(Elemento elemento) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Tema.superficie,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-      ),
-      builder: (BuildContext contexto) => _HojaListas(elemento: elemento, listas: _listas),
-    );
-  }
+  Future<void> _elegirLista(Elemento elemento) => elegirListaPara(context, <Elemento>[elemento]);
 
   Future<void> _crearLista() async {
-    final String? creada = await showDialog<String>(
-      context: context,
-      builder: (BuildContext contexto) => const _DialogoNuevaLista(),
-    );
+    final String? creada = await pedirNombreDeLista(context);
     if (creada != null) await _listas.crear(creada);
+  }
+
+  /// Borrar una lista entera pregunta antes, y aun asi se puede deshacer.
+  ///
+  /// Antes bastaba una «x» pequena junto al nombre, sin preguntar nada.
+  Future<void> _borrarLista(String nombre) async {
+    final int cuantas = _listas.contenido(nombre).length;
+    final bool si = await confirmar(
+      context,
+      titulo: '¿Eliminar «$nombre»?',
+      mensaje: 'Se borra la lista con sus $cuantas ${cuantas == 1 ? 'cancion' : 'canciones'}. '
+          'Las canciones no se borran del telefono: siguen en tu biblioteca.',
+      accion: 'Eliminar lista',
+    );
+    if (!si || !mounted) return;
+    final List<String> tenia = await _listas.borrar(nombre);
+    if (!mounted) return;
+    avisarConDeshacer(context, 'Lista «$nombre» eliminada', () => _listas.restaurar(nombre, tenia));
+  }
+
+  // --- Seleccion de varias ----------------------------------------------------
+
+  /// Las canciones marcadas, por URI. Vacio fuera del modo seleccion.
+  final Set<String> _seleccion = <String>{};
+
+  bool get _seleccionando => _seleccion.isNotEmpty;
+
+  void _alternarSeleccion(Elemento e) => setState(() {
+        if (!_seleccion.remove(e.uri)) _seleccion.add(e.uri);
+      });
+
+  void _salirDeSeleccion() => setState(_seleccion.clear);
+
+  /// Lo marcado, en el orden en que se ve.
+  List<Elemento> _marcadas(List<Elemento> visibles) =>
+      visibles.where((Elemento e) => _seleccion.contains(e.uri)).toList();
+
+  List<Elemento> get _visibles => _seccion == Seccion.videos ? _videos : _canciones;
+
+  /// La barra de arriba mientras se elige: cuantas, todas, y que hacer con ellas.
+  Widget _barraSeleccion() {
+    final List<Elemento> visibles = _visibles;
+    final List<Elemento> marcadas = _marcadas(visibles);
+    final bool todas = marcadas.length == visibles.length;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 6, 8, 2),
+      child: Row(
+        children: <Widget>[
+          IconButton(
+            tooltip: 'Cancelar',
+            onPressed: _salirDeSeleccion,
+            icon: const Icon(Icons.close_rounded),
+          ),
+          Expanded(
+            child: Text(
+              '${marcadas.length} ${marcadas.length == 1 ? 'seleccionada' : 'seleccionadas'}',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+            ),
+          ),
+          IconButton(
+            tooltip: todas ? 'Quitar todas' : 'Seleccionar todas',
+            onPressed: () => setState(() {
+              if (todas) {
+                _seleccion.clear();
+              } else {
+                _seleccion.addAll(visibles.map((Elemento e) => e.uri));
+              }
+            }),
+            icon: Icon(todas ? Icons.deselect_rounded : Icons.select_all_rounded),
+          ),
+          if (_seccion != Seccion.videos) ...<Widget>[
+            IconButton(
+              tooltip: 'Reproducir las elegidas',
+              onPressed: marcadas.isEmpty
+                  ? null
+                  : () {
+                      EstadoReproductor.instancia.reproducirEnOrden(marcadas);
+                      _salirDeSeleccion();
+                    },
+              icon: const Icon(Icons.play_arrow_rounded),
+            ),
+            IconButton.filledTonal(
+              tooltip: 'Anadir a lista',
+              onPressed: marcadas.isEmpty
+                  ? null
+                  : () async {
+                      await elegirListaPara(context, marcadas);
+                      if (mounted) _salirDeSeleccion();
+                    },
+              icon: const Icon(Icons.playlist_add_rounded),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _etiquetar(Elemento elemento) async {
@@ -229,9 +314,20 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     if (_cargando) return const Center(child: CircularProgressIndicator());
     if (_error != null) return Center(child: Text('Error: $_error'));
 
-    return Column(
+    return PopScope(
+      // Con algo marcado, atras deja de marcar en vez de salir de la pantalla.
+      canPop: !_seleccionando,
+      onPopInvokedWithResult: (bool salio, _) {
+        if (!salio) _salirDeSeleccion();
+      },
+      child: Column(
       children: <Widget>[
-        _barraBusqueda(),
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _seleccionando
+              ? KeyedSubtree(key: const ValueKey<String>('seleccion'), child: _barraSeleccion())
+              : KeyedSubtree(key: const ValueKey<String>('busqueda'), child: _barraBusqueda()),
+        ),
         _fichas(),
         const SizedBox(height: 4),
         Expanded(
@@ -244,6 +340,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
           },
         ),
       ],
+      ),
     );
   }
 
@@ -266,7 +363,10 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
                 ),
                 selectedColor: Tema.acento.withValues(alpha: 0.2),
                 backgroundColor: Tema.superficie,
-                onSelected: (_) => setState(() => _seccion = s),
+                onSelected: (_) => setState(() {
+                  _seccion = s;
+                  _seleccion.clear();
+                }),
               ),
             ),
         ],
@@ -402,10 +502,17 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
       seccionDe: _seccionDe,
       indice: _orden == Orden.alfabetico,
       altoFila: FilaPista.alto,
-      cabecera: conBotones ? _botones(elementos) : null,
-      altoCabecera: conBotones ? 88 : 0,
+      cabecera: conBotones && !_seleccionando ? _botones(elementos) : null,
+      altoCabecera: conBotones && !_seleccionando ? 88 : 0,
       alRefrescar: recargar,
-      fila: (Elemento e) => FilaPista(elemento: e, enCola: elementos, acciones: _accionesDe(e)),
+      fila: (Elemento e) => FilaPista(
+        elemento: e,
+        enCola: elementos,
+        acciones: _accionesDe(e),
+        seleccionada: _seleccionando ? _seleccion.contains(e.uri) : null,
+        alSeleccionar: () => _alternarSeleccion(e),
+        alPulsarLargo: () => _alternarSeleccion(e),
+      ),
     );
   }
 
@@ -461,7 +568,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
                   itemBuilder: (BuildContext context, int i) => _FilaLista(
                     nombre: nombres[i],
                     biblioteca: _elementos,
-                    alBorrar: () => _listas.borrar(nombres[i]),
+                    alBorrar: () => _borrarLista(nombres[i]),
                   ),
                 ),
         ),
@@ -534,10 +641,25 @@ class _FilaLista extends StatelessWidget {
                     ],
                   ),
                 ),
-                IconButton(
-                  onPressed: alBorrar,
-                  tooltip: 'Borrar la lista',
-                  icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white38),
+                // Escondido en un menu y no a la vista: una «x» suelta junto al
+                // nombre se tocaba sin querer y la lista se iba entera.
+                PopupMenuButton<String>(
+                  tooltip: 'Mas opciones',
+                  color: Tema.superficieAlta,
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.white54),
+                  onSelected: (_) => alBorrar(),
+                  itemBuilder: (BuildContext context) => const <PopupMenuEntry<String>>[
+                    PopupMenuItem<String>(
+                      value: 'borrar',
+                      child: Row(
+                        children: <Widget>[
+                          Icon(Icons.delete_outline_rounded, color: Color(0xFFFF6B81)),
+                          SizedBox(width: 12),
+                          Text('Eliminar lista', style: TextStyle(color: Color(0xFFFF6B81))),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -572,111 +694,4 @@ class _Vacio extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// Elige en que listas esta una pista.
-class _HojaListas extends StatefulWidget {
-  const _HojaListas({required this.elemento, required this.listas});
-
-  final Elemento elemento;
-  final Listas listas;
-
-  @override
-  State<_HojaListas> createState() => _HojaListasState();
-}
-
-class _HojaListasState extends State<_HojaListas> {
-  @override
-  Widget build(BuildContext context) {
-    final List<String> nombres = widget.listas.nombres;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text('Anadir a lista', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 4),
-          Text(
-            widget.elemento.nombre,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white54, fontSize: 12),
-          ),
-          const SizedBox(height: 16),
-          if (nombres.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text(
-                'Todavia no has creado ninguna lista.\n'
-                    'Cierra esto y crea una en la pestania Listas.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, height: 1.5),
-              ),
-            )
-          else
-            for (final String nombre in nombres)
-              CheckboxListTile(
-                value: widget.listas.contiene(nombre, widget.elemento.uri),
-                onChanged: (_) async {
-                  await widget.listas.alternar(nombre, widget.elemento.uri);
-                  if (mounted) setState(() {});
-                },
-                title: Text(nombre),
-                activeColor: Tema.acento,
-                contentPadding: EdgeInsets.zero,
-              ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Dialogo para crear una lista.
-///
-/// Es un widget propio a proposito: el controlador del campo tiene que vivir y
-/// morir con el. Crearlo fuera y liberarlo tras el await lo destruia mientras
-/// el dialogo seguia cerrandose, y Flutter aborta por ello.
-class _DialogoNuevaLista extends StatefulWidget {
-  const _DialogoNuevaLista();
-
-  @override
-  State<_DialogoNuevaLista> createState() => _DialogoNuevaListaState();
-}
-
-class _DialogoNuevaListaState extends State<_DialogoNuevaLista> {
-  final TextEditingController _nombre = TextEditingController();
-
-  @override
-  void dispose() {
-    _nombre.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bool valido = _nombre.text.trim().isNotEmpty;
-    return AlertDialog(
-      backgroundColor: Tema.superficieAlta,
-      title: const Text('Nueva lista'),
-      content: TextField(
-        controller: _nombre,
-        autofocus: true,
-        textCapitalization: TextCapitalization.sentences,
-        onChanged: (_) => setState(() {}),
-        onSubmitted: valido ? (String v) => Navigator.of(context).pop(v) : null,
-        decoration: const InputDecoration(hintText: 'Por ejemplo: Para correr'),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: valido ? () => Navigator.of(context).pop(_nombre.text) : null,
-          child: const Text('Crear'),
-        ),
-      ],
-    );
-  }
 }

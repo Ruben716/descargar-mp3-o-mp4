@@ -449,6 +449,14 @@ class EstadoReproductor extends ChangeNotifier {
     ),
   );
 
+  /// La anterior de verdad, sin volver al principio de la que suena.
+  ///
+  /// Es lo que se espera al deslizar: el boton de atras, en cambio, primero
+  /// vuelve al principio si ya sono un rato, como en cualquier reproductor.
+  Future<void> irALaAnterior() async {
+    if (motor.hasPrevious) await motor.seekToPrevious();
+  }
+
   Future<void> siguiente() async {
     if (motor.hasNext) await motor.seekToNext();
   }
@@ -466,6 +474,22 @@ class EstadoReproductor extends ChangeNotifier {
   ///
   /// Al ponerlo se baraja dejando en cabeza lo que ya suena, para no cortar la
   /// cancion a mitad; al quitarlo se vuelve al orden en que se cargo la cola.
+  /// Al cerrar la app: si no suena nada, se para el motor de verdad.
+  ///
+  /// El plugin de audio no hace nada cuando se quita la app de recientes, asi
+  /// que el servicio y su notificacion seguian vivos aunque la app estuviera
+  /// cerrada. Parado, el servicio se apaga y la notificacion se va. Si esta
+  /// sonando se deja sonar, como en cualquier reproductor: se para desde la
+  /// notificacion. La sesion guardada no se toca, para retomarla al volver.
+  Future<void> pararSiNoSuena() async {
+    if (motor.playing) return;
+    try {
+      await motor.stop();
+    } catch (_) {
+      // Cerrando la app, un fallo aqui no tiene a quien contarselo.
+    }
+  }
+
   /// Todo en el orden en que se ve, desde la primera.
   Future<void> reproducirEnOrden(List<Elemento> elementos) async {
     if (elementos.isEmpty) return;

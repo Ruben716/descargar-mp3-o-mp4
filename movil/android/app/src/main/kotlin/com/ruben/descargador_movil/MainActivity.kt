@@ -67,6 +67,24 @@ class MainActivity : AudioServiceActivity() {
         thread { mudarVideosADcim() }
     }
 
+    /**
+     * Al quitar la app de recientes (o salir con atras) se le avisa a Flutter.
+     *
+     * El motor de Flutter sigue vivo despues, porque lo comparte el servicio de
+     * audio, asi que Flutter aun puede parar la musica si estaba en pausa. Sin
+     * esto, servicio y notificacion se quedaban vivos con la app «cerrada».
+     */
+    override fun onDestroy() {
+        if (isFinishing) {
+            try {
+                canalFlutter?.invokeMethod("tareaCerrada", null)
+            } catch (error: Throwable) {
+                // Sin nadie escuchando no hay nada que parar.
+            }
+        }
+        super.onDestroy()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         recogerEnlace(intent)

@@ -2,6 +2,8 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
+
 import 'nucleo.dart';
 import 'tema.dart';
 
@@ -44,13 +46,23 @@ class PortadaLocal extends StatelessWidget {
   final double lado;
   final double radio;
 
-  Widget _marco(Uint8List? datos) => _Marco(
+  Widget _marco(BuildContext context, Uint8List? datos) => _Marco(
     lado: lado,
     radio: radio,
     icono: elemento.audio ? Icons.music_note : Icons.movie_creation,
     hijo: datos == null
         ? null
-        : Image.memory(datos, fit: BoxFit.cover, gaplessPlayback: true),
+        : Image.memory(
+            datos,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            // Descodificada al tamano al que se pinta. Las portadas guardadas
+            // miden 512 px, y en una lista se ensenian a 50: descodificarlas
+            // enteras gastaba memoria y daba tirones al desplazar. En la
+            // portada grande no se toca, que ahi se ve cada pixel.
+            cacheWidth: lado < 200 ? (lado * MediaQuery.devicePixelRatioOf(context)).round() : null,
+            frameBuilder: _fundido,
+          ),
   );
 
   @override
@@ -59,12 +71,12 @@ class PortadaLocal extends StatelessWidget {
     // volveria a lanzar la peticion en cada reconstruccion, que es justo lo
     // que dejaba la app pillada al arrancar.
     if (Nucleo.caratulaConocida(elemento.uri)) {
-      return _marco(Nucleo.caratulaGuardada(elemento.uri));
+      return _marco(context, Nucleo.caratulaGuardada(elemento.uri));
     }
     return FutureBuilder<Uint8List?>(
       future: Nucleo.caratula(elemento.uri),
       builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) =>
-          _marco(imagen.data),
+          _marco(context, imagen.data),
     );
   }
 }
@@ -92,6 +104,8 @@ class PortadaRemota extends StatelessWidget {
             : Image.network(
                 url,
                 fit: BoxFit.cover,
+                cacheWidth: (ancho * MediaQuery.devicePixelRatioOf(context)).round(),
+                frameBuilder: _fundido,
                 errorBuilder: (_, _, _) => const ColoredBox(
                   color: Tema.superficieAlta,
                   child: Icon(Icons.broken_image, color: Colors.white24),
@@ -104,4 +118,16 @@ class PortadaRemota extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Las imagenes que tardan en llegar aparecen con un fundido, no de golpe.
+/// Las que ya estaban (se pintan en el mismo fotograma) salen tal cual.
+Widget _fundido(BuildContext context, Widget hijo, int? fotograma, bool alInstante) {
+  if (alInstante) return hijo;
+  return AnimatedOpacity(
+    opacity: fotograma == null ? 0 : 1,
+    duration: Movimiento.de(context, Movimiento.medio),
+    curve: Curves.easeOut,
+    child: hijo,
+  );
 }

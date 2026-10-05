@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
+
 import 'estado_reproductor.dart';
+import 'gestos.dart';
 import 'portadas.dart';
 import 'reproductor.dart';
 import 'tema.dart';
@@ -22,9 +25,16 @@ class MiniReproductor extends StatelessWidget {
         return AnimatedSize(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          child: actual?.elemento == null
-              ? const SizedBox(width: double.infinity)
-              : _Barra(pista: actual!, estado: estado),
+          child: AnimatedSwitcher(
+            duration: Movimiento.de(context, Movimiento.medio),
+            transitionBuilder: (Widget hijo, Animation<double> a) => SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero).animate(a),
+              child: FadeTransition(opacity: a, child: hijo),
+            ),
+            child: actual?.elemento == null
+                ? const SizedBox(width: double.infinity, key: ValueKey<String>('nada'))
+                : _Barra(key: const ValueKey<String>('barra'), pista: actual!, estado: estado),
+          ),
         );
       },
     );
@@ -32,7 +42,7 @@ class MiniReproductor extends StatelessWidget {
 }
 
 class _Barra extends StatelessWidget {
-  const _Barra({required this.pista, required this.estado});
+  const _Barra({required this.pista, required this.estado, super.key});
 
   final Pista pista;
   final EstadoReproductor estado;
@@ -56,14 +66,26 @@ class _Barra extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 child: Row(
                   children: <Widget>[
-                    PortadaLocal(elemento: pista.elemento!, lado: 44, radio: 12),
-                    const SizedBox(width: 12),
+                    // Portada y titulo se deslizan para cambiar de cancion; los
+                    // botones se quedan quietos.
                     Expanded(
-                      child: Text(
-                        pista.titulo,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      child: DeslizarParaCambiar(
+                        alSiguiente: estado.haySiguiente ? estado.siguiente : null,
+                        alAnterior: estado.hayAnterior ? estado.irALaAnterior : null,
+                        child: Row(
+                          children: <Widget>[
+                            PortadaLocal(elemento: pista.elemento!, lado: 44, radio: 12),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                pista.elemento?.etiqueta ?? pista.titulo,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     // Iconos justos y sin relleno: caben cuatro controles sin
@@ -76,9 +98,18 @@ class _Barra extends StatelessWidget {
                     IconButton(
                       visualDensity: VisualDensity.compact,
                       onPressed: estado.alternar,
-                      icon: Icon(
-                        estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        size: 28,
+                      icon: AnimatedSwitcher(
+                        duration: Movimiento.de(context, Movimiento.corto),
+                        transitionBuilder: (Widget hijo, Animation<double> a) =>
+                            RotationTransition(
+                              turns: Tween<double>(begin: 0.75, end: 1).animate(a),
+                              child: ScaleTransition(scale: a, child: hijo),
+                            ),
+                        child: Icon(
+                          estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          key: ValueKey<bool>(estado.sonando),
+                          size: 28,
+                        ),
                       ),
                     ),
                     IconButton(

@@ -38,6 +38,13 @@ class Tema {
       colorScheme: colores,
       scaffoldBackgroundColor: fondo,
       splashFactory: InkSparkle.splashFactory,
+      // Al abrir una pantalla, la nueva entra deslizando y la de detras se
+      // desvanece: es la transicion de Android 14 en adelante.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: <TargetPlatform, PageTransitionsBuilder>{
+          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        },
+      ),
       textTheme: const TextTheme(
         displaySmall: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -1),
         headlineMedium: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.6),

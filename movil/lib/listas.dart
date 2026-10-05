@@ -63,9 +63,48 @@ class Listas extends ChangeNotifier {
     return true;
   }
 
-  Future<void> borrar(String nombre) async {
-    _listas.remove(nombre);
+  /// Borra la lista y devuelve lo que tenia, para poder deshacerlo.
+  Future<List<String>> borrar(String nombre) async {
+    final List<String> tenia = _listas.remove(nombre) ?? <String>[];
     await _guardar();
+    return tenia;
+  }
+
+  /// Vuelve a dejar una lista tal y como estaba (deshacer un borrado).
+  Future<void> restaurar(String nombre, List<String> uris) async {
+    _listas[nombre] = List<String>.of(uris);
+    await _guardar();
+  }
+
+  /// Quita una pista y devuelve en que sitio estaba, o -1 si no estaba.
+  Future<int> quitar(String nombre, String uri) async {
+    final List<String>? lista = _listas[nombre];
+    final int sitio = lista?.indexOf(uri) ?? -1;
+    if (sitio < 0) return sitio;
+    lista!.removeAt(sitio);
+    await _guardar();
+    return sitio;
+  }
+
+  /// Vuelve a poner una pista quitada en su sitio (deshacer un quitar).
+  Future<void> reponer(String nombre, String uri, int sitio) async {
+    final List<String> lista = _listas.putIfAbsent(nombre, () => <String>[]);
+    if (lista.contains(uri)) return;
+    lista.insert(sitio.clamp(0, lista.length), uri);
+    await _guardar();
+  }
+
+  /// Anade varias de golpe, sin repetir. Devuelve cuantas eran nuevas.
+  Future<int> anadirVarias(String nombre, List<String> uris) async {
+    final List<String> lista = _listas.putIfAbsent(nombre, () => <String>[]);
+    int nuevas = 0;
+    for (final String uri in uris) {
+      if (lista.contains(uri)) continue;
+      lista.add(uri);
+      nuevas++;
+    }
+    await _guardar();
+    return nuevas;
   }
 
   /// Anade sin quitar. alternar() no sirve al recrear una lista: si una pista

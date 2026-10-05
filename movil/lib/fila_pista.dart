@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
+
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'nucleo.dart';
@@ -31,8 +33,20 @@ class FilaPista extends StatelessWidget {
     required this.elemento,
     required this.enCola,
     this.acciones = const <AccionPista>[],
+    this.seleccionada,
+    this.alSeleccionar,
+    this.alPulsarLargo,
     super.key,
   });
+
+  /// null fuera del modo seleccion; dentro, si esta marcada.
+  final bool? seleccionada;
+
+  /// Marcar o desmarcar, en el modo seleccion. Sustituye al toque normal.
+  final VoidCallback? alSeleccionar;
+
+  /// Mantener pulsada: entra en el modo seleccion con esta ya marcada.
+  final VoidCallback? alPulsarLargo;
 
   final Elemento elemento;
 
@@ -57,11 +71,16 @@ class FilaPista extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
           child: Material(
-            color: activo ? Tema.acento.withValues(alpha: 0.14) : Colors.transparent,
+            color: seleccionada ?? false
+                ? Tema.acento.withValues(alpha: 0.22)
+                : activo
+                    ? Tema.acento.withValues(alpha: 0.14)
+                    : Colors.transparent,
             borderRadius: BorderRadius.circular(16),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
-              onTap: () => _abrir(context, estado),
+              onTap: seleccionada != null ? alSeleccionar : () => _abrir(context, estado),
+              onLongPress: alPulsarLargo,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 child: Row(
@@ -97,12 +116,27 @@ class FilaPista extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (activo && estado.sonando)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 2),
-                        child: Icon(Icons.equalizer_rounded, color: Tema.acento, size: 20),
+                    if (activo)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: BarrasSonando(sonando: estado.sonando),
                       ),
-                    _Menu(elemento: elemento, acciones: acciones),
+                    if (seleccionada case final bool marcada)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 150),
+                          transitionBuilder: (Widget hijo, Animation<double> a) =>
+                              ScaleTransition(scale: a, child: hijo),
+                          child: Icon(
+                            marcada ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                            key: ValueKey<bool>(marcada),
+                            color: marcada ? Tema.acento : Colors.white38,
+                          ),
+                        ),
+                      )
+                    else
+                      _Menu(elemento: elemento, acciones: acciones),
                   ],
                 ),
               ),
