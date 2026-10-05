@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui';
 
@@ -19,6 +20,7 @@ import 'paleta.dart';
 import 'panel_letras.dart';
 import 'portadas.dart';
 import 'tema.dart';
+import 'video_pro.dart';
 
 /// Reproduce un elemento de la biblioteca a pantalla completa.
 class Reproductor extends StatefulWidget {
@@ -504,17 +506,43 @@ class _VideoState extends State<_Video> {
     super.initState();
     // Los archivos viven en MediaStore, no en una ruta que se pueda abrir.
     _motor = VideoPlayerController.contentUri(Uri.parse(widget.elemento.uri));
-    _motor.initialize().then((_) {
+    _motor.initialize().then((_) async {
+      if (!mounted) return;
+      // Si se dejo a medias, se retoma ahi y se ofrece empezar de cero.
+      final Duration? antes = await PosicionesVideo.de(widget.elemento.uri);
+      if (antes != null && antes < _motor.value.duration) await _motor.seekTo(antes);
       if (!mounted) return;
       setState(() => _listo = true);
-      _motor.play();
+      unawaited(_motor.play());
+      if (antes != null) _avisarRetomado(antes);
     }).catchError((Object error) {
       if (mounted) setState(() => _error = '$error');
     });
   }
 
+  void _avisarRetomado(Duration desde) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('Retomado en ${formatoTiempo(desde.inSeconds)}'),
+        action: SnackBarAction(
+          label: 'Desde el principio',
+          onPressed: () => _motor.seekTo(Duration.zero),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    // Donde se quedo, para la proxima vez.
+    if (_listo) {
+      unawaited(PosicionesVideo.guardar(
+        widget.elemento.uri,
+        _motor.value.position,
+        _motor.value.duration,
+      ));
+    }
     _motor.dispose();
     super.dispose();
   }
@@ -558,83 +586,14 @@ class _VideoState extends State<_Video> {
         ),
       );
 
-  Widget _completo(BuildContext context) {
-    return MarcoVideo(
-      proporcion: _motor.value.aspectRatio,
-      video: GestureDetector(
-        onTap: () => setState(() => _motor.value.isPlaying ? _motor.pause() : _motor.play()),
-        child: VideoPlayer(_motor),
-      ),
-      controles: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-          child: ValueListenableBuilder<VideoPlayerValue>(
-            valueListenable: _motor,
-            builder: (BuildContext context, VideoPlayerValue valor, _) => Column(
-              children: <Widget>[
-                Text(
-                  _sinExtension(widget.elemento.nombre),
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 14),
-                VideoProgressIndicator(
-                  _motor,
-                  allowScrubbing: true,
-                  colors: const VideoProgressColors(playedColor: Tema.acento),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: <Widget>[
-                    Text(formatoTiempo(valor.position.inSeconds),
-                        style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                    Text(formatoTiempo(valor.duration.inSeconds),
-                        style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: <Widget>[
-                    IconButton(
-                      iconSize: 34,
-                      color: Colors.white70,
-                      onPressed: () => _motor.seekTo(valor.position - const Duration(seconds: 10)),
-                      icon: const Icon(Icons.replay_10),
-                    ),
-                    const SizedBox(width: 20),
-                    _BotonGrande(
-                      sonando: valor.isPlaying,
-                      alPulsar: () => valor.isPlaying ? _motor.pause() : _motor.play(),
-                    ),
-                    const SizedBox(width: 20),
-                    IconButton(
-                      iconSize: 34,
-                      color: Colors.white70,
-                      onPressed: () => _motor.seekTo(valor.position + const Duration(seconds: 10)),
-                      icon: const Icon(Icons.forward_10),
-                    ),
-                    const SizedBox(width: 12),
-                    IconButton(
-                      iconSize: 26,
-                      color: Colors.white54,
-                      tooltip: 'Ventana flotante',
-                      onPressed: () => Nucleo.pedirVentanaFlotante(
-                        ancho: _motor.value.size.width.round(),
-                        alto: _motor.value.size.height.round(),
-                      ),
-                      icon: const Icon(Icons.picture_in_picture_alt_rounded),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ),
-    );
-  }
+  Widget _completo(BuildContext context) => ReproductorVideo(
+        motor: _motor,
+        titulo: _sinExtension(widget.elemento.nombre),
+        alVentanaFlotante: () => Nucleo.pedirVentanaFlotante(
+          ancho: _motor.value.size.width.round(),
+          alto: _motor.value.size.height.round(),
+        ),
+      );
 }
 
 /// Coloca el video y sus controles sin que nada se salga de la pantalla.

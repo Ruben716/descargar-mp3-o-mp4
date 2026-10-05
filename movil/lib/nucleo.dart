@@ -155,6 +155,15 @@ class Nucleo {
   /// Cierto mientras la app va encogida en una ventana flotante.
   static final ValueNotifier<bool> enVentanaFlotante = ValueNotifier<bool>(false);
 
+  /// Brillo de la ventana de la app (0 a 1); sin valor solo lo lee.
+  /// Devuelve -1 si sigue el del sistema.
+  static Future<double> brillo([double? valor]) async =>
+      await _canal.invokeMethod<double>('brillo', <String, dynamic>{'valor': valor}) ?? -1;
+
+  /// Volumen de la musica del telefono (0 a 1); sin valor solo lo lee.
+  static Future<double> volumen([double? valor]) async =>
+      await _canal.invokeMethod<double>('volumen', <String, dynamic>{'valor': valor}) ?? 0.5;
+
   /// Encoge la app a una ventana flotante con la proporcion del video.
   static Future<bool> pedirVentanaFlotante({required int ancho, required int alto}) async =>
       await _canal.invokeMethod<bool>(

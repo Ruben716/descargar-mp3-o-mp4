@@ -2257,7 +2257,9 @@ void main() {
 
     testWidgets('las listas automaticas salen en Listas y se abren', (WidgetTester tester) async {
       biblioteca = _conCanciones;
-      await Favoritas.instancia.alternar('content://audio/2');
+      // El catalogo es una base de datos de verdad: necesita tiempo real, no
+      // el reloj de mentira de la prueba, o se queda esperando para siempre.
+      await tester.runAsync(() => Favoritas.instancia.alternar('content://audio/2'));
       await abrirBiblioteca(tester);
       await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Listas'));
       await tester.tap(find.widgetWithText(ChoiceChip, 'Listas'));
@@ -2266,7 +2268,12 @@ void main() {
       expect(find.text('Me gusta'), findsOneWidget);
       expect(find.text('TUS LISTAS'), findsOneWidget);
       await tester.tap(find.text('Me gusta'));
-      await tester.pumpAndSettle();
+      await tester.pump();
+      for (int i = 0; i < 5; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await tester.pump(const Duration(seconds: 1));
       expect(find.text('Bailando'), findsOneWidget);
       expect(find.text('1 canciones  ·  1:40'), findsOneWidget);
     });

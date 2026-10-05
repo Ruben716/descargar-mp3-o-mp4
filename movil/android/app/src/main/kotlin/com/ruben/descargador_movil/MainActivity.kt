@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -33,6 +34,7 @@ import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.util.zip.ZipInputStream
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -141,6 +143,32 @@ class MainActivity : AudioServiceActivity() {
                         enHilo(respuesta) { puente ->
                             puente.callAttr("previsualizar", url, soloAudio).toString()
                         }
+                    }
+                    // Brillo de esta ventana, de 0 a 1. Sin valor solo se lee. Se
+                    // toca la ventana y no el ajuste del sistema: al salir del
+                    // video la pantalla vuelve sola a su brillo de siempre.
+                    "brillo" -> {
+                        val valor = llamada.argument<Double>("valor")
+                        val ventana = window.attributes
+                        if (valor != null) {
+                            ventana.screenBrightness = valor.toFloat().coerceIn(0.01f, 1f)
+                            window.attributes = ventana
+                        }
+                        val actual = window.attributes.screenBrightness
+                        respuesta.success(if (actual < 0) -1.0 else actual.toDouble())
+                    }
+                    // Volumen de la musica del telefono, de 0 a 1. Sin valor solo se lee.
+                    "volumen" -> {
+                        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+                        val maximo = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                        llamada.argument<Double>("valor")?.let { v ->
+                            val nivel = (v.coerceIn(0.0, 1.0) * maximo).roundToInt()
+                            // Sin bandera de interfaz: la barra la pinta la app.
+                            audio.setStreamVolume(AudioManager.STREAM_MUSIC, nivel, 0)
+                        }
+                        respuesta.success(
+                            audio.getStreamVolume(AudioManager.STREAM_MUSIC).toDouble() / maximo,
+                        )
                     }
                     "ventanaFlotante" -> {
                         val ancho = llamada.argument<Int>("ancho") ?: 16
