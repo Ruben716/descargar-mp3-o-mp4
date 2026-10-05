@@ -8,7 +8,7 @@ name: APK
 
 on:
   push:
-    branches: [movil]
+    branches: [movil, anime-fuentes]
     paths: ["movil/**", "descargador/**", "tests/**", ".github/workflows/apk.yml"]
   workflow_dispatch:
 

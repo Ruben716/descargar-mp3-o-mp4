@@ -7,6 +7,7 @@ import 'animaciones.dart';
 import 'canales_oficiales.dart';
 import 'nucleo.dart';
 import 'pantalla_anime.dart';
+import 'pantalla_fuente.dart';
 import 'pantalla_serie.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -145,6 +146,10 @@ class _SeccionAnimeState extends State<_SeccionAnime> {
           ),
         ),
         if (_busqueda.isEmpty) ...<Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+            child: _AccesoFuente(),
+          ),
           _Fila<Resultado>(
             titulo: 'COMPLETAS Y GRATIS',
             subtitulo: 'Series enteras de canales oficiales',
@@ -496,6 +501,29 @@ class _Pronto extends StatelessWidget {
           leading: Icon(icono, color: Tema.acento),
           title: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w800)),
           subtitle: Text(texto, style: const TextStyle(height: 1.35)),
+        ),
+      ),
+    );
+  }
+}
+
+/// Acceso al catalogo completo en espanol (fuente externa, aparte de la legal).
+class _AccesoFuente extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Tema.superficieAlta,
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        leading: const Icon(Icons.language_rounded, color: Tema.acento, size: 30),
+        title: const Text('Anime en espanol (catalogo completo)'),
+        subtitle: const Text(
+          'JKanime: subtitulado y latino. Fuente externa, no oficial.',
+          style: TextStyle(height: 1.3),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const PantallaFuente()),
         ),
       ),
     );

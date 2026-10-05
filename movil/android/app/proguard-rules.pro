@@ -25,3 +25,15 @@
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
 -keep class com.google_mlkit_translation.** { *; }
 -keep class com.google_mlkit_commons.** { *; }
+
+# El desempaquetador de JS de los reproductores se busca por su nombre de
+# clase, y OkHttp/Jsoup se apoyan en sus propias reglas. Por si el empaquetado
+# las recorta, se conservan enteras: pesan poco y un fallo aqui deja la fuente
+# de anime sin poder resolver ningun video.
+-keep class dev.datlag.jsunpacker.** { *; }
+-keep class okhttp3.** { *; }
+-dontwarn okhttp3.**
+-keep class okio.** { *; }
+-dontwarn okio.**
+-keep class org.jsoup.** { *; }
+-dontwarn org.jsoup.**

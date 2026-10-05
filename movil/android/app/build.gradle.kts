@@ -90,6 +90,11 @@ dependencies {
     implementation("com.github.yausername.youtubedl-android:ffmpeg:0.14.0")
     // NotificationCompat para la notificacion del servicio de descarga.
     implementation("androidx.core:core-ktx:1.15.0")
+    // Fuente de anime: red, parseo de HTML y desempaquetado del JS de los
+    // reproductores. Todo JVM, sin nativas, asi que no afecta a Chaquopy.
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jsoup:jsoup:1.17.2")
+    implementation("dev.datlag.jsunpacker:jsunpacker:1.0.1")
 }
 
 chaquopy {

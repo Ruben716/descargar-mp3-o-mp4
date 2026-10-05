@@ -270,6 +270,8 @@ class MainActivity : AudioServiceActivity() {
                     else -> respuesta.notImplemented()
                 }
             }
+        // La pestania de anime usa un canal propio: no toca el de descargas.
+        CanalAnime.registrar(flutterEngine)
     }
 
     /** Todo lo que el usuario puede ajustar antes de descargar. */
