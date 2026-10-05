@@ -274,9 +274,12 @@ class _ErrorFila extends StatelessWidget {
 }
 
 class _TarjetaAnime extends StatelessWidget {
-  const _TarjetaAnime({required this.anime});
+  const _TarjetaAnime({required this.anime, this.ancho = 124});
 
   final Anime anime;
+
+  /// En las filas es fijo; en la rejilla se reparte el ancho de la pantalla.
+  final double ancho;
 
   @override
   Widget build(BuildContext context) {
@@ -286,13 +289,14 @@ class _TarjetaAnime extends StatelessWidget {
           MaterialPageRoute<void>(builder: (_) => PantallaAnime(anime: anime)),
         ),
         child: SizedBox(
-          width: 124,
+          width: ancho,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Stack(
                 children: <Widget>[
-                  PortadaRemota(url: anime.portada, ancho: 124, alto: 176),
+                  // Proporcion de caratula (unos 2:3), sea cual sea el ancho.
+                  PortadaRemota(url: anime.portada, ancho: ancho, alto: ancho * 1.42),
                   if (anime.nota != null)
                     Positioned(
                       left: 6,
@@ -408,13 +412,22 @@ class _Resultados extends StatelessWidget {
         }
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 14,
-            children: <Widget>[
-              for (final (int i, Anime anime) in lista.indexed)
-                AparecerEscalonado(indice: i, child: _TarjetaAnime(anime: anime)),
-            ],
+          // Tres columnas que llenan el ancho (dos en pantallas muy estrechas):
+          // con un ancho fijo sobraba un hueco a la derecha.
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints limites) {
+              const double hueco = 10;
+              final int columnas = limites.maxWidth >= 330 ? 3 : 2;
+              final double ancho = (limites.maxWidth - hueco * (columnas - 1)) / columnas;
+              return Wrap(
+                spacing: hueco,
+                runSpacing: 14,
+                children: <Widget>[
+                  for (final (int i, Anime anime) in lista.indexed)
+                    AparecerEscalonado(indice: i, child: _TarjetaAnime(anime: anime, ancho: ancho)),
+                ],
+              );
+            },
           ),
         );
       },
