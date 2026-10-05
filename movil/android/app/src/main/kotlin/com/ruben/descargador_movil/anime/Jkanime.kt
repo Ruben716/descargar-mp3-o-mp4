@@ -110,26 +110,26 @@ class Jkanime {
         val raiz = urlAnime.trimEnd('/')
         val salida = mutableListOf<EpisodioFuente>()
         var pagina = 1
-        while (pagina <= 40) {
+        var ultima = 1
+        // La respuesta trae `last_page` (snake_case): con el se recorren todas.
+        do {
             val cuerpo = red.cuerpoPost(
-                url = "$BASE/ajax/episodes/$id/$pagina",
-                campos = mapOf("_token" to token),
-                referer = urlAnime,
+                "$BASE/ajax/episodes/$id/$pagina",
+                mapOf("_token" to token),
+                urlAnime,
             )
             val json = runCatching { JSONObject(cuerpo) }.getOrNull() ?: break
+            ultima = json.optInt("last_page", pagina)
             val datos = json.optJSONArray("data") ?: break
-            if (datos.length() == 0) break
             for (i in 0 until datos.length()) {
                 val o = datos.optJSONObject(i) ?: continue
                 val numero = o.opt("number")?.toString() ?: continue
                 if (numero.isEmpty() || numero == "null") continue
                 salida.add(EpisodioFuente(numero = numero, url = "$raiz/$numero/"))
             }
-            val siguiente = json.optString("nextPageUrl")
-            if (siguiente.isEmpty()) break
             pagina++
-            runCatching { Thread.sleep(250) }
-        }
+            if (pagina <= ultima) runCatching { Thread.sleep(200) }
+        } while (pagina <= ultima && pagina <= 200)
         return salida.distinctBy { it.numero }
     }
 
@@ -141,31 +141,57 @@ class Jkanime {
      */
     fun servidores(urlEpisodio: String): List<ServidorFuente> {
         val html = red.cuerpo(urlEpisodio, BASE)
-        // El array va en una sola linea: sin DOT_MATCHES_ALL, `.` no cruza de
-        // linea y no se traga los scripts que vienen despues.
-        val coincidencia = Regex(
-            """var servers\s*=\s*(\[.*\]);""",
-        ).find(html) ?: return emptyList()
-        val arreglo = runCatching { JSONArray(coincidencia.groupValues[1]) }.getOrNull()
-            ?: return emptyList()
         val salida = mutableListOf<ServidorFuente>()
-        for (i in 0 until arreglo.length()) {
-            val o = arreglo.optJSONObject(i) ?: continue
-            val remoto = o.optString("remote")
-            if (remoto.isEmpty()) continue
-            val url = runCatching {
-                String(Base64.decode(remoto, Base64.DEFAULT), Charsets.UTF_8)
-            }.getOrNull()?.trim().orEmpty()
-            if (url.isEmpty() || !url.startsWith("http")) continue
-            salida.add(
-                ServidorFuente(
-                    nombre = o.optString("server").ifEmpty { "Servidor" },
-                    idioma = idioma(o.optInt("lang", 1)),
-                    url = url,
-                ),
-            )
+
+        // 1) Reproductores internos de JKanime (`jkplayer/um`, `umv`...). Son
+        // los que entregan un HLS directo, asi que van primero.
+        val idiomaInterno = idiomaDeLaPagina(html)
+        Regex("src=\"(https://jkanime\\.net/jkplayer/[^\"]+)\"")
+            .findAll(html)
+            .map { it.groupValues[1] }
+            .filter { it.contains("e=") && !it.contains("'+") && !it.contains("val.remote") }
+            .distinct()
+            .forEach { salida.add(ServidorFuente(nombre = "JKanime", idioma = idiomaInterno, url = it)) }
+
+        // 2) Servidores externos (respaldo). Los de solo descarga se saltan:
+        // abrirlos llevaria a una pagina de descarga, no a un reproductor.
+        val coincidencia = Regex("""var servers\s*=\s*(\[.*\]);""").find(html)
+        val arreglo = coincidencia?.let { runCatching { JSONArray(it.groupValues[1]) }.getOrNull() }
+        if (arreglo != null) {
+            for (i in 0 until arreglo.length()) {
+                val o = arreglo.optJSONObject(i) ?: continue
+                val nombre = o.optString("server")
+                val bajo = nombre.lowercase()
+                if (bajo.contains("mediafire") || bajo.contains("mega") || bajo.contains("1fichier")) {
+                    continue
+                }
+                val remoto = o.optString("remote")
+                if (remoto.isEmpty()) continue
+                val url = runCatching {
+                    String(Base64.decode(remoto, Base64.DEFAULT), Charsets.UTF_8)
+                }.getOrNull()?.trim().orEmpty()
+                if (url.isEmpty() || !url.startsWith("http")) continue
+                salida.add(
+                    ServidorFuente(
+                        nombre = nombre.ifEmpty { "Servidor" },
+                        idioma = idioma(o.optInt("lang", 1)),
+                        url = url,
+                    ),
+                )
+            }
         }
         return salida.distinctBy { it.url }
+    }
+
+    /** El idioma que anuncia la propia pagina (Japones sub., latino...). */
+    private fun idiomaDeLaPagina(html: String): String {
+        val bloque = Regex(
+            "<select[^>]*id=\"deflang\"[^>]*>(.*?)</select>",
+            RegexOption.DOT_MATCHES_ALL,
+        ).find(html)?.groupValues?.get(1) ?: return "Subtitulado"
+        val opcion = Regex("<option[^>]*>([^<]+)</option>").find(bloque)
+            ?.groupValues?.get(1)?.trim().orEmpty()
+        return opcion.ifEmpty { "Subtitulado" }
     }
 
     private fun idioma(codigo: Int): String = when (codigo) {

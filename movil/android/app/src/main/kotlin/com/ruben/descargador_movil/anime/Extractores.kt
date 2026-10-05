@@ -25,6 +25,8 @@ object Extractores {
         return when {
             anfitrion.contains("mp4upload") -> mp4upload(red, url)
 
+            anfitrion.contains("jkanime") && bajo.contains("/jkplayer/") -> jkplayer(red, url)
+
             anfitrion.contains("jkanime") && (bajo.contains("um.php") || bajo.contains("/um?")) ->
                 desu(red, url)
 
@@ -35,6 +37,18 @@ object Extractores {
 
             else -> null
         }
+    }
+
+    /** Los enlaces internos `jkplayer` de JKanime sueltan un HLS directo. */
+    private fun jkplayer(red: RedAnime, url: String): StreamResuelto? {
+        val html = red.cuerpo(url, "$BASES/")
+        Regex("https?://[^\"'\\s\\\\]+\\.m3u8[^\"'\\s\\\\]*").find(html)?.value?.let {
+            return StreamResuelto(it, mapOf("Referer" to "$BASES/"))
+        }
+        Regex("https?://[^\"'\\s\\\\]+\\.mp4[^\"'\\s\\\\]*").find(html)?.value?.let {
+            return StreamResuelto(it, mapOf("Referer" to "$BASES/"))
+        }
+        return null
     }
 
     /** Mp4upload publica el `player.src(...)`; a veces va empaquetado (eval). */
