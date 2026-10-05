@@ -43,14 +43,20 @@ object CanalAnime {
 
     private fun atender(llamada: MethodCall, jkanime: Jkanime, red: RedAnime): String =
         when (llamada.method) {
-            "buscar" ->
-                lista("animes", jkanime.buscar(llamada.argument<String>("texto").orEmpty()))
-            "populares" -> lista("animes", jkanime.populares())
-            "emision" -> lista("animes", jkanime.emision())
-            "episodios" ->
-                lista("episodios", jkanime.episodios(llamada.argument<String>("url").orEmpty()))
-            "servidores" ->
-                lista("servidores", jkanime.servidores(llamada.argument<String>("url").orEmpty()))
+            "buscar" -> lista(
+                "animes",
+                jkanime.buscar(llamada.argument<String>("texto").orEmpty()),
+            ) { it.aJson() }
+            "populares" -> lista("animes", jkanime.populares()) { it.aJson() }
+            "emision" -> lista("animes", jkanime.emision()) { it.aJson() }
+            "episodios" -> lista(
+                "episodios",
+                jkanime.episodios(llamada.argument<String>("url").orEmpty()),
+            ) { it.aJson() }
+            "servidores" -> lista(
+                "servidores",
+                jkanime.servidores(llamada.argument<String>("url").orEmpty()),
+            ) { it.aJson() }
             "resolver" -> resolver(red, llamada.argument<String>("url").orEmpty())
             else -> fracaso("Metodo desconocido: ${llamada.method}")
         }
