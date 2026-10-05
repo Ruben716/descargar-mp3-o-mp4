@@ -1,4 +1,5 @@
 # Compila la app movil y pasa las pruebas en los servidores de GitHub.
+# El APK queda en la version «apk-prueba» del repositorio.
 #
 # En el PC de desarrollo, Smart App Control de Windows bloquea las
 # herramientas de Flutter porque no llevan firma digital. Aqui corren en una
