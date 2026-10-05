@@ -2562,6 +2562,29 @@ void main() {
       expect(pedidas.length, CanalesOficiales.canales.length * 2);
     });
 
+    test('las noticias y resenas largas no pasan por episodios', () async {
+      listas = <String, String>{
+        CanalesOficiales.canales[2].buscarUrl('MEGALOBOX'): lista(<String>[
+          video('Megalobox se va | Noticias de anime Ep. 238', 'https://www.youtube.com/watch?v=n', duracion: 1260),
+          video('MEGALOBOX Ep 7 - Live Review', 'https://www.youtube.com/watch?v=r', duracion: 2900),
+          video('Lo mejor de MEGALOBOX', 'https://www.youtube.com/watch?v=m', duracion: 1500),
+          video('MEGALOBOX | Episodio 7', 'https://www.youtube.com/watch?v=e7', duracion: 1440),
+        ]),
+      };
+      final OfertaGratis oferta = await CanalesOficiales.buscar(megalobox);
+      expect(oferta.episodios.map((Resultado r) => r.url), <String>['https://www.youtube.com/watch?v=e7']);
+      expect(
+        CanalesOficiales.esSerie(const Resultado(
+          titulo: 'MEGALOBOX | Tráilers y clips',
+          autor: '',
+          duracion: 0,
+          url: 'https://www.youtube.com/playlist?list=PLx',
+        )),
+        isFalse,
+        reason: 'una lista de avances no es una serie',
+      );
+    });
+
     test('un canal que falla no deja sin los demas', () async {
       listas = <String, String>{
         CanalesOficiales.canales[0].buscarUrl('Megalo Box'): '{"ok":false,"error":"sin red"}',

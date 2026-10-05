@@ -63,7 +63,38 @@ class CanalesOficiales {
 
   static bool esLista(Resultado r) => r.url.contains('playlist?list=');
 
-  static bool esEpisodio(Resultado r) => !esLista(r) && r.duracion >= minimoEpisodio;
+  /// Lo largo que no es un episodio: los canales suben noticias, resenas y
+  /// directos de media hora que nombran la serie.
+  static final RegExp _noEsEpisodio = RegExp(
+    r'noticia|news|review|rese[nñ]a|podcast|reacci|tr[aá]iler|trailer|teaser|recomienda|'
+    r'resumen|recap|\blive\b|en vivo|directo|entrevista|interview|ranking|top \d',
+    caseSensitive: false,
+  );
+
+  /// Lo que dice ser un episodio: «Capitulo 3», «Episode 12», «#4», «Ep. 7».
+  static final RegExp _marcaEpisodio = RegExp(
+    r'(cap[ií]tulo|episodio|episode|cap\.?|ep\.?)\s*#?\d|#\d',
+    caseSensitive: false,
+  );
+
+  /// Listas que no son una serie: avances, clips, eventos, musica...
+  static final RegExp _noEsSerie = RegExp(
+    r'clips?\b|shorts|events?\b|eventos|opening|ending|music|m[uú]sica|canciones|'
+    r'best moments|mejores momentos|millones? de|reproducciones',
+    caseSensitive: false,
+  );
+
+  /// Una lista que parece una serie o una temporada, no un cajon de avances.
+  static bool esSerie(Resultado r) =>
+      esLista(r) && !_noEsEpisodio.hasMatch(r.titulo) && !_noEsSerie.hasMatch(r.titulo);
+
+  /// Dentro de una lista oficial: basta con que dure y no sea una noticia.
+  static bool esEpisodio(Resultado r) =>
+      !esLista(r) && r.duracion >= minimoEpisodio && !_noEsEpisodio.hasMatch(r.titulo);
+
+  /// Suelto, al buscar: ademas tiene que decir que es un episodio. Sin esto
+  /// colaban noticias de media hora que solo mencionaban la serie.
+  static bool esEpisodioSuelto(Resultado r) => esEpisodio(r) && _marcaEpisodio.hasMatch(r.titulo);
 
   /// El titulo corto con el que se busca: sin subtitulo ni temporada.
   ///
@@ -140,8 +171,8 @@ class CanalesOficiales {
     for (final Resultado r in todos.expand((List<Resultado> l) => l)) {
       if (!vistos.add(r.url) || !esDe(r.titulo, anime)) continue;
       if (esLista(r)) {
-        series.add(r);
-      } else if (esEpisodio(r)) {
+        if (esSerie(r)) series.add(r);
+      } else if (esEpisodioSuelto(r)) {
         episodios.add(r);
       }
     }
@@ -164,7 +195,7 @@ class CanalesOficiales {
         Nucleo.importarLista(canal.listasUrl)
             .then((ListaTraida l) => <Resultado>[
                   for (final Resultado r in l.pistas)
-                    if (esLista(r)) _delCanal(r, canal),
+                    if (esSerie(r)) _delCanal(r, canal),
                 ])
             .catchError((Object _) => const <Resultado>[]),
     ]);
