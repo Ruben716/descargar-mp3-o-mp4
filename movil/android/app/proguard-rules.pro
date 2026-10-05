@@ -13,3 +13,15 @@
 -keep class androidx.media.** { *; }
 -keep class android.support.v4.media.** { *; }
 -keep class androidx.media.session.** { *; }
+
+# El traductor del telefono (ML Kit) arranca sus piezas por reflexion: busca
+# cada «Registrar» por su nombre y lo crea con su constructor vacio. R8 no ve
+# a nadie llamando a esos constructores y los quitaba, asi que en el telefono
+# salia «NoSuchMethodException ...Registrar.<init>» y la sinopsis se quedaba
+# en ingles. Se conserva ML Kit entero y el plugin que lo une con Flutter.
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_translate.** { *; }
+-keep class com.google.android.gms.internal.mlkit_common.** { *; }
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+-keep class com.google_mlkit_translation.** { *; }
+-keep class com.google_mlkit_commons.** { *; }
