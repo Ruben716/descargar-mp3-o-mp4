@@ -26,7 +26,19 @@ class _PantallaFuenteState extends State<PantallaFuente> {
   final TextEditingController _texto = TextEditingController();
   Timer? _espera;
   String _busqueda = '';
-  late Future<List<AnimeFuente>> _datos = FuenteAnime.populares();
+  int _catalogo = 0; // 0 = populares, 1 = en emision
+  late Future<List<AnimeFuente>> _datos = _delCatalogo();
+
+  Future<List<AnimeFuente>> _delCatalogo() =>
+      _catalogo == 0 ? FuenteAnime.populares() : FuenteAnime.emision();
+
+  void _cambiarCatalogo(int cual) {
+    if (cual == _catalogo) return;
+    setState(() {
+      _catalogo = cual;
+      _datos = _delCatalogo();
+    });
+  }
 
   @override
   void dispose() {
@@ -43,14 +55,14 @@ class _PantallaFuenteState extends State<PantallaFuente> {
       final String limpio = texto.trim();
       setState(() {
         _busqueda = limpio;
-        _datos = limpio.isEmpty ? FuenteAnime.populares() : FuenteAnime.buscar(limpio);
+        _datos = limpio.isEmpty ? _delCatalogo() : FuenteAnime.buscar(limpio);
       });
     });
   }
 
   void _reintentar() {
     setState(() {
-      _datos = _busqueda.isEmpty ? FuenteAnime.populares() : FuenteAnime.buscar(_busqueda);
+      _datos = _busqueda.isEmpty ? _delCatalogo() : FuenteAnime.buscar(_busqueda);
     });
   }
 
@@ -92,12 +104,32 @@ class _PantallaFuenteState extends State<PantallaFuente> {
               ),
             ),
           ),
+          if (_busqueda.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: <Widget>[
+                  ChoiceChip(
+                    label: const Text('Populares'),
+                    selected: _catalogo == 0,
+                    showCheckmark: false,
+                    onSelected: (_) => _cambiarCatalogo(0),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('En emision'),
+                    selected: _catalogo == 1,
+                    showCheckmark: false,
+                    onSelected: (_) => _cambiarCatalogo(1),
+                  ),
+                ],
+              ),
+            ),
           Expanded(child: _lista()),
         ],
       ),
     );
   }
-
   Widget _lista() {
     return FutureBuilder<List<AnimeFuente>>(
       future: _datos,
