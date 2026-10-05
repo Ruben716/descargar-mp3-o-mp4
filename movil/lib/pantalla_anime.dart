@@ -199,7 +199,13 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                     children: <Widget>[
                       SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2.5)),
                       SizedBox(width: 14),
-                      Text('Buscando en los canales oficiales...', style: TextStyle(color: Colors.white60)),
+                      // Flexible: en pantallas estrechas o con letra grande baja de linea.
+                      Flexible(
+                        child: Text(
+                          'Buscando en los canales oficiales...',
+                          style: TextStyle(color: Colors.white60),
+                        ),
+                      ),
                     ],
                   ),
                 );
