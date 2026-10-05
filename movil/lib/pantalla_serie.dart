@@ -49,7 +49,7 @@ class _PantallaSerieState extends State<PantallaSerie> {
           children: <Widget>[
             Text(widget.lista.titulo, maxLines: 1, overflow: TextOverflow.ellipsis),
             Text(
-              widget.lista.autor,
+              '${widget.lista.autor} · ${CanalesOficiales.idiomaDe(widget.lista.autor)}',
               style: const TextStyle(fontSize: 12, color: Colors.white54),
             ),
           ],

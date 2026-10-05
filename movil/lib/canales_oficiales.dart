@@ -46,16 +46,24 @@ class CanalesOficiales {
   CanalesOficiales._();
 
   static const List<CanalOficial> canales = <CanalOficial>[
-    CanalOficial(nombre: 'TMS Anime Latino', handle: '@TMSAnimeLatino', idioma: 'Latino y subtitulado'),
-    CanalOficial(nombre: 'Gundam Channel', handle: '@GundamInfo', idioma: 'Subtitulado'),
-    CanalOficial(nombre: 'Crunchyroll en Español', handle: '@CrunchyrollenEspanol', idioma: 'Latino'),
-    CanalOficial(nombre: 'Toei Animation', handle: '@ToeiAnimationOfficial', idioma: 'Varios'),
+    CanalOficial(nombre: 'TMS Anime Latino', handle: '@TMSAnimeLatino', idioma: 'Latino o sub. en español'),
+    CanalOficial(nombre: 'Gundam Channel', handle: '@GundamInfo', idioma: 'Subtitulos en ingles'),
+    CanalOficial(nombre: 'Crunchyroll en Español', handle: '@CrunchyrollenEspanol', idioma: 'Doblaje latino'),
+    CanalOficial(nombre: 'Toei Animation', handle: '@ToeiAnimationOfficial', idioma: 'Varios idiomas'),
   ];
+
+  /// En que idioma sube un canal, para saberlo antes de abrir nada.
+  static String idiomaDe(String nombreCanal) {
+    for (final CanalOficial canal in canales) {
+      if (canal.nombre == nombreCanal) return canal.idioma;
+    }
+    return 'Idioma segun el video';
+  }
 
   /// Los canales con series completas, para ensenar algo que ver sin buscar.
   static const List<CanalOficial> conSeries = <CanalOficial>[
-    CanalOficial(nombre: 'TMS Anime Latino', handle: '@TMSAnimeLatino', idioma: 'Latino y subtitulado'),
-    CanalOficial(nombre: 'Gundam Channel', handle: '@GundamInfo', idioma: 'Subtitulado'),
+    CanalOficial(nombre: 'TMS Anime Latino', handle: '@TMSAnimeLatino', idioma: 'Latino o sub. en español'),
+    CanalOficial(nombre: 'Gundam Channel', handle: '@GundamInfo', idioma: 'Subtitulos en ingles'),
   ];
 
   /// Lo que dura como poco un episodio de verdad. Menos es un clip o un avance.

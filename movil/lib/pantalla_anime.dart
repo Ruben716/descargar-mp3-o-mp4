@@ -9,6 +9,7 @@ import 'pantalla_episodio.dart';
 import 'pantalla_serie.dart';
 import 'portadas.dart';
 import 'tema.dart';
+import 'traduccion.dart';
 
 /// La ficha de un anime: de que va y donde verlo gratis y legal.
 class PantallaAnime extends StatefulWidget {
@@ -23,6 +24,29 @@ class PantallaAnime extends StatefulWidget {
 class _PantallaAnimeState extends State<PantallaAnime> {
   late final Future<OfertaGratis> _oferta = CanalesOficiales.buscar(widget.anime);
   bool _sinopsisEntera = false;
+
+  /// AniList solo tiene la sinopsis en ingles: se traduce en el telefono.
+  String? _traducida;
+  bool _traduciendo = false;
+  bool _verOriginal = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _traducir();
+  }
+
+  Future<void> _traducir() async {
+    if (_anime.sinopsis.isEmpty) return;
+    // Se llama desde initState: aun no hay nada pintado que refrescar.
+    _traduciendo = true;
+    final String? hecha = await Traduccion.alEspanol(_anime.sinopsis);
+    if (!mounted) return;
+    setState(() {
+      _traducida = hecha;
+      _traduciendo = false;
+    });
+  }
 
   Anime get _anime => widget.anime;
 
@@ -131,7 +155,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
               children: <Widget>[
                 for (final String genero in _anime.generos)
                   Chip(
-                    label: Text(genero, style: const TextStyle(fontSize: 12)),
+                    label: Text(Traduccion.genero(genero), style: const TextStyle(fontSize: 12)),
                     visualDensity: VisualDensity.compact,
                     side: BorderSide.none,
                     backgroundColor: _tono.withValues(alpha: 0.16),
@@ -144,15 +168,33 @@ class _PantallaAnimeState extends State<PantallaAnime> {
               duration: Movimiento.de(context, Movimiento.medio),
               alignment: Alignment.topCenter,
               child: Text(
-                _anime.sinopsis,
+                (_verOriginal ? null : _traducida) ?? _anime.sinopsis,
                 maxLines: _sinopsisEntera ? null : 4,
                 overflow: _sinopsisEntera ? null : TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white70, height: 1.45),
               ),
             ),
-            TextButton(
-              onPressed: () => setState(() => _sinopsisEntera = !_sinopsisEntera),
-              child: Text(_sinopsisEntera ? 'Ver menos' : 'Ver mas'),
+            Row(
+              children: <Widget>[
+                TextButton(
+                  onPressed: () => setState(() => _sinopsisEntera = !_sinopsisEntera),
+                  child: Text(_sinopsisEntera ? 'Ver menos' : 'Ver mas'),
+                ),
+                const Spacer(),
+                if (_traduciendo)
+                  const Text(
+                    'Traduciendo...',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  )
+                else if (_traducida != null)
+                  TextButton(
+                    onPressed: () => setState(() => _verOriginal = !_verOriginal),
+                    child: Text(
+                      _verOriginal ? 'Ver traducida' : 'Traducida · ver original',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
             ),
           ],
           if (_anime.trailerYoutube != null)
@@ -303,7 +345,7 @@ class _FilaSerie extends StatelessWidget {
       child: ListTile(
         leading: const Icon(Icons.video_library_rounded, color: Tema.acento, size: 30),
         title: Text(serie.titulo, maxLines: 2, overflow: TextOverflow.ellipsis),
-        subtitle: Text('Lista oficial · ${serie.autor}'),
+        subtitle: Text('${serie.autor} · ${CanalesOficiales.idiomaDe(serie.autor)}'),
         trailing: const Icon(Icons.chevron_right_rounded),
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute<void>(builder: (_) => PantallaSerie(lista: serie)),
@@ -338,7 +380,10 @@ class _FilaVideoSuelto extends StatelessWidget {
                 children: <Widget>[
                   Text(episodio.titulo, maxLines: 2, overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
-                  Text(episodio.autor, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                  Text(
+                    '${episodio.autor} · ${CanalesOficiales.idiomaDe(episodio.autor)}',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
                 ],
               ),
             ),

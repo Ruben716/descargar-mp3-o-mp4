@@ -365,8 +365,9 @@ class _TarjetaSerie extends StatelessWidget {
                 style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5, height: 1.25),
               ),
               Text(
-                serie.autor,
+                '${serie.autor} · ${CanalesOficiales.idiomaDe(serie.autor)}',
                 maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(color: Colors.white54, fontSize: 11.5),
               ),
             ],

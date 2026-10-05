@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:descargador_movil/traduccion.dart';
 import 'package:descargador_movil/pantalla_episodio.dart';
 import 'package:descargador_movil/pantalla_anime.dart';
 import 'package:descargador_movil/canales_oficiales.dart';
@@ -107,6 +108,9 @@ void main() {
     listas = <String, String>{};
     AniList.olvidar();
     AniList.transporte = (String _) async => _aniListFalso;
+    // Sin ML Kit en las pruebas: por defecto falla, como sin red la primera vez.
+    Traduccion.olvidar();
+    Traduccion.motor = (String _) async => throw StateError('sin traductor');
     calidades = <String, String>{};
     respuestaDescarga = null;
     PantallaDescargaState.olvidarBusquedas();
@@ -2695,9 +2699,48 @@ void main() {
       expect(find.text('Joe pelea por salir de abajo.'), findsOneWidget);
       expect(find.text('Ver trailer'), findsOneWidget);
       expect(find.text('MEGALOBOX (Español Latino)'), findsOneWidget);
-      expect(find.text('Lista oficial · TMS Anime Latino'), findsOneWidget);
+      expect(find.text('TMS Anime Latino · Latino o sub. en español'), findsOneWidget,
+          reason: 'se sabe el idioma antes de abrirla');
       await tester.scrollUntilVisible(find.text('Crunchyroll'), 200);
       expect(find.text('DONDE VERLA'), findsOneWidget);
+    });
+
+    testWidgets('la sinopsis y los generos salen en castellano', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      Traduccion.motor = (String ingles) async => 'Joe pelea para salir del fondo.';
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaAnime(anime: megalobox)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Joe pelea para salir del fondo.'), findsOneWidget);
+      expect(find.text('Accion'), findsOneWidget);
+      expect(find.text('Action'), findsNothing);
+
+      await tester.tap(find.text('Traducida · ver original'));
+      await tester.pumpAndSettle();
+      expect(find.text('Joe pelea por salir de abajo.'), findsOneWidget, reason: 'el original sigue a mano');
+    });
+
+    testWidgets('si no se puede traducir queda el original, sin romper nada', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaAnime(anime: megalobox)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Joe pelea por salir de abajo.'), findsOneWidget);
+      expect(find.textContaining('ver original'), findsNothing);
+    });
+
+    test('lo traducido se recuerda y no se vuelve a pedir', () async {
+      int veces = 0;
+      Traduccion.motor = (String ingles) async {
+        veces++;
+        return 'hola';
+      };
+      expect(await Traduccion.alEspanol('hello'), 'hola');
+      expect(await Traduccion.alEspanol('hello'), 'hola');
+      expect(veces, 1);
+      expect(await Traduccion.alEspanol('   '), isNull);
+      expect(Traduccion.genero('Slice of Life'), 'Vida cotidiana');
+      expect(Traduccion.genero('Algo nuevo'), 'Algo nuevo', reason: 'lo desconocido se deja tal cual');
     });
 
     testWidgets('si no esta gratis lo dice claro', (WidgetTester tester) async {
