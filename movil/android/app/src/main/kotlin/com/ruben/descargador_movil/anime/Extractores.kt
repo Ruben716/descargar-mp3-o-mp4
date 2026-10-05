@@ -23,9 +23,6 @@ object Extractores {
         val anfitrion = runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
         val bajo = url.lowercase()
         return when {
-            anfitrion.contains("streamtape") || anfitrion.contains("stape") ||
-                anfitrion.contains("shavetape") -> streamtape(red, url)
-
             anfitrion.contains("mp4upload") -> mp4upload(red, url)
 
             anfitrion.contains("jkanime") && (bajo.contains("um.php") || bajo.contains("/um?")) ->
@@ -38,26 +35,6 @@ object Extractores {
 
             else -> null
         }
-    }
-
-    /** Streamtape esconde el enlace en el `robotlink` que arma su propio script. */
-    private fun streamtape(red: RedAnime, url: String): StreamResuelto? {
-        val base = "https://streamtape.com/e/"
-        val nueva = if (url.startsWith(base)) {
-            url
-        } else {
-            val id = url.split("/").getOrNull(4) ?: return null
-            base + id
-        }
-        val doc = Jsoup.parse(red.cuerpo(nueva, "https://streamtape.com/"), nueva)
-        val objetivo = "document.getElementById('robotlink')"
-        val script = doc.selectFirst("script:containsData($objetivo)")?.data() ?: return null
-        val trozo = script.substringAfter("$objetivo.innerHTML = '", "")
-        if (trozo.isEmpty()) return null
-        val video = "https:" + trozo.substringBefore("'") +
-            trozo.substringAfter("+ ('xcd", "").substringBefore("'")
-        if (video.length < 12) return null
-        return StreamResuelto(video, mapOf("Referer" to "https://streamtape.com/"))
     }
 
     /** Mp4upload publica el `player.src(...)`; a veces va empaquetado (eval). */

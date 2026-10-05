@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'dialogos.dart';
 import 'fuente_anime.dart';
 import 'nucleo.dart';
+import 'pantalla_web_fuente.dart';
 import 'portadas.dart';
 import 'tema.dart';
 import 'video_pro.dart';
@@ -335,7 +336,7 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
         httpHeaders: resuelto.cabeceras,
         formatHint: resuelto.url.contains('m3u8') ? VideoFormat.hls : null,
       );
-      await motor.initialize();
+      await motor.initialize().timeout(const Duration(seconds: 20));
       if (!mounted) {
         await motor.dispose();
         return;
@@ -349,10 +350,23 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = _textoDe(error);
+        _error = null;
         _cargando = false;
       });
+      // No se pudo sacar el enlace directo (o el servidor no lo tiene):
+      // se reproduce dentro con el reproductor de la propia web.
+      _abrirWeb(servidor);
     }
+  }
+
+  /// Reproduce el servidor con su reproductor, dentro de la app (WebView).
+  void _abrirWeb(ServidorFuente servidor) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => PantallaWebFuente(
+        url: servidor.url,
+        titulo: '${widget.titulo} · ${servidor.nombre}',
+      ),
+    ));
   }
 
   Future<void> _navegador(ServidorFuente servidor) async {
@@ -395,6 +409,17 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
                   letterSpacing: 1.2,
                   color: Colors.white54,
                 ),
+              ),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Toca uno para verlo. Si el enlace directo no sale, se abre dentro '
+                'con el reproductor de la propia web.',
+                style: TextStyle(color: Colors.white54, fontSize: 12),
               ),
             ),
           ),
