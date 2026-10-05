@@ -80,7 +80,11 @@ void main() {
     // Parado, como al abrir la app: si se quedara activo de la prueba
     // anterior, la siguiente carga no volveria a activarlo y el fallo del
     // ecualizador, que sale justo al activar, no se veria nunca.
-    await EstadoReproductor.instancia.motor.stop();
+    // Con limite: un motor que se quedo a medias no puede colgar todas las
+    // pruebas que vienen detras.
+    await EstadoReproductor.instancia.motor
+        .stop()
+        .timeout(const Duration(seconds: 3), onTimeout: () {});
     motorFalso.reiniciar();
     llamadas.clear();
     biblioteca = '{"ok":true,"elementos":[]}';
@@ -2134,6 +2138,10 @@ void main() {
     expect(estado.motor.audioSources.length, 3);
     expect(estado.cola.length, estado.motor.audioSources.length,
         reason: 'la cola de la app y la del motor, siempre la misma');
+
+    // En pausa al acabar: si se queda «sonando», la preparacion de la prueba
+    // siguiente espera a que pare y se cuelga.
+    await tester.runAsync(estado.motor.pause);
   });
 
   group('que es lo escrito', () {
