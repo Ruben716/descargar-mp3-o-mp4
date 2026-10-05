@@ -146,8 +146,8 @@ class _SeccionAnimeState extends State<_SeccionAnime> {
           ),
         ),
         if (_busqueda.isEmpty) ...<Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 2, 16, 10),
             child: _AccesoFuente(),
           ),
           _Fila<Resultado>(
@@ -509,6 +509,8 @@ class _Pronto extends StatelessWidget {
 
 /// Acceso al catalogo completo en espanol (fuente externa, aparte de la legal).
 class _AccesoFuente extends StatelessWidget {
+  const _AccesoFuente();
+
   @override
   Widget build(BuildContext context) {
     return Card(
