@@ -180,7 +180,13 @@ class Jkanime {
                 )
             }
         }
-        return salida.distinctBy { it.url }
+        return salida.distinctBy { it.url }.sortedBy { servidor ->
+            when {
+                servidor.nombre.equals("Mp4upload", ignoreCase = true) -> 0
+                servidor.nombre.equals("JKanime", ignoreCase = true) -> 1
+                else -> 2
+            }
+        }
     }
 
     /** El idioma que anuncia la propia pagina (Japones sub., latino...). */

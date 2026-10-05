@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'dialogos.dart';
 import 'fuente_anime.dart';
 import 'nucleo.dart';
+import 'pantalla_episodio.dart';
 import 'pantalla_web_fuente.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -379,7 +380,7 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
         _cargando = false;
       });
       unawaited(motor.play());
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = null;
@@ -406,6 +407,18 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
       await Nucleo.abrirEnlace(servidor.url);
     } on ErrorNucleo catch (error) {
       if (mounted) avisar(context, error.mensaje);
+    }
+  }
+
+  /// Baja el episodio con el motor propio y se ve sin cortes desde Biblioteca.
+  Future<void> _descargar(ServidorFuente servidor) async {
+    try {
+      final StreamResuelto resuelto = await FuenteAnime.resolver(servidor.url);
+      if (!mounted) return;
+      avisar(context, 'Descargando el episodio. Podras verlo sin cortes desde Biblioteca.');
+      await descargarComoVideo(<String>[resuelto.url]);
+    } catch (_) {
+      if (mounted) avisar(context, 'Este servidor no se puede descargar.');
     }
   }
 
@@ -527,10 +540,20 @@ class _PantallaVerFuenteState extends State<PantallaVerFuente> {
               leading: const Icon(Icons.dns_outlined, color: Tema.acento),
               title: Text(servidor.nombre),
               subtitle: Text(servidor.idioma),
-              trailing: IconButton(
-                tooltip: 'Abrir en el navegador',
-                icon: const Icon(Icons.open_in_new_rounded),
-                onPressed: () => _navegador(servidor),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  IconButton(
+                    tooltip: 'Descargar y ver sin cortes',
+                    icon: const Icon(Icons.download_rounded),
+                    onPressed: () => _descargar(servidor),
+                  ),
+                  IconButton(
+                    tooltip: 'Abrir en el navegador',
+                    icon: const Icon(Icons.open_in_new_rounded),
+                    onPressed: () => _navegador(servidor),
+                  ),
+                ],
               ),
               onTap: () => _abrir(servidor),
             );
