@@ -174,13 +174,16 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                 style: const TextStyle(color: Colors.white70, height: 1.45),
               ),
             ),
-            Row(
+            // Wrap y no Row: con la letra grande del sistema los dos botones no
+            // caben en una linea, y el segundo baja en vez de salirse.
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: <Widget>[
                 TextButton(
                   onPressed: () => setState(() => _sinopsisEntera = !_sinopsisEntera),
                   child: Text(_sinopsisEntera ? 'Ver menos' : 'Ver mas'),
                 ),
-                const Spacer(),
                 if (_traduciendo)
                   const Text(
                     'Traduciendo...',
