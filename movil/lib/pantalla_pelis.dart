@@ -65,11 +65,13 @@ class _PantallaPelisState extends State<PantallaPelis> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-          child: TextField(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Peliculas y series')),
+      body: Column(
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: TextField(
             controller: _texto,
             onChanged: _alEscribir,
             textInputAction: TextInputAction.search,
@@ -110,7 +112,8 @@ class _PantallaPelisState extends State<PantallaPelis> {
           ),
         ),
         Expanded(child: _rejilla()),
-      ],
+        ],
+      ),
     );
   }
 

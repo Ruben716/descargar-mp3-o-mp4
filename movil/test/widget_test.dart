@@ -160,11 +160,26 @@ void main() {
         _ => '{"ok":true}',
       };
     });
+    // El canal de pelis tambien: asi la pantalla del catalogo no se cuelga.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.ruben.descargador/pelis'),
+      (MethodCall llamada) async => switch (llamada.method) {
+        'capitulos' => '{"ok":true,"capitulos":[]}',
+        'servidores' => '{"ok":true,"servidores":[]}',
+        _ => '{"ok":true,"resultados":[]}',
+      },
+    );
   });
 
   tearDown(() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_canal, null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel('com.ruben.descargador/pelis'),
+      null,
+    );
   });
 
   /// La pantalla del telefono de verdad (1080x2400), no la de 800x600 de
@@ -2655,8 +2670,8 @@ void main() {
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Peliculas'));
       await tester.pumpAndSettle();
-      // La pestania de peliculas ahora es el catalogo real (PelisPlusHD).
-      expect(find.text('Series'), findsOneWidget);
+      // La pestania de peliculas abre el catalogo real (PelisPlusHD).
+      expect(find.text('Peliculas y series en latino'), findsOneWidget);
     });
 
     testWidgets('buscar un anime ensenia lo que encuentra', (WidgetTester tester) async {

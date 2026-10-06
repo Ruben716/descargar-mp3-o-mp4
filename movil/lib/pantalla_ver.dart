@@ -66,7 +66,7 @@ class _PantallaVerState extends State<PantallaVer> {
             child: switch (_seccion) {
               SeccionVer.anime => const _SeccionAnime(key: ValueKey<SeccionVer>(SeccionVer.anime)),
               SeccionVer.peliculas =>
-                const PantallaPelis(key: ValueKey<SeccionVer>(SeccionVer.peliculas)),
+                const _AccesoPelis(key: ValueKey<SeccionVer>(SeccionVer.peliculas)),
             },
           ),
         ),
@@ -463,6 +463,35 @@ class _AccesoFuente extends StatelessWidget {
           MaterialPageRoute<void>(builder: (_) => const PantallaFuente()),
         ),
       ),
+    );
+  }
+}
+
+/// Acceso al catalogo de peliculas y series en latino.
+class _AccesoPelis extends StatelessWidget {
+  const _AccesoPelis({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+      children: <Widget>[
+        Card(
+          color: Tema.superficieAlta,
+          child: ListTile(
+            leading: const Icon(Icons.movie_filter_outlined, color: Tema.acento, size: 30),
+            title: const Text('Peliculas y series en latino'),
+            subtitle: const Text(
+              'PelisPlusHD: catalogo completo con audio latino. Fuente externa, no oficial.',
+              style: TextStyle(height: 1.3),
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PantallaPelis()),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
