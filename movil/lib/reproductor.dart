@@ -20,6 +20,7 @@ import 'paleta.dart';
 import 'panel_letras.dart';
 import 'portadas.dart';
 import 'hoja_fundido.dart';
+import 'hoja_mejor_calidad.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -147,6 +148,8 @@ class _ReproductorState extends State<Reproductor> {
                     Nucleo.compartirArchivo(elemento.uri, audio: elemento.audio);
                   } else if (elegido == 'fundido') {
                     abrirFundido(context);
+                  } else if (elegido == 'videoclip') {
+                    verVideoclip(context, elemento);
                   } else {
                     abrirEcualizador(context);
                   }
@@ -158,6 +161,15 @@ class _ReproductorState extends State<Reproductor> {
                       child: ListTile(
                         leading: Icon(Icons.graphic_eq_rounded),
                         title: Text('Ecualizador'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  if (elemento.audio)
+                    const PopupMenuItem<String>(
+                      value: 'videoclip',
+                      child: ListTile(
+                        leading: Icon(Icons.smart_display_outlined),
+                        title: Text('Ver videoclip'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),

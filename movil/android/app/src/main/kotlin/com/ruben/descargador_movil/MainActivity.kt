@@ -1,6 +1,7 @@
 package com.ruben.descargador_movil
 
 import android.Manifest
+import android.app.Activity
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -11,6 +12,8 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.os.Environment
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -204,6 +207,18 @@ class MainActivity : AudioServiceActivity() {
                             llamada.argument<Boolean>("audio") ?: true,
                         ),
                     )
+                    "medirVolumen" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        enHilo(respuesta) { puente -> medirVolumen(puente, uri) }
+                    }
+                    "guardarCopia" -> {
+                        val nombre = llamada.argument<String>("nombre").orEmpty()
+                        val contenido = llamada.argument<String>("contenido").orEmpty()
+                        enHiloSuelto(respuesta) { guardarCopia(nombre, contenido) }
+                    }
+                    "abrirCopia" -> abrirCopia(respuesta)
+                    "redSinLimite" -> respuesta.success(redSinLimite())
+                    "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
                         abrirEnlace(llamada.argument<String>("url").orEmpty()),
                     )
@@ -386,6 +401,132 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /** Comparte el enlace de algo que todavia no esta descargado. */
+    /**
+     * Mide cuanto suena una cancion de la biblioteca.
+     *
+     * FFmpeg no sabe leer un content://, asi que se copia a la cache, se mide
+     * y se borra. Son unos megas y se hace de una en una, en segundo plano.
+     */
+    private fun medirVolumen(puente: PyObject, uri: String): String {
+        if (uri.isEmpty()) return fallo("Falta la cancion.")
+        val copia = File(cacheDir, "medir_volumen.tmp")
+        return try {
+            val entrada = contentResolver.openInputStream(Uri.parse(uri))
+                ?: return fallo("No se pudo abrir la cancion.")
+            entrada.use { origen -> copia.outputStream().use { destino -> origen.copyTo(destino) } }
+            asegurarFfmpeg(puente)
+            puente.callAttr("medir_volumen", copia.absolutePath).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo medir: ${error.message}")
+        } finally {
+            copia.delete()
+        }
+    }
+
+    /**
+     * Guarda la copia de seguridad en Descargas/Tumbao.
+     *
+     * Ahi sobrevive aunque se desinstale la app y se ve desde el gestor de
+     * archivos, para pasarla a otro telefono o subirla a Drive. Si ya habia una
+     * de esta app, se reescribe: no se acumulan copias viejas.
+     */
+    private fun guardarCopia(nombre: String, contenido: String): String {
+        if (nombre.isEmpty() || nombre.contains('/')) return fallo("Nombre de copia no valido.")
+        val carpeta = Environment.DIRECTORY_DOWNLOADS + "/Tumbao/"
+        return try {
+            val coleccion = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val existente = contentResolver.query(
+                coleccion,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                arrayOf(nombre, carpeta),
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(coleccion, cursor.getLong(0)) else null
+            }
+            val destino = existente ?: contentResolver.insert(
+                coleccion,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "application/json")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, carpeta)
+                },
+            ) ?: return fallo("No se pudo crear la copia.")
+            contentResolver.openOutputStream(destino, "wt")?.use { salida ->
+                salida.write(contenido.toByteArray(Charsets.UTF_8))
+            } ?: return fallo("No se pudo escribir la copia.")
+            JSONObject().put("ok", true).put("ruta", "Descargas/Tumbao/$nombre").toString()
+        } catch (error: Exception) {
+            fallo("No se pudo guardar la copia: ${error.message}")
+        }
+    }
+
+    /** La respuesta pendiente mientras el usuario elige el archivo de la copia. */
+    private var copiaPedida: MethodChannel.Result? = null
+
+    /**
+     * Deja elegir el archivo de la copia con el selector del sistema.
+     *
+     * Tras reinstalar, la app ya no puede leer por su cuenta lo que guardo
+     * antes en Descargas: el selector es la forma de que el usuario se lo de.
+     */
+    private fun abrirCopia(respuesta: MethodChannel.Result) {
+        copiaPedida?.success(cancelado())
+        copiaPedida = respuesta
+        val pedir = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        try {
+            @Suppress("DEPRECATION")
+            startActivityForResult(pedir, PEDIR_COPIA)
+        } catch (error: Exception) {
+            copiaPedida = null
+            respuesta.success(fallo("No hay donde elegir archivos en este telefono."))
+        }
+    }
+
+    @Deprecated("La API nueva pide ComponentActivity; FlutterActivity no lo es.")
+    override fun onActivityResult(peticion: Int, resultado: Int, datos: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(peticion, resultado, datos)
+        if (peticion != PEDIR_COPIA) return
+        val respuesta = copiaPedida ?: return
+        copiaPedida = null
+        val uri = datos?.data
+        if (resultado != Activity.RESULT_OK || uri == null) {
+            respuesta.success(cancelado())
+            return
+        }
+        thread {
+            val salida = try {
+                val texto = contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                if (texto == null) {
+                    fallo("No se pudo leer el archivo.")
+                } else {
+                    JSONObject().put("ok", true).put("contenido", texto).toString()
+                }
+            } catch (error: Exception) {
+                fallo("No se pudo leer el archivo: ${error.message}")
+            }
+            runOnUiThread { respuesta.success(salida) }
+        }
+    }
+
+    private fun cancelado(): String = JSONObject().put("ok", false).put("cancelado", true).toString()
+
+    /** Si la red de ahora no cobra por datos (wifi, normalmente). */
+    private fun redSinLimite(): Boolean {
+        val gestor = getSystemService(ConnectivityManager::class.java) ?: return false
+        return gestor.activeNetwork != null && !gestor.isActiveNetworkMetered
+    }
+
+    private fun versionApp(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+    } catch (error: Exception) {
+        ""
+    }
+
     /** Abre la web o la app que la atiende (la de Crunchyroll, por ejemplo). */
     private fun abrirEnlace(url: String): String {
         if (!url.startsWith("https://") && !url.startsWith("http://")) {
@@ -951,6 +1092,9 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private companion object {
+        /** Codigo de la peticion al selector de archivos de la copia. */
+        const val PEDIR_COPIA = 4107
+
         /**
          * Un unico vigilante para todo el proceso: la actividad se recrea y
          * configureFlutterEngine se repite con el mismo motor, y el motor

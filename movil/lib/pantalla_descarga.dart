@@ -15,6 +15,7 @@ import 'formato.dart';
 import 'hoja_descarga.dart';
 import 'navegacion.dart';
 import 'nucleo.dart';
+import 'pantalla_ajustes.dart';
 import 'pantalla_previa.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -518,6 +519,9 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     );
   }
 
+  /// El enlace de la lista traida, para poder seguirla.
+  String _urlLista = '';
+
   /// Trae las pistas de una lista. [fuente] marca de donde son, si se sabe.
   Future<void> _importarLista(String url, {Fuente? fuente}) async {
     FocusScope.of(context).unfocus();
@@ -531,6 +535,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     try {
       final ListaTraida lista = await Nucleo.importarLista(url);
       if (!mounted) return;
+      _urlLista = url;
       setState(() {
         _resultados = fuente == null
             ? lista.pistas
@@ -753,6 +758,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
           ),
+          if (_urlLista.isNotEmpty)
+            IconButton(
+              tooltip: 'Seguir esta lista: lo nuevo se baja solo',
+              onPressed: () => seguirLista(context, url: _urlLista),
+              icon: const Icon(Icons.notifications_active_outlined),
+            ),
           FilledButton.icon(
             onPressed: _ocupado ? null : _descargarTodo,
             icon: const Icon(Icons.download_for_offline_rounded, size: 18),

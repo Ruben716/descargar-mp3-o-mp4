@@ -113,6 +113,53 @@ class Nucleo {
   static Future<void> compartirEnlace(String url, {String titulo = ''}) =>
       _pedir('compartirEnlace', <String, dynamic>{'url': url, 'titulo': titulo});
 
+  /// Cuanto suena una cancion de la biblioteca, en LUFS. Null si no se pudo.
+  static Future<double?> medirVolumen(String uri) async {
+    try {
+      final Map<String, dynamic> datos = await _pedir('medirVolumen', <String, dynamic>{'uri': uri});
+      return (datos['lufs'] as num?)?.toDouble();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Guarda la copia de seguridad en Descargas/Tumbao. Devuelve donde quedo.
+  static Future<String> guardarCopia(String nombre, String contenido) async {
+    final Map<String, dynamic> datos = await _pedir(
+      'guardarCopia',
+      <String, dynamic>{'nombre': nombre, 'contenido': contenido},
+    );
+    return datos['ruta']?.toString() ?? 'Descargas/Tumbao/$nombre';
+  }
+
+  /// Deja elegir el archivo de una copia. Null si el usuario se echo atras.
+  static Future<String?> abrirCopia() async {
+    final Map<String, dynamic> datos = await _canal
+        .invokeMethod<String>('abrirCopia')
+        .then((String? crudo) => jsonDecode(crudo ?? '{}') as Map<String, dynamic>);
+    if (datos['cancelado'] == true) return null;
+    if (datos['ok'] != true) throw ErrorNucleo(datos['error']?.toString() ?? 'No se pudo abrir la copia', const <String>[]);
+    return datos['contenido']?.toString();
+  }
+
+  /// Si se esta en una red que no cobra por datos (wifi, normalmente).
+  static Future<bool> redSinLimite() async {
+    try {
+      return await _canal.invokeMethod<bool>('redSinLimite') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// La version instalada, la que dice Android (2.0.0...).
+  static Future<String> versionApp() async {
+    try {
+      return await _canal.invokeMethod<String>('versionApp') ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// Abre un enlace en su app (Crunchyroll, Netflix...) o en el navegador.
   static Future<void> abrirEnlace(String url) =>
       _pedir('abrirEnlace', <String, dynamic>{'url': url});

@@ -7,6 +7,7 @@ import 'animaciones.dart';
 import 'atajos.dart';
 
 import 'control_descarga.dart';
+import 'copia_seguridad.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
 import 'mini_reproductor.dart';
@@ -16,11 +17,18 @@ import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
 import 'pantalla_inicio.dart';
 import 'pantalla_ver.dart';
+import 'suscripciones.dart';
 import 'tema.dart';
+import 'volumen_parejo.dart';
 
 /// La pestania Ver (anime y peliculas) esta aparcada: su codigo sigue y se
 /// prueba, pero no se ensenia hasta retomarla. Basta con ponerlo a true.
 const bool mostrarVer = false;
+
+/// La copia semanal y la revision de las listas que se siguen, que la app hace
+/// sola al abrirse. Las pruebas las apagan: no deben tocar nada por su cuenta.
+@visibleForTesting
+bool tareasDeFondo = true;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +51,23 @@ Future<void> main() async {
   SincroWidget.empezar();
   EstadoReproductor.instancia.recuperarEcualizador();
   unawaited(EstadoReproductor.instancia.recuperarFundido());
+  // Volumen parejo: lo medido se carga y el reproductor lo aplica al cambiar.
+  unawaited(
+    VolumenParejo.instancia.cargar().then((_) {
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      void aplicar() {
+        estado.reaplicarNormalizacion();
+        unawaited(
+          estado.aplicarSaltarSilencios(
+            VolumenParejo.instancia.saltarSilencios,
+          ),
+        );
+      }
+
+      VolumenParejo.instancia.addListener(aplicar);
+      aplicar();
+    }),
+  );
   unawaited(Favoritas.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());
@@ -73,7 +98,8 @@ class Inicio extends StatefulWidget {
   State<Inicio> createState() => _InicioState();
 }
 
-class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+class _InicioState extends State<Inicio>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   /// Al cambiar de pestania, lo nuevo aparece con un fundido y un zoom muy
   /// leve («fade through» de Material). Las pestanias siguen vivas debajo: se
   /// anima lo que se ve, no se reconstruye nada.
@@ -83,8 +109,10 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
     value: 1,
   );
 
-  final GlobalKey<PantallaInicioState> _inicio = GlobalKey<PantallaInicioState>();
-  final GlobalKey<PantallaBibliotecaState> _biblioteca = GlobalKey<PantallaBibliotecaState>();
+  final GlobalKey<PantallaInicioState> _inicio =
+      GlobalKey<PantallaInicioState>();
+  final GlobalKey<PantallaBibliotecaState> _biblioteca =
+      GlobalKey<PantallaBibliotecaState>();
   int _pestana = 0;
 
   @override
@@ -102,7 +130,16 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
     Nucleo.recogerCompartido();
     Navegacion.pestanaPedida.addListener(_alPedirPestana);
     unawaited(_atenderAtajo());
+    // Lo de fondo, cuando la app ya esta abierta y no le roba tiempo al arranque.
+    if (tareasDeFondo) {
+      _deFondo = Timer(const Duration(seconds: 8), () {
+        unawaited(CopiaSeguridad.siToca());
+        unawaited(Suscripciones.instancia.revisarSiToca());
+      });
+    }
   }
+
+  Timer? _deFondo;
 
   /// El atajo del icono con que se abrio (o se volvio a) la app.
   Future<void> _atenderAtajo() async {
@@ -121,6 +158,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
     if (state == AppLifecycleState.resumed) {
       Nucleo.recogerCompartido();
       unawaited(_atenderAtajo());
+      if (tareasDeFondo) unawaited(Suscripciones.instancia.revisarSiToca());
     }
   }
 
@@ -130,6 +168,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
 
   @override
   void dispose() {
+    _deFondo?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
     Navegacion.pestanaPedida.removeListener(_alPedirPestana);
@@ -171,24 +210,25 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
         child: FadeTransition(
           opacity: CurvedAnimation(parent: _cambio, curve: Curves.easeOut),
           child: ScaleTransition(
-            scale: Tween<double>(begin: 0.985, end: 1)
-                .animate(CurvedAnimation(parent: _cambio, curve: Curves.easeOutCubic)),
-            child: IndexedStack(
-          index: _pestana,
-          children: <Widget>[
-            _siSeHaVisto(
-              0,
-              () => PantallaInicio(
-                key: _inicio,
-                alIrADescargar: () => _irA(1),
-                alIrABiblioteca: () => _irA(2),
-              ),
+            scale: Tween<double>(begin: 0.985, end: 1).animate(
+              CurvedAnimation(parent: _cambio, curve: Curves.easeOutCubic),
             ),
-            _siSeHaVisto(1, () => const PantallaDescarga()),
-            _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
-            if (mostrarVer) _siSeHaVisto(3, () => const PantallaVer()),
-          ],
-        ),
+            child: IndexedStack(
+              index: _pestana,
+              children: <Widget>[
+                _siSeHaVisto(
+                  0,
+                  () => PantallaInicio(
+                    key: _inicio,
+                    alIrADescargar: () => _irA(1),
+                    alIrABiblioteca: () => _irA(2),
+                  ),
+                ),
+                _siSeHaVisto(1, () => const PantallaDescarga()),
+                _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
+                if (mostrarVer) _siSeHaVisto(3, () => const PantallaVer()),
+              ],
+            ),
           ),
         ),
       ),

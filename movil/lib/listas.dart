@@ -134,6 +134,23 @@ class Listas extends ChangeNotifier {
     await _guardar();
   }
 
+  /// Una cancion pasa a ser otra en todas las listas, en el mismo sitio.
+  /// Si la nueva ya estaba en una lista, la vieja simplemente sale.
+  Future<void> sustituir(String vieja, String nueva) async {
+    bool cambio = false;
+    for (final List<String> lista in _listas.values) {
+      final int donde = lista.indexOf(vieja);
+      if (donde < 0) continue;
+      if (lista.contains(nueva)) {
+        lista.removeAt(donde);
+      } else {
+        lista[donde] = nueva;
+      }
+      cambio = true;
+    }
+    if (cambio) await _guardar();
+  }
+
   /// Al borrar una descarga hay que sacarla de todas las listas.
   Future<void> olvidar(String uri) async {
     bool cambio = false;

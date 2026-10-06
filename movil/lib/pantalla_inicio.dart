@@ -7,6 +7,7 @@ import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'pantalla_ajustes.dart';
 import 'pantalla_lista.dart';
 import 'portadas.dart';
 import 'reproductor.dart';
@@ -168,6 +169,14 @@ class PantallaInicioState extends State<PantallaInicio> {
               ],
             ),
           ),
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PantallaAjustes()),
+            ),
+            tooltip: 'Ajustes',
+            icon: const Icon(Icons.settings_outlined),
+          ),
+          const SizedBox(width: 4),
           IconButton.filledTonal(
             onPressed: widget.alIrADescargar,
             tooltip: 'Buscar algo nuevo',

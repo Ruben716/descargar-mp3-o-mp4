@@ -19,9 +19,10 @@ class Catalogo {
   static const String _tablaEscuchas = 'escuchas';
   static const String _tablaCalidades = 'calidades';
   static const String _tablaFavoritas = 'favoritas';
+  static const String _tablaVolumenes = 'volumenes';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 7;
+  static const int _version = 8;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -84,12 +85,23 @@ class Catalogo {
     )
   ''';
 
+  /// Cuanto suena cada cancion (LUFS), para igualar el volumen al reproducir.
+  /// Medirla cuesta un par de segundos: se hace una vez y se recuerda.
+  static const String _esquemaVolumenes = '''
+    CREATE TABLE volumenes (
+      uri TEXT PRIMARY KEY,
+      lufs REAL NOT NULL,
+      fecha INTEGER NOT NULL
+    )
+  ''';
+
   static Future<void> _crear(Database bd) async {
     await bd.execute(_esquema);
     await bd.execute(_esquemaLetras);
     await bd.execute(_esquemaEscuchas);
     await bd.execute(_esquemaCalidades);
     await bd.execute(_esquemaFavoritas);
+    await bd.execute(_esquemaVolumenes);
   }
 
   static Future<void> _migrar(Database bd, int desde, int hasta) async {
@@ -117,6 +129,7 @@ class Catalogo {
     if (desde == 5) await bd.execute('ALTER TABLE $_tablaCalidades ADD COLUMN bits INTEGER');
     // Solo se anade una tabla: lo que ya habia no se toca.
     if (desde < 7) await bd.execute(_esquemaFavoritas);
+    if (desde < 8) await bd.execute(_esquemaVolumenes);
   }
 
   /// Apunta de que calidad llego una descarga.
@@ -235,6 +248,7 @@ class Catalogo {
     await bd.delete(_tablaEscuchas, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaCalidades, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaFavoritas, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaVolumenes, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
   Future<int> cuantas() async {
@@ -395,5 +409,94 @@ class Catalogo {
     await (await _abierta).delete(_tablaEscuchas);
     await (await _abierta).delete(_tablaCalidades);
     await (await _abierta).delete(_tablaFavoritas);
+    await (await _abierta).delete(_tablaVolumenes);
+  }
+
+  // --- Volumen de cada cancion ---------------------------------------------
+
+  Future<void> anotarVolumen(String uri, double lufs) async {
+    await (await _abierta).insert(
+      _tablaVolumenes,
+      <String, Object>{'uri': uri, 'lufs': lufs, 'fecha': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Todo lo medido, de una vez: son pocos numeros y se miran a cada cancion.
+  Future<Map<String, double>> volumenes() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(_tablaVolumenes);
+    return <String, double>{
+      for (final Map<String, Object?> f in filas) f['uri']! as String: (f['lufs']! as num).toDouble(),
+    };
+  }
+
+  // --- Copia de seguridad -------------------------------------------------
+
+  /// Las tablas que viajan en la copia. Todas cuelgan de un URI salvo las
+  /// descargas, que ademas guardan de que enlace salio cada cancion.
+  static const List<String> tablasDeLaCopia = <String>[
+    _tabla,
+    _tablaEscuchas,
+    _tablaCalidades,
+    _tablaFavoritas,
+    _tablaVolumenes,
+    _tablaLetras,
+  ];
+
+  /// Todo el catalogo, tabla por tabla, tal cual.
+  Future<Map<String, List<Map<String, Object?>>>> volcar() async {
+    final Database bd = await _abierta;
+    return <String, List<Map<String, Object?>>>{
+      for (final String tabla in tablasDeLaCopia) tabla: await bd.query(tabla),
+    };
+  }
+
+  /// Vuelve a meter un volcado, con los URI traducidos a los de este telefono.
+  ///
+  /// [traducir] devuelve null para lo que aqui no existe: esas filas se
+  /// saltan, porque colgarian de una cancion que no esta. Lo que ya hubiera
+  /// se sustituye: restaurar es volver a como estaba.
+  Future<int> cargarVolcado(
+    Map<String, dynamic> volcado,
+    String? Function(String uri) traducir,
+  ) async {
+    final Database bd = await _abierta;
+    int metidas = 0;
+    await bd.transaction((Transaction tx) async {
+      for (final String tabla in tablasDeLaCopia) {
+        final List<dynamic> filas = (volcado[tabla] as List<dynamic>?) ?? <dynamic>[];
+        for (final dynamic fila in filas) {
+          if (fila is! Map) continue;
+          final Map<String, Object?> datos = <String, Object?>{
+            for (final MapEntry<dynamic, dynamic> e in fila.entries) '${e.key}': e.value as Object?,
+          };
+          final String? uri = traducir('${datos['uri'] ?? ''}');
+          if (uri == null) continue;
+          datos['uri'] = uri;
+          await tx.insert(tabla, datos, conflictAlgorithm: ConflictAlgorithm.replace);
+          metidas++;
+        }
+      }
+    });
+    return metidas;
+  }
+
+  /// La cancion [vieja] pasa a ser [nueva] en todo lo que cuelga de ella.
+  ///
+  /// Lo usa «buscar mejor calidad»: la version nueva hereda las escuchas, la
+  /// letra y el corazon de la anterior.
+  Future<void> heredar(String vieja, String nueva) async {
+    final Database bd = await _abierta;
+    for (final String tabla in <String>[_tablaEscuchas, _tablaFavoritas, _tablaLetras]) {
+      final List<Map<String, Object?>> filas =
+          await bd.query(tabla, where: 'uri = ?', whereArgs: <Object>[vieja]);
+      for (final Map<String, Object?> fila in filas) {
+        await bd.insert(
+          tabla,
+          <String, Object?>{...fila, 'uri': nueva},
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    }
   }
 }

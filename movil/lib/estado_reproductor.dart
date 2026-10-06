@@ -12,6 +12,7 @@ import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
+import 'volumen_parejo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
 class Pista {
@@ -700,7 +701,10 @@ class EstadoReproductor extends ChangeNotifier {
     _entrando = false;
     notifyListeners();
     // Apagarlo a mitad de un fundido no puede dejar la musica baja.
-    if (duracion == Duration.zero) await _ponerVolumen(1);
+    if (duracion == Duration.zero) {
+      _ultimoFundido = 1;
+      await _ponerVolumen(_factorNormal);
+    }
     try {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
       await memoria.setInt(claveFundido, duracion.inSeconds);
@@ -740,24 +744,83 @@ class EstadoReproductor extends ChangeNotifier {
   void _aplicarFundido(Duration posicion) {
     final Duration antes = _posicionAnterior;
     _posicionAnterior = posicion;
-    if (_fundido == Duration.zero) return;
-    // Un salto hacia atras con el volumen bajado es una pista que empieza
-    // tras apagarse la otra (o la misma al repetir): sube desde ahi, sin golpe.
-    if (posicion + const Duration(seconds: 2) < antes && _volumen < 0.98) _entrando = true;
-    if (_entrando && posicion >= _fundido) _entrando = false;
-    unawaited(_ponerVolumen(volumenConFundido(
-      posicion: posicion,
-      total: motor.duration,
-      fundido: _fundido,
-      entrando: _entrando,
-    )));
+    double componente = 1;
+    if (_fundido != Duration.zero) {
+      // Un salto hacia atras con el volumen bajado es una pista que empieza
+      // tras apagarse la otra (o la misma al repetir): sube desde ahi, sin golpe.
+      if (posicion + const Duration(seconds: 2) < antes && _ultimoFundido < 0.98) _entrando = true;
+      if (_entrando && posicion >= _fundido) _entrando = false;
+      componente = volumenConFundido(
+        posicion: posicion,
+        total: motor.duration,
+        fundido: _fundido,
+        entrando: _entrando,
+      );
+    }
+    _ultimoFundido = componente;
+    // El fundido y el volumen parejo se multiplican: los dos bajan a la vez.
+    unawaited(_ponerVolumen(componente * _factorNormal));
+  }
+
+  // --- Volumen parejo ------------------------------------------------------
+
+  /// Cuanto se baja la cancion actual para que no suene mas fuerte que el resto.
+  double _factorNormal = 1;
+
+  /// Lo que pide el fundido ahora mismo, sin el volumen parejo.
+  double _ultimoFundido = 1;
+
+  String? _uriNormalizada;
+
+  /// Vuelve a mirar cuanto suena la cancion actual y lo aplica.
+  ///
+  /// Se llama al cambiar de cancion y cuando llega una medida nueva.
+  void reaplicarNormalizacion() {
+    final String? uri = _actual?.elemento?.uri;
+    final ({double factor, double extraDb}) c = VolumenParejo.instancia.para(uri);
+    _factorNormal = c.factor;
+    unawaited(_ponerVolumen(_ultimoFundido * _factorNormal));
+    unawaited(_ponerExtra(c.extraDb));
+    if (uri != null) VolumenParejo.instancia.pedirSiFalta(uri);
+  }
+
+  Future<void> _ponerExtra(double decibelios) async {
+    try {
+      await Ecualizador.instancia.fijarExtra(decibelios);
+    } catch (_) {
+      // Sin efecto de refuerzo en el aparato la cancion suena como venia.
+    }
+  }
+
+  bool? _silenciosPuestos;
+
+  /// Quitar los silencios largos (inicio, final, pausas) al reproducir.
+  Future<void> aplicarSaltarSilencios(bool saltar) async {
+    if (_silenciosPuestos == saltar) return;
+    _silenciosPuestos = saltar;
+    try {
+      await motor.setSkipSilenceEnabled(saltar);
+    } catch (_) {
+      // Si el aparato no lo admite, se escucha entero.
+    }
+  }
+
+  @override
+  void notifyListeners() {
+    // Cada cambio de cancion pasa por aqui: es el sitio para ajustar su volumen.
+    final String? uri = _actual?.elemento?.uri;
+    if (uri != _uriNormalizada) {
+      _uriNormalizada = uri;
+      reaplicarNormalizacion();
+    }
+    super.notifyListeners();
   }
 
   Future<void> _ponerVolumen(double volumen) async {
     // La posicion llega varias veces por segundo: solo se cruza el canal
     // cuando el cambio se nota, y siempre al volver al maximo.
     final bool alMaximo = volumen >= 1 && _volumen < 1;
-    if (!alMaximo && (volumen - _volumen).abs() < 0.02) return;
+    if (!alMaximo && (volumen - _volumen).abs() < 0.01) return;
     _volumen = volumen;
     try {
       await motor.setVolume(volumen);
@@ -904,6 +967,10 @@ class EstadoReproductor extends ChangeNotifier {
     _entrando = false;
     _posicionAnterior = Duration.zero;
     _volumen = 1;
+    _factorNormal = 1;
+    _ultimoFundido = 1;
+    _uriNormalizada = null;
+    _silenciosPuestos = null;
     _ordenes = 0;
     _artes.clear();
     _relojSuenio?.cancel();

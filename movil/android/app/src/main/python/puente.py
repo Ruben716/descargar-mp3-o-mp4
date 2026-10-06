@@ -4,7 +4,9 @@ Kotlin no entiende los objetos del dominio, asi que cada funcion devuelve un
 JSON. Del lado de Flutter basta con un jsonDecode.
 """
 import json
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -297,6 +299,44 @@ def importar_lista(url: str) -> str:
         })
     except DownloadError as exc:
         return _respuesta({"ok": False, "error": str(exc)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+_SONORIDAD = re.compile(r"I:\s+(-?\d+(?:\.\d+)?)\s+LUFS")
+
+
+def sonoridad_de(salida_ffmpeg: str) -> float | None:
+    """La sonoridad integrada (LUFS) del resumen que imprime el filtro ebur128.
+
+    El filtro va imprimiendo medidas parciales mientras avanza y al final un
+    resumen; la ultima coincidencia es la del resumen, la de la pista entera.
+    """
+    halladas = _SONORIDAD.findall(salida_ffmpeg)
+    return float(halladas[-1]) if halladas else None
+
+
+def medir_volumen(ruta: str) -> str:
+    """Cuanto suena una cancion de verdad, en LUFS (como Spotify o YouTube).
+
+    Sirve para igualar el volumen entre canciones al reproducir: una bajada de
+    YouTube y otra de Bandcamp pueden sonar con varios decibelios de diferencia.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return _respuesta({"ok": False, "error": "FFmpeg no esta disponible."})
+    try:
+        hecho = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostats", "-i", ruta,
+             "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=180, check=False,
+        )
+        lufs = sonoridad_de(hecho.stderr)
+        if lufs is None:
+            return _respuesta({"ok": False, "error": "No se pudo medir el volumen."})
+        return _respuesta({"ok": True, "lufs": lufs})
+    except subprocess.TimeoutExpired:
+        return _respuesta({"ok": False, "error": "La medida tardo demasiado."})
     except Exception as exc:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 

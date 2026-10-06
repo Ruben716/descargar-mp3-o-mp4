@@ -28,6 +28,13 @@ class Favoritas extends ChangeNotifier {
     }
   }
 
+  /// Vuelve a leer del catalogo: tras restaurar una copia, por ejemplo.
+  Future<void> recargar() async {
+    _uris.clear();
+    _cargada = false;
+    await cargar();
+  }
+
   /// Marca o desmarca. Devuelve como queda.
   Future<bool> alternar(String uri) async {
     final bool ahora = !_uris.contains(uri);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 
+import 'autoeq.dart';
 import 'ecualizador.dart';
 import 'tema.dart';
 
@@ -126,17 +127,20 @@ class _Controles extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               for (final Ajuste ajuste in Ajuste.todos)
-                ActionChip(
+                ChoiceChip(
                   label: Text(ajuste.nombre),
-                  backgroundColor: Tema.superficieAlta,
-                  onPressed: () async {
+                  selected: ecualizador.ajuste == ajuste,
+                  showCheckmark: false,
+                  onSelected: (_) async {
                     await ecualizador.aplicar(ajuste);
                     alCambiar();
                   },
                 ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
+          _TusAudifonos(ecualizador: ecualizador, alCambiar: alCambiar),
+          const SizedBox(height: 14),
           SizedBox(
             height: 210,
             child: Row(
@@ -252,6 +256,152 @@ class _Banda extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+
+/// La correccion para los audifonos del usuario (AutoEQ).
+class _TusAudifonos extends StatelessWidget {
+  const _TusAudifonos({required this.ecualizador, required this.alCambiar});
+
+  final Ecualizador ecualizador;
+  final VoidCallback alCambiar;
+
+  Future<void> _elegir(BuildContext context) async {
+    final ModeloAudifonos? modelo = await showModalBottomSheet<ModeloAudifonos>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Tema.superficie,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (_) => const HojaAudifonos(),
+    );
+    if (modelo == null || !context.mounted) return;
+    final ScaffoldMessengerState avisos = ScaffoldMessenger.of(context);
+    try {
+      final Correccion correccion = await AutoEq.correccion(modelo);
+      await ecualizador.corregir(correccion);
+      alCambiar();
+      avisos.showSnackBar(SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('Sonido corregido para ${modelo.nombre}'),
+      ));
+    } catch (error) {
+      avisos.showSnackBar(SnackBar(behavior: SnackBarBehavior.floating, content: Text('$error')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Correccion? puesta = ecualizador.correccion;
+    return DecoratedBox(
+      decoration: BoxDecoration(color: Tema.superficieAlta, borderRadius: BorderRadius.circular(16)),
+      child: ListTile(
+        leading: Icon(Icons.headphones_rounded, color: puesta == null ? Colors.white54 : Tema.acento),
+        title: Text(
+          puesta == null ? 'Corregir para tus audifonos' : puesta.nombre,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+        ),
+        subtitle: Text(
+          puesta == null
+              ? 'AutoEQ: mas de 8800 modelos medidos. Elige el tuyo y suena como deberia.'
+              : 'Correccion AutoEQ puesta. El ajuste elegido se suma encima.',
+          style: const TextStyle(fontSize: 11.5, height: 1.35),
+        ),
+        trailing: puesta == null
+            ? const Icon(Icons.chevron_right_rounded)
+            : IconButton(
+                tooltip: 'Quitar correccion',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () async {
+                  await ecualizador.corregir(null);
+                  alCambiar();
+                },
+              ),
+        onTap: () => _elegir(context),
+      ),
+    );
+  }
+}
+
+/// Buscar el modelo de audifonos en el catalogo de AutoEQ.
+class HojaAudifonos extends StatefulWidget {
+  const HojaAudifonos({super.key});
+
+  @override
+  State<HojaAudifonos> createState() => _HojaAudifonosState();
+}
+
+class _HojaAudifonosState extends State<HojaAudifonos> {
+  late final Future<List<ModeloAudifonos>> _indice = AutoEq.indice();
+  String _texto = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.7,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const Text('Tus audifonos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text(
+              'Escribe la marca y el modelo: «galaxy buds», «airpods», «jbl tune»...',
+              style: TextStyle(color: Colors.white54, fontSize: 12.5),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              autofocus: true,
+              onChanged: (String v) => setState(() => _texto = v),
+              decoration: const InputDecoration(
+                hintText: 'Buscar modelo',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: FutureBuilder<List<ModeloAudifonos>>(
+                future: _indice,
+                builder: (BuildContext context, AsyncSnapshot<List<ModeloAudifonos>> estado) {
+                  if (estado.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (estado.hasError) {
+                    return Center(
+                      child: Text('${estado.error}', style: const TextStyle(color: Colors.white54)),
+                    );
+                  }
+                  final List<ModeloAudifonos> hallados = AutoEq.buscar(estado.data!, _texto);
+                  if (_texto.trim().isEmpty) {
+                    return Center(
+                      child: Text(
+                        '${estado.data!.length} mediciones disponibles',
+                        style: const TextStyle(color: Colors.white38),
+                      ),
+                    );
+                  }
+                  if (hallados.isEmpty) {
+                    return const Center(
+                      child: Text('No esta ese modelo.', style: TextStyle(color: Colors.white54)),
+                    );
+                  }
+                  return ListView.builder(
+                    itemCount: hallados.length,
+                    itemBuilder: (BuildContext context, int i) => ListTile(
+                      leading: const Icon(Icons.headphones_outlined),
+                      title: Text(hallados[i].nombre),
+                      subtitle: Text('Medido por ${hallados[i].fuente}', style: const TextStyle(fontSize: 11.5)),
+                      onTap: () => Navigator.of(context).pop(hallados[i]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

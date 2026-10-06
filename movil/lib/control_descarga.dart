@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'calidad.dart';
 import 'catalogo.dart';
+import 'volumen_parejo.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 
@@ -80,7 +81,7 @@ class ControlDescarga extends ChangeNotifier {
     unawaited(_guardarAjustes());
   }
 
-  @visibleForTesting
+  /// Donde se guardan los ajustes. Publica: la copia de seguridad la lleva.
   static const String claveAjustes = 'ajustes_descarga_v1';
 
   /// Guarda como se bajo lo ultimo, para no tener que elegirlo cada vez.
@@ -230,6 +231,8 @@ class ControlDescarga extends ChangeNotifier {
           guardados.addAll(nuevos);
           for (final String uri in nuevos) {
             await Catalogo.instancia.registrar(url, audio: usados.soloAudio, uri: uri);
+            // Se mide cuanto suena en cuanto llega, para el volumen parejo.
+            if (usados.soloAudio) VolumenParejo.instancia.pedirSiFalta(uri);
             // Para poder decir despues, sin inventar, de donde salio el sonido.
             final CalidadAudio? origen = bajada.origen;
             if (origen != null) await Catalogo.instancia.anotarCalidad(uri, origen);

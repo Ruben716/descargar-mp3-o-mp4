@@ -3,6 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/videoclip.dart';
+import 'package:descargador_movil/suscripciones.dart';
+import 'package:descargador_movil/pantalla_ajustes.dart';
+import 'package:descargador_movil/mejor_calidad.dart';
+import 'package:descargador_movil/copia_seguridad.dart';
+import 'package:descargador_movil/autoeq.dart';
 import 'package:descargador_movil/pantalla_ver.dart';
 import 'package:descargador_movil/traduccion.dart';
 import 'package:descargador_movil/pantalla_episodio.dart';
@@ -79,6 +86,12 @@ void main() {
 
   /// Lo que devuelve cada lista o canal, por su URL. Las que no esten, la de siempre.
   Map<String, String> listas = <String, String>{};
+
+  /// Si la red de las pruebas es wifi (no cobra por datos).
+  bool redSinLimite = true;
+
+  /// Lo que devuelve el selector de archivos al restaurar una copia.
+  String? copiaElegida;
   /// Lo que responde la comprobacion de calidad, por enlace. Por defecto, lo
   /// que da YouTube de verdad: Opus a 127 kb/s.
   Map<String, String> calidades = <String, String>{};
@@ -123,6 +136,13 @@ void main() {
     ControlDescarga.instancia.reiniciar();
     Listas.instancia.reiniciar();
     Favoritas.instancia.reiniciar();
+    VolumenParejo.instancia.reiniciar();
+    tareasDeFondo = false;
+    Suscripciones.instancia.reiniciar();
+    AutoEq.olvidar();
+    AutoEq.bajar = (Uri _) async => throw const ErrorAutoEq('sin red en las pruebas');
+    redSinLimite = true;
+    copiaElegida = null;
     Nucleo.olvidarCaratulas();
     Paleta.vaciar();
     await Catalogo.instancia.usarEnMemoria();
@@ -137,6 +157,11 @@ void main() {
       }
       return switch (llamada.method) {
         'urlCompartida' => compartida,
+        'medirVolumen' => '{"ok":true,"lufs":-9.0}',
+        'guardarCopia' => '{"ok":true,"ruta":"Descargas/Tumbao/tumbao-copia.json"}',
+        'abrirCopia' => copiaElegida ?? '{"ok":false,"cancelado":true}',
+        'redSinLimite' => redSinLimite,
+        'versionApp' => '2.0.0',
         'atajoPendiente' => () {
             final String? pendiente = atajo;
             atajo = null;
@@ -1129,7 +1154,7 @@ void main() {
     try {
       // Salta cinco versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 7);
+      expect(await nueva.getVersion(), 8);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -1138,6 +1163,7 @@ void main() {
       expect(await nueva.query('escuchas'), isEmpty);
       expect(await nueva.query('calidades'), isEmpty);
       expect(await nueva.query('favoritas'), isEmpty);
+      expect(await nueva.query('volumenes'), isEmpty);
     } finally {
       await nueva.close();
       await temporal.delete(recursive: true);
@@ -1146,33 +1172,51 @@ void main() {
 
   // --- Ecualizador y volumen ---------------------------------------------
 
-  test('los ajustes del ecualizador valen con cualquier numero de bandas', () {
-    // Cada telefono reparte sus bandas como quiere: hay de cinco y de diez.
-    for (final int bandas in <int>[5, 10]) {
-      final List<double> graves = <double>[
-        for (int i = 0; i < bandas; i++)
-          Ajuste.graves.ganancia(i / (bandas - 1), 12),
-      ];
-      expect(graves.first, greaterThan(graves.last),
-          reason: 'con $bandas bandas los graves suben abajo');
-
-      final List<double> agudos = <double>[
-        for (int i = 0; i < bandas; i++)
-          Ajuste.agudos.ganancia(i / (bandas - 1), 12),
-      ];
-      expect(agudos.last, greaterThan(agudos.first));
+  test('los ajustes del ecualizador van por frecuencia, valgan las bandas que valgan', () {
+    // Cada telefono reparte sus bandas como quiere: lo que importa es la frecuencia.
+    expect(Ajuste.graves.gananciaEn(60), greaterThan(Ajuste.graves.gananciaEn(8000)));
+    expect(Ajuste.agudos.gananciaEn(14000), greaterThan(Ajuste.agudos.gananciaEn(60)));
+    expect(Ajuste.voz.gananciaEn(1000), greaterThan(Ajuste.voz.gananciaEn(31)));
+    expect(Ajuste.fiesta.gananciaEn(1000), lessThan(Ajuste.fiesta.gananciaEn(31)));
+    for (final double hz in <double>[20, 60, 230, 910, 3600, 14000, 20000]) {
+      expect(Ajuste.plano.gananciaEn(hz), 0);
     }
   });
 
-  test('el ajuste plano deja todas las bandas a cero', () {
-    for (final double posicion in <double>[0, 0.25, 0.5, 0.75, 1]) {
-      expect(Ajuste.plano.ganancia(posicion, 12), 0);
-    }
+  test('la curva se interpola en escala logaritmica, como oye el oido', () {
+    const List<double> f = <double>[100, 1000];
+    const List<double> g = <double>[0, 10];
+    // 316 Hz esta a mitad de camino entre 100 y 1000 en escala logaritmica.
+    expect(interpolarEnFrecuencia(f, g, 316.2), closeTo(5, 0.01));
+    expect(interpolarEnFrecuencia(f, g, 20), 0, reason: 'por debajo, el extremo');
+    expect(interpolarEnFrecuencia(f, g, 20000), 10);
   });
 
-  test('la voz sube el centro y la fiesta lo hunde', () {
-    expect(Ajuste.voz.ganancia(0.5, 12), greaterThan(Ajuste.voz.ganancia(0, 12)));
-    expect(Ajuste.fiesta.ganancia(0.5, 12), lessThan(Ajuste.fiesta.ganancia(0, 12)));
+  test('hay quince ajustes y cada uno con su nombre', () {
+    expect(Ajuste.todos, hasLength(15));
+    expect(Ajuste.todos.map((Ajuste a) => a.nombre).toSet(), hasLength(15));
+    expect(Ajuste.porNombre('Reggaeton'), Ajuste.reggaeton);
+    expect(Ajuste.porNombre('No existe'), isNull);
+  });
+
+  test('la correccion de AutoEQ se lee y se reparte centrada en las bandas', () {
+    final Correccion c = Correccion.desdeGraphicEq(
+      'Audifonos de prueba',
+      'GraphicEQ: 20 6.0; 100 6.0; 1000 0.0; 10000 -6.0; 20000 -6.0',
+    );
+    expect(c.frecuencias, hasLength(5));
+    final List<double> bandas = c.paraBandas(<({double desde, double hasta})>[
+      (desde: 30, hasta: 120),
+      (desde: 120, hasta: 3000),
+      (desde: 3000, hasta: 16000),
+    ]);
+    expect(bandas.first, greaterThan(bandas.last), reason: 'sube graves y baja agudos');
+    expect(bandas.reduce((double a, double b) => a + b), closeTo(0, 0.001),
+        reason: 'centrada: no baja el volumen de todo');
+    expect(() => Correccion.desdeGraphicEq('x', 'esto no es una curva'), throwsFormatException);
+    final Correccion vuelta = Correccion.desdeJson(c.aJson());
+    expect(vuelta.nombre, 'Audifonos de prueba');
+    expect(vuelta.ganancias, c.ganancias);
   });
 
   test('igualar el volumen no viaja con un formato que se copiaria', () {
@@ -1278,7 +1322,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 7);
+      expect(await nueva.getVersion(), 8);
       final List<Map<String, Object?>> filas = await nueva.query('calidades');
       expect(filas.single['codec'], 'opus', reason: 'lo anotado no se pierde');
       expect(filas.single.containsKey('bits'), isTrue, reason: 'y la columna nueva ya esta');
@@ -1316,7 +1360,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 7);
+      expect(await nueva.getVersion(), 8);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
@@ -2765,6 +2809,279 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('no esta gratis en los canales oficiales'), findsOneWidget);
+    });
+  });
+
+  group('version 2: sonido, copias, listas seguidas y calidad', () {
+    test('el indice de AutoEQ se lee y se busca por palabras, con la mejor medicion', () async {
+      const String indice = '# Index\n'
+          '- [Samsung Galaxy Buds2](./Rtings/HMS%20II.3%20in-ear/Samsung%20Galaxy%20Buds2) by Rtings on HMS II.3\n'
+          '- [Samsung Galaxy Buds2](./oratory1990/in-ear/Samsung%20Galaxy%20Buds2) by oratory1990\n'
+          '- [Sony WH-1000XM4](./oratory1990/over-ear/Sony%20WH-1000XM4) by oratory1990\n'
+          'linea que no es de un modelo\n';
+      final List<ModeloAudifonos> todos = AutoEq.leerIndice(indice);
+      expect(todos, hasLength(3));
+
+      final List<ModeloAudifonos> buds = AutoEq.buscar(todos, 'galaxy buds');
+      expect(buds, hasLength(1), reason: 'cada modelo una vez');
+      expect(buds.single.fuente, 'oratory1990', reason: 'la medicion mas fiable');
+      expect(buds.single.urlCorreccion.toString(),
+          endsWith('/results/oratory1990/in-ear/Samsung%20Galaxy%20Buds2/Samsung%20Galaxy%20Buds2%20GraphicEQ.txt'));
+      expect(AutoEq.buscar(todos, 'xm4').single.nombre, 'Sony WH-1000XM4');
+      expect(AutoEq.buscar(todos, ''), isEmpty);
+
+      AutoEq.bajar = (Uri _) async => 'GraphicEQ: 20 2.0; 1000 0.0; 20000 -2.0';
+      final Correccion c = await AutoEq.correccion(buds.single);
+      expect(c.nombre, 'Samsung Galaxy Buds2');
+    });
+
+    test('el volumen parejo baja lo fuerte y sube lo flojo, con limites', () {
+      final ({double factor, double extraDb}) fuerte = VolumenParejo.correccion(-8);
+      expect(fuerte.factor, closeTo(0.501, 0.01), reason: '6 dB por encima: a la mitad');
+      expect(fuerte.extraDb, 0);
+
+      final ({double factor, double extraDb}) floja = VolumenParejo.correccion(-20);
+      expect(floja.factor, 1);
+      expect(floja.extraDb, closeTo(6, 0.001), reason: 'lo flojo sube con el refuerzo');
+
+      expect(VolumenParejo.correccion(10).factor, closeTo(0.178, 0.01), reason: 'como mucho baja 15 dB');
+      expect(VolumenParejo.correccion(-60).extraDb, 9, reason: 'y como mucho sube 9');
+    });
+
+    test('sin medir, o apagado, el volumen parejo no toca nada', () async {
+      final VolumenParejo v = VolumenParejo.instancia;
+      expect(v.para('content://audio/1'), (factor: 1.0, extraDb: 0.0));
+
+      final List<String> medidas = <String>[];
+      VolumenParejo.medir = (String uri) async {
+        medidas.add(uri);
+        return -8;
+      };
+      v.pedirSiFalta('content://audio/1');
+      expect(medidas, isEmpty, reason: 'hasta cargarse no mide nada');
+
+      await v.cargar();
+      v.pedirSiFalta('content://audio/1');
+      v.pedirSiFalta('content://audio/1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(medidas, <String>['content://audio/1'], reason: 'una sola vez cada una');
+      expect(v.para('content://audio/1').factor, closeTo(0.501, 0.01));
+      expect((await Catalogo.instancia.volumenes())['content://audio/1'], -8, reason: 'y se recuerda');
+
+      await v.ponerActivo(false);
+      expect(v.para('content://audio/1'), (factor: 1.0, extraDb: 0.0));
+    });
+
+    test('la copia lleva canciones, enlaces, listas, catalogo y ajustes', () async {
+      biblioteca = _conCanciones;
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=c1', audio: true, uri: 'content://audio/1');
+      await Catalogo.instancia.anotarEscucha('content://audio/1');
+      await Listas.instancia.crear('Fiesta');
+      await Listas.instancia.anadir('Fiesta', 'content://audio/1');
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.setInt('fundido_segundos', 8);
+
+      final Map<String, dynamic> copia = jsonDecode(await CopiaSeguridad.generar()) as Map<String, dynamic>;
+
+      expect(copia['app'], 'Tumbao');
+      final List<dynamic> canciones = copia['canciones'] as List<dynamic>;
+      expect(canciones, hasLength(3));
+      expect(canciones.first['url'], 'https://www.youtube.com/watch?v=c1');
+      expect((copia['listas'] as Map<String, dynamic>)['Fiesta'], <String>['content://audio/1']);
+      expect(((copia['catalogo'] as Map<String, dynamic>)['escuchas'] as List<dynamic>), hasLength(1));
+      expect((copia['preferencias'] as Map<String, dynamic>)['fundido_segundos'], 8);
+    });
+
+    test('en otro telefono se reconoce por nombre y lo que falta se puede volver a bajar', () async {
+      // Telefono viejo.
+      biblioteca = _conCanciones;
+      for (final String c in <String>['1', '2', '3']) {
+        await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=c$c', audio: true, uri: 'content://audio/$c');
+      }
+      await Listas.instancia.crear('Fiesta');
+      await Listas.instancia.anadirVarias('Fiesta', <String>['content://audio/1', 'content://audio/2', 'content://audio/3']);
+      await Favoritas.instancia.alternar('content://audio/2');
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.setInt('fundido_segundos', 8);
+      final String texto = await CopiaSeguridad.generar();
+
+      // Telefono nuevo: otros URI y una cancion de menos.
+      await Catalogo.instancia.usarEnMemoria();
+      Listas.instancia.reiniciar();
+      Favoritas.instancia.reiniciar();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      biblioteca = '{"ok":true,"elementos":['
+          '{"nombre":"Corazon Partio [c1].mp3","tamano":100,"duracion":300,"audio":true,"uri":"content://audio/101"},'
+          '{"nombre":"Bailando [c2].mp3","tamano":100,"duracion":100,"audio":true,"uri":"content://audio/102"}]}';
+
+      final ResultadoRestauracion r = await CopiaSeguridad.restaurar(texto);
+
+      expect(r.encontradas, 2);
+      expect(r.faltantes.single.nombre, 'Amame [c3].mp3');
+      expect(r.recuperables.single.url, 'https://www.youtube.com/watch?v=c3');
+      expect(Listas.instancia.contenido('Fiesta'), <String>['content://audio/101', 'content://audio/102']);
+      expect(Favoritas.instancia.contiene('content://audio/102'), isTrue);
+      expect((await SharedPreferences.getInstance()).getInt('fundido_segundos'), 8);
+
+      // Lo que faltaba se vuelve a bajar y entra en su lista.
+      await CopiaSeguridad.bajarFaltantes(texto, r.faltantes);
+      final MethodCall bajada = llamadas.lastWhere((MethodCall l) => l.method == 'descargar');
+      expect((bajada.arguments as Map<dynamic, dynamic>)['url'], 'https://www.youtube.com/watch?v=c3');
+      expect(Listas.instancia.contenido('Fiesta'), contains('content://audio/99'));
+    });
+
+    test('un archivo que no es una copia lo dice y no toca nada', () async {
+      await expectLater(CopiaSeguridad.restaurar('{"hola":1}'), throwsFormatException);
+      await expectLater(CopiaSeguridad.restaurar('esto no es json'), throwsFormatException);
+    });
+
+    test('la copia semanal solo se hace cuando toca', () async {
+      biblioteca = _conCanciones;
+      final DateTime hoy = DateTime(2026, 10, 6);
+      expect(await CopiaSeguridad.siToca(ahora: hoy), isTrue, reason: 'nunca se hizo');
+      expect(await CopiaSeguridad.siToca(ahora: hoy.add(const Duration(days: 2))), isFalse);
+      expect(await CopiaSeguridad.siToca(ahora: hoy.add(const Duration(days: 8))), isTrue);
+      await CopiaSeguridad.ponerAutomatica(false);
+      expect(await CopiaSeguridad.siToca(ahora: hoy.add(const Duration(days: 30))), isFalse);
+      expect(llamadas.where((MethodCall l) => l.method == 'guardarCopia'), hasLength(2));
+    });
+
+    test('seguir una lista: lo que ya tiene no se baja y lo nuevo si, a su lista', () async {
+      const String url = 'https://www.youtube.com/playlist?list=PLx';
+      String lista(List<String> ids) => '{"ok":true,"titulo":"Mi canal","resultados":['
+          '${ids.map((String id) => '{"titulo":"Tema $id","autor":"","duracion":200,"url":"https://www.youtube.com/watch?v=$id","miniatura":""}').join(',')}]}';
+      listas = <String, String>{url: lista(<String>['a1', 'a2'])};
+      final Suscripciones s = Suscripciones.instancia;
+
+      final Suscripcion sus = await s.seguir(url, audio: true, bajarLoQueHay: false);
+      expect(sus.titulo, 'Mi canal');
+      expect(sus.conocidas, hasLength(2));
+      await expectLater(s.seguir(url, audio: true, bajarLoQueHay: false), throwsA(isA<ErrorNucleo>()));
+
+      listas[url] = lista(<String>['a1', 'a2', 'a3']);
+      expect(await s.revisar(forzar: true), 1);
+      final MethodCall bajada = llamadas.lastWhere((MethodCall l) => l.method == 'descargar');
+      expect((bajada.arguments as Map<dynamic, dynamic>)['url'], 'https://www.youtube.com/watch?v=a3');
+      expect((bajada.arguments as Map<dynamic, dynamic>)['soloAudio'], isTrue);
+      expect(Listas.instancia.contenido('Mi canal'), <String>['content://audio/99']);
+      expect(s.todas.single.conocidas, contains('https://www.youtube.com/watch?v=a3'));
+
+      expect(await s.revisar(forzar: true), 0, reason: 'ya no hay nada nuevo');
+    });
+
+    test('con datos moviles y solo wifi las listas esperan', () async {
+      const String url = 'https://www.youtube.com/playlist?list=PLy';
+      listas = <String, String>{url: '{"ok":true,"titulo":"Otra","resultados":[]}'};
+      await Suscripciones.instancia.seguir(url, audio: true, bajarLoQueHay: false);
+      redSinLimite = false;
+      expect(await Suscripciones.instancia.revisar(), 0);
+      expect(Suscripciones.instancia.ultimoAviso, contains('wifi'));
+    });
+
+    test('la mejor calidad: sin perdida primero, y nada que no sea mejor de verdad', () {
+      const CalidadAudio youtube = CalidadAudio.tipicaDeYoutube;
+      expect(MejorCalidad.esMejor(const CalidadAudio(codec: 'flac', bits: 16, hz: 44100), youtube), isTrue);
+      expect(MejorCalidad.esMejor(const CalidadAudio(codec: 'mp3', kbps: 320), youtube), isTrue);
+      expect(MejorCalidad.esMejor(const CalidadAudio(codec: 'aac', kbps: 160), youtube), isFalse,
+          reason: 'AAC 160 suena casi igual que Opus 127');
+      expect(MejorCalidad.puntos(const CalidadAudio(codec: 'flac', bits: 24, hz: 96000)),
+          greaterThan(MejorCalidad.puntos(const CalidadAudio(codec: 'flac', bits: 16, hz: 44100))));
+    });
+
+    test('busca la misma cancion en las otras fuentes y ordena de mejor a peor', () async {
+      final Elemento cancion = _biblioteca3.first; // Corazon Partio, 100 s
+      String resultados(List<String> filas) => '{"ok":true,"resultados":[${filas.join(',')}]}';
+      respuestas = <String, String>{
+        'bandcamp': resultados(<String>[
+          '{"titulo":"Corazon Partio","autor":"Alejandro","duracion":101,"url":"https://bc/1","miniatura":""}',
+        ]),
+        'audius': resultados(<String>[
+          '{"titulo":"Corazon Partio (Radio)","autor":"x","duracion":99,"url":"https://au/1","miniatura":"",'
+              '"calidad":{"codec":"mp3","kbps":320}}',
+        ]),
+        'soundcloud': resultados(<String>[
+          '{"titulo":"Otra cancion","autor":"x","duracion":100,"url":"https://sc/1","miniatura":""}',
+          '{"titulo":"Corazon Partio","autor":"x","duracion":240,"url":"https://sc/2","miniatura":""}',
+        ]),
+      };
+      calidades = <String, String>{'https://bc/1': '{"ok":true,"codec":"flac","bits":16,"hz":44100}'};
+
+      final List<Alternativa> opciones = await MejorCalidad.buscar(cancion, CalidadAudio.tipicaDeYoutube);
+
+      expect(opciones.map((Alternativa a) => a.resultado.url), <String>['https://bc/1', 'https://au/1'],
+          reason: 'otra cancion, o la misma con otra duracion, no cuentan');
+      expect(opciones.first.fuente, Fuente.bandcamp);
+      expect(opciones.first.calidad.sinPerdida, isTrue);
+    });
+
+    test('al cambiar de version, la nueva hereda listas, Me gusta y escuchas', () async {
+      await Listas.instancia.crear('Fiesta');
+      await Listas.instancia.anadirVarias('Fiesta', <String>['content://audio/1', 'content://audio/2']);
+      await Favoritas.instancia.alternar('content://audio/1');
+      await Catalogo.instancia.anotarEscucha('content://audio/1');
+
+      await MejorCalidad.heredar('content://audio/1', 'content://audio/50');
+
+      expect(Listas.instancia.contenido('Fiesta'), <String>['content://audio/50', 'content://audio/2'],
+          reason: 'en el mismo sitio de la lista');
+      expect(Favoritas.instancia.contiene('content://audio/50'), isTrue);
+      expect(await Catalogo.instancia.vecesEscuchada('content://audio/50'), 1);
+    });
+
+    test('el videoclip: el oficial, nunca la letra, el directo ni algo que dure el doble', () {
+      final Elemento cancion = _biblioteca3[1]; // Bailando, 100 s
+      Resultado r(String titulo, double duracion) =>
+          Resultado(titulo: titulo, autor: '', duracion: duracion, url: 'https://yt/$titulo');
+      expect(
+        Videoclip.elegir(<Resultado>[
+          r('Bailando (Lyric Video)', 100),
+          r('Bailando - En Vivo', 110),
+          r('Bailando', 1000),
+          r('Bailando (Official Video)', 130),
+          r('Bailando', 105),
+        ], cancion)?.titulo,
+        'Bailando (Official Video)',
+      );
+      expect(Videoclip.elegir(<Resultado>[r('Otra cosa', 100)], cancion), isNull);
+    });
+
+    testWidgets('los ajustes salen desde Inicio con todo lo nuevo', (WidgetTester tester) async {
+      await abrirInicio(tester);
+      await tester.tap(find.byTooltip('Ajustes'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Volumen parejo'), findsOneWidget);
+      expect(find.text('Saltar silencios'), findsOneWidget);
+      expect(find.text('LISTAS QUE SIGUES'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Tumbao 2.0.0'), 300);
+      expect(find.text('COPIA DE SEGURIDAD'), findsOneWidget);
+      expect(find.text('Hacer copia ahora'), findsOneWidget);
+    });
+
+    testWidgets('hacer la copia desde ajustes la guarda en Descargas', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const PantallaAjustes()));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Hacer copia ahora'), 300);
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Hacer copia ahora'));
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+      });
+      await tester.pumpAndSettle();
+      final MethodCall guardada = llamadas.lastWhere((MethodCall l) => l.method == 'guardarCopia');
+      expect((guardada.arguments as Map<dynamic, dynamic>)['nombre'], 'tumbao-copia.json');
+      expect(find.textContaining('Descargas/Tumbao'), findsWidgets);
+    });
+
+    test('una cancion sustituida ocupa el mismo sitio en todas las listas', () async {
+      await Listas.instancia.crear('A');
+      await Listas.instancia.anadirVarias('A', <String>['x', 'y', 'z']);
+      await Listas.instancia.crear('B');
+      await Listas.instancia.anadirVarias('B', <String>['y', 'n']);
+      await Listas.instancia.sustituir('y', 'n');
+      expect(Listas.instancia.contenido('A'), <String>['x', 'n', 'z']);
+      expect(Listas.instancia.contenido('B'), <String>['n'], reason: 'sin repetirla');
     });
   });
 

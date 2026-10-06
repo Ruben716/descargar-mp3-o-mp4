@@ -9,6 +9,7 @@ import 'fila_pista.dart';
 import 'formato.dart';
 import 'hoja_listas.dart';
 import 'lista_secciones.dart';
+import 'hoja_mejor_calidad.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 import 'paleta.dart';
@@ -291,6 +292,11 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     if (await editarEtiquetas(context, elemento)) await recargar();
   }
 
+  Future<void> _mejorCalidad(Elemento elemento) async {
+    final String? nueva = await buscarMejorCalidad(context, elemento);
+    if (nueva != null) await recargar();
+  }
+
   List<AccionPista> _accionesDe(Elemento elemento) => <AccionPista>[
     if (elemento.audio)
       AccionPista(
@@ -311,6 +317,12 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
         icono: Icons.edit_rounded,
         texto: 'Editar etiquetas',
         alElegir: () => _etiquetar(elemento),
+      ),
+    if (elemento.audio)
+      AccionPista(
+        icono: Icons.high_quality_rounded,
+        texto: 'Buscar mejor calidad',
+        alElegir: () => _mejorCalidad(elemento),
       ),
     AccionPista(
       icono: Icons.delete_outline_rounded,
