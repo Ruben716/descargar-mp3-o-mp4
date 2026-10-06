@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:descargador_movil/pantalla_ver.dart';
 import 'package:descargador_movil/traduccion.dart';
 import 'package:descargador_movil/pantalla_episodio.dart';
 import 'package:descargador_movil/pantalla_anime.dart';
@@ -2496,6 +2497,23 @@ void main() {
     });
   });
 
+  /// La pestania Ver esta escondida en la app, pero se sigue probando sola.
+  Future<void> abrirVer(WidgetTester tester) async {
+    comoElTelefono(tester);
+    await tester.pumpWidget(MaterialApp(
+      theme: Tema.construir(),
+      home: const Scaffold(body: PantallaVer()),
+    ));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('la pestania Ver no sale mientras esta aparcada', (WidgetTester tester) async {
+    await abrirInicio(tester);
+    final NavigationBar barra = tester.widget<NavigationBar>(find.byType(NavigationBar));
+    expect(barra.destinations, hasLength(3));
+    expect(find.widgetWithText(NavigationBar, 'Ver'), findsNothing);
+  });
+
   group('anime gratis y legal', () {
     final Anime megalobox = AniList.desdeRespuesta(_aniListFalso).first;
 
@@ -2644,9 +2662,7 @@ void main() {
         CanalesOficiales.conSeries.first.listasUrl:
             lista(<String>[video('Lady Oscar | Subtítulo Español', 'https://www.youtube.com/playlist?list=PL2')]),
       };
-      await abrirInicio(tester);
-      await tester.tap(find.text('Ver').last);
-      await tester.pumpAndSettle();
+      await abrirVer(tester);
 
       expect(find.text('COMPLETAS Y GRATIS'), findsOneWidget);
       expect(find.text('Lady Oscar | Subtítulo Español'), findsOneWidget);
@@ -2664,9 +2680,7 @@ void main() {
         pedido = cuerpo;
         return _aniListFalso;
       };
-      await abrirInicio(tester);
-      await tester.tap(find.text('Ver').last);
-      await tester.pumpAndSettle();
+      await abrirVer(tester);
 
       await tester.enterText(find.byType(TextField), 'megalo');
       await tester.pump(const Duration(milliseconds: 500));
@@ -2679,9 +2693,7 @@ void main() {
 
     testWidgets('sin AniList se explica y se puede reintentar', (WidgetTester tester) async {
       AniList.transporte = (String _) async => throw const ErrorCatalogo('Sin conexion a internet.');
-      await abrirInicio(tester);
-      await tester.tap(find.text('Ver').last);
-      await tester.pumpAndSettle();
+      await abrirVer(tester);
 
       expect(find.text('Sin conexion a internet.'), findsWidgets);
       expect(find.text('Reintentar'), findsWidgets);

@@ -18,6 +18,10 @@ import 'pantalla_inicio.dart';
 import 'pantalla_ver.dart';
 import 'tema.dart';
 
+/// La pestania Ver (anime y peliculas) esta aparcada: su codigo sigue y se
+/// prueba, pero no se ensenia hasta retomarla. Basta con ponerlo a true.
+const bool mostrarVer = false;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Sin esto el telefono no reconoce la app como reproductor: no hay controles
@@ -182,7 +186,7 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
             ),
             _siSeHaVisto(1, () => const PantallaDescarga()),
             _siSeHaVisto(2, () => PantallaBiblioteca(key: _biblioteca)),
-            _siSeHaVisto(3, () => const PantallaVer()),
+            if (mostrarVer) _siSeHaVisto(3, () => const PantallaVer()),
           ],
         ),
           ),
@@ -212,11 +216,12 @@ class _InicioState extends State<Inicio> with WidgetsBindingObserver, SingleTick
                 selectedIcon: Icon(Icons.library_music_rounded),
                 label: 'Biblioteca',
               ),
-              NavigationDestination(
-                icon: Icon(Icons.live_tv_outlined),
-                selectedIcon: Icon(Icons.live_tv_rounded),
-                label: 'Ver',
-              ),
+              if (mostrarVer)
+                NavigationDestination(
+                  icon: Icon(Icons.live_tv_outlined),
+                  selectedIcon: Icon(Icons.live_tv_rounded),
+                  label: 'Ver',
+                ),
             ],
           ),
         ],
