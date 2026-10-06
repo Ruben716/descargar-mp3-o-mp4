@@ -8,9 +8,6 @@ import 'portadas.dart';
 import 'tema.dart';
 
 /// Catalogo de peliculas y series en espanol latino (PelisPlusHD).
-///
-/// Es la pestania «Peliculas» de Ver. Va sin Scaffold propio: se embebe en la
-/// pestania, que ya trae el suyo.
 class PantallaPelis extends StatefulWidget {
   const PantallaPelis({super.key});
 
@@ -20,47 +17,99 @@ class PantallaPelis extends StatefulWidget {
 
 class _PantallaPelisState extends State<PantallaPelis> {
   final TextEditingController _texto = TextEditingController();
+  final ScrollController _scroll = ScrollController();
   Timer? _espera;
   String _busqueda = '';
   int _seccion = 0; // 0 = peliculas, 1 = series
-  late Future<List<Peli>> _datos = _delCatalogo();
+  final List<Peli> _lista = <Peli>[];
+  int _pagina = 1;
+  bool _cargando = false;
+  bool _hayMas = true;
+  String? _error;
 
-  Future<List<Peli>> _delCatalogo() =>
-      _seccion == 0 ? FuentePelis.peliculas() : FuentePelis.series();
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_alDesplazar);
+    unawaited(_cargar(reiniciar: true));
+  }
 
   @override
   void dispose() {
     _espera?.cancel();
+    _scroll.dispose();
     _texto.dispose();
     super.dispose();
+  }
+
+  /// Carga la siguiente pagina al acercarse al final.
+  void _alDesplazar() {
+    if (!_scroll.hasClients || _busqueda.isNotEmpty) return;
+    if (_scroll.position.pixels >= _scroll.position.maxScrollExtent - 700 &&
+        _hayMas &&
+        !_cargando) {
+      unawaited(_cargar());
+    }
+  }
+
+  Future<void> _cargar({bool reiniciar = false}) async {
+    if (_cargando) return;
+    setState(() {
+      _cargando = true;
+      _error = null;
+      if (reiniciar) {
+        _pagina = 1;
+        _lista.clear();
+        _hayMas = true;
+      }
+    });
+    try {
+      final List<Peli> nuevos;
+      if (_busqueda.isNotEmpty) {
+        nuevos = await FuentePelis.buscar(_busqueda);
+      } else if (_seccion == 0) {
+        nuevos = await FuentePelis.peliculas(pagina: _pagina);
+      } else {
+        nuevos = await FuentePelis.series(pagina: _pagina);
+      }
+      if (!mounted) return;
+      setState(() {
+        if (_busqueda.isNotEmpty) {
+          _lista
+            ..clear()
+            ..addAll(nuevos);
+          _hayMas = false;
+        } else {
+          _lista.addAll(nuevos);
+          _hayMas = nuevos.isNotEmpty;
+          _pagina++;
+        }
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = _textoDe(error);
+        _cargando = false;
+      });
+    }
   }
 
   void _alEscribir(String texto) {
     _espera?.cancel();
     _espera = Timer(const Duration(milliseconds: 450), () {
       if (!mounted) return;
-      final String limpio = texto.trim();
-      setState(() {
-        _busqueda = limpio;
-        _datos = limpio.isEmpty ? _delCatalogo() : FuentePelis.buscar(limpio);
-      });
+      _busqueda = texto.trim();
+      unawaited(_cargar(reiniciar: true));
     });
   }
 
   void _cambiarSeccion(int cual) {
     if (cual == _seccion) return;
-    setState(() {
-      _seccion = cual;
-      _texto.clear();
-      _busqueda = '';
-      _datos = _delCatalogo();
-    });
-  }
-
-  void _reintentar() {
-    setState(() {
-      _datos = _busqueda.isEmpty ? _delCatalogo() : FuentePelis.buscar(_busqueda);
-    });
+    _seccion = cual;
+    _texto.clear();
+    _busqueda = '';
+    unawaited(_cargar(reiniciar: true));
   }
 
   @override
@@ -72,88 +121,116 @@ class _PantallaPelisState extends State<PantallaPelis> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: TextField(
-            controller: _texto,
-            onChanged: _alEscribir,
-            textInputAction: TextInputAction.search,
-            decoration: InputDecoration(
-              hintText: 'Busca una pelicula o serie',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _busqueda.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Borrar',
-                      icon: const Icon(Icons.close_rounded),
-                      onPressed: () {
-                        _texto.clear();
-                        _alEscribir('');
-                      },
-                    ),
+              controller: _texto,
+              onChanged: _alEscribir,
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: 'Busca una pelicula o serie',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _busqueda.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Borrar',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () {
+                          _texto.clear();
+                          _alEscribir('');
+                        },
+                      ),
+              ),
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Row(
-            children: <Widget>[
-              ChoiceChip(
-                label: const Text('Peliculas'),
-                selected: _seccion == 0,
-                showCheckmark: false,
-                onSelected: (_) => _cambiarSeccion(0),
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('Series'),
-                selected: _seccion == 1,
-                showCheckmark: false,
-                onSelected: (_) => _cambiarSeccion(1),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(
+              children: <Widget>[
+                ChoiceChip(
+                  label: const Text('Peliculas'),
+                  selected: _seccion == 0,
+                  showCheckmark: false,
+                  onSelected: (_) => _cambiarSeccion(0),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Series'),
+                  selected: _seccion == 1,
+                  showCheckmark: false,
+                  onSelected: (_) => _cambiarSeccion(1),
+                ),
+              ],
+            ),
           ),
-        ),
-        Expanded(child: _rejilla()),
+          Expanded(child: _cuerpo()),
         ],
       ),
     );
   }
 
-  Widget _rejilla() {
-    return FutureBuilder<List<Peli>>(
-      future: _datos,
-      builder: (BuildContext context, AsyncSnapshot<List<Peli>> estado) {
-        if (estado.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (estado.hasError) {
-          return _Error(mensaje: _textoDe(estado.error), alReintentar: _reintentar);
-        }
-        final List<Peli> lista = estado.data ?? const <Peli>[];
-        if (lista.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                _busqueda.isEmpty
-                    ? 'El catalogo no devolvio nada.'
-                    : 'No hay nada que se llame «$_busqueda».',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white54),
-              ),
-            ),
-          );
-        }
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 150,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 14,
-            childAspectRatio: 0.5,
-          ),
-          itemCount: lista.length,
-          itemBuilder: (BuildContext context, int i) => _TarjetaPeli(peli: lista[i]),
+  Widget _cuerpo() {
+    if (_lista.isEmpty) {
+      if (_cargando) return const Center(child: CircularProgressIndicator());
+      if (_error != null) {
+        return _Error(
+          mensaje: _error!,
+          alReintentar: () => unawaited(_cargar(reiniciar: true)),
         );
-      },
+      }
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            _busqueda.isEmpty
+                ? 'El catalogo no devolvio nada.'
+                : 'No hay nada que se llame «$_busqueda».',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white54),
+          ),
+        ),
+      );
+    }
+    return CustomScrollView(
+      controller: _scroll,
+      slivers: <Widget>[
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+          sliver: SliverGrid(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 150,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 14,
+              childAspectRatio: 0.5,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (BuildContext context, int i) => _TarjetaPeli(peli: _lista[i]),
+              childCount: _lista.length,
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(child: _pie()),
+      ],
+    );
+  }
+
+  Widget _pie() {
+    if (_busqueda.isNotEmpty) return const SizedBox(height: 24);
+    if (_cargando) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_hayMas) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+        child: OutlinedButton(
+          onPressed: () => unawaited(_cargar()),
+          child: const Text('Ver mas'),
+        ),
+      );
+    }
+    return const Padding(
+      padding: EdgeInsets.all(20),
+      child: Center(child: Text('No hay mas.', style: TextStyle(color: Colors.white38))),
     );
   }
 }

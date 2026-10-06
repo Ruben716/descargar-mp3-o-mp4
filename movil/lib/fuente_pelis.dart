@@ -90,13 +90,14 @@ class FuentePelis {
     return _lista(datos, 'resultados', Peli.desdeJson);
   }
 
-  static Future<List<Peli>> peliculas() async {
-    final Map<String, dynamic> datos = await _pedir('peliculas');
+  static Future<List<Peli>> peliculas({int pagina = 1}) async {
+    final Map<String, dynamic> datos =
+        await _pedir('peliculas', <String, dynamic>{'pagina': pagina});
     return _lista(datos, 'resultados', Peli.desdeJson);
   }
 
-  static Future<List<Peli>> series() async {
-    final Map<String, dynamic> datos = await _pedir('series');
+  static Future<List<Peli>> series({int pagina = 1}) async {
+    final Map<String, dynamic> datos = await _pedir('series', <String, dynamic>{'pagina': pagina});
     return _lista(datos, 'resultados', Peli.desdeJson);
   }
 

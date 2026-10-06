@@ -455,7 +455,7 @@ class _AccesoFuente extends StatelessWidget {
         leading: const Icon(Icons.language_rounded, color: Tema.acento, size: 30),
         title: const Text('Anime en espanol (catalogo completo)'),
         subtitle: const Text(
-          'JKanime: subtitulado y latino. Fuente externa, no oficial.',
+          'JKanime: subtitulado y latino.',
           style: TextStyle(height: 1.3),
         ),
         trailing: const Icon(Icons.chevron_right_rounded),
@@ -482,7 +482,7 @@ class _AccesoPelis extends StatelessWidget {
             leading: const Icon(Icons.movie_filter_outlined, color: Tema.acento, size: 30),
             title: const Text('Peliculas y series en latino'),
             subtitle: const Text(
-              'PelisPlusHD: catalogo completo con audio latino. Fuente externa, no oficial.',
+              'PelisPlusHD: catalogo completo con audio latino.',
               style: TextStyle(height: 1.3),
             ),
             trailing: const Icon(Icons.chevron_right_rounded),

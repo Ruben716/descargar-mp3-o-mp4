@@ -42,8 +42,14 @@ object CanalPelis {
                 "resultados",
                 fuente.buscar(llamada.argument<String>("texto").orEmpty()),
             ) { it.aJson() }
-            "peliculas" -> lista("resultados", fuente.peliculas()) { it.aJson() }
-            "series" -> lista("resultados", fuente.series()) { it.aJson() }
+            "peliculas" -> lista(
+                "resultados",
+                fuente.peliculas(llamada.argument<Int>("pagina") ?: 1),
+            ) { it.aJson() }
+            "series" -> lista(
+                "resultados",
+                fuente.series(llamada.argument<Int>("pagina") ?: 1),
+            ) { it.aJson() }
             "capitulos" -> lista(
                 "capitulos",
                 fuente.capitulos(llamada.argument<String>("url").orEmpty()),

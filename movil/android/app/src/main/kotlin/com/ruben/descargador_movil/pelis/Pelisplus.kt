@@ -26,9 +26,11 @@ class Pelisplus {
         return parsearTarjetas(red.cuerpo("$BASE/search?s=${Uri.encode(limpio)}", BASE))
     }
 
-    fun peliculas(): List<Peli> = parsearTarjetas(red.cuerpo("$BASE/peliculas", BASE), "Pelicula")
+    fun peliculas(pagina: Int = 1): List<Peli> =
+        parsearTarjetas(red.cuerpo("$BASE/peliculas?page=$pagina", BASE), "Pelicula")
 
-    fun series(): List<Peli> = parsearTarjetas(red.cuerpo("$BASE/series", BASE), "Serie")
+    fun series(pagina: Int = 1): List<Peli> =
+        parsearTarjetas(red.cuerpo("$BASE/series?page=$pagina", BASE), "Serie")
 
     private fun parsearTarjetas(html: String, tipo: String = ""): List<Peli> {
         val doc = Jsoup.parse(html, BASE)

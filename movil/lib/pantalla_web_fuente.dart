@@ -35,6 +35,10 @@ class _PantallaWebFuenteState extends State<PantallaWebFuente> {
   late final WebViewController _controlador;
   int _progreso = 0;
 
+  /// Anfitrion del embed: solo se deja navegar dentro de el (o de la web que
+  /// lo sirve). Asi el reproductor no salta a paginas de anuncios.
+  late final String _anfitrionEmbed = Uri.tryParse(widget.url)?.host ?? '';
+
   @override
   void initState() {
     super.initState();
@@ -50,9 +54,15 @@ class _PantallaWebFuenteState extends State<PantallaWebFuente> {
           onProgress: (int avance) {
             if (mounted) setState(() => _progreso = avance);
           },
-          // Se deja pasar todo: el reproductor abre su propio contenido.
-          onNavigationRequest: (NavigationRequest peticion) =>
-              NavigationDecision.navigate,
+          onNavigationRequest: (NavigationRequest peticion) {
+            if (!widget.enIframe) return NavigationDecision.navigate;
+            final String anfitrion = Uri.tryParse(peticion.url)?.host ?? '';
+            final bool permitido = anfitrion.isEmpty ||
+                anfitrion == _anfitrionEmbed ||
+                anfitrion.endsWith('.$_anfitrionEmbed') ||
+                anfitrion.contains('pelisplushd');
+            return permitido ? NavigationDecision.navigate : NavigationDecision.prevent;
+          },
         ),
       );
     if (widget.enIframe) {
