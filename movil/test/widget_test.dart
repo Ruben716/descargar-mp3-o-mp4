@@ -2655,7 +2655,8 @@ void main() {
 
       await tester.tap(find.widgetWithText(ChoiceChip, 'Peliculas'));
       await tester.pumpAndSettle();
-      expect(find.text('Peliculas: muy pronto'), findsOneWidget);
+      // La pestania de peliculas ahora es el catalogo real (PelisPlusHD).
+      expect(find.text('Series'), findsOneWidget);
     });
 
     testWidgets('buscar un anime ensenia lo que encuentra', (WidgetTester tester) async {
