@@ -10,10 +10,22 @@ import 'tema.dart';
 /// real (cada web lo esconde distinto y cambia a menudo), se deja que su
 /// reproductor haga su trabajo. Para el usuario es lo mismo: se ve aqui.
 class PantallaWebFuente extends StatefulWidget {
-  const PantallaWebFuente({required this.url, required this.titulo, super.key});
+  const PantallaWebFuente({
+    required this.url,
+    required this.titulo,
+    this.enIframe = false,
+    super.key,
+  });
 
   final String url;
   final String titulo;
+
+  /// Carga la direccion dentro de un iframe propio.
+  ///
+  /// Algunos reproductores (embed69 y companiia) solo funcionan embebidos y se
+  /// borran si son la pagina principal. Envolviendolos en un iframe, se evita
+  /// ese bloqueo.
+  final bool enIframe;
 
   @override
   State<PantallaWebFuente> createState() => _PantallaWebFuenteState();
@@ -42,8 +54,32 @@ class _PantallaWebFuenteState extends State<PantallaWebFuente> {
           onNavigationRequest: (NavigationRequest peticion) =>
               NavigationDecision.navigate,
         ),
-      )
-      ..loadRequest(Uri.parse(widget.url));
+      );
+    if (widget.enIframe) {
+      _controlador.loadHtmlString(
+        _envoltorio(widget.url),
+        baseUrl: 'https://pelisplushd.bz/',
+      );
+    } else {
+      _controlador.loadRequest(Uri.parse(widget.url));
+    }
+  }
+
+  /// Deja la direccion dentro de un iframe a pantalla completa.
+  String _envoltorio(String url) {
+    final String segura = url
+        .replaceAll('&', '&amp;')
+        .replaceAll('"', '&quot;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll("'", '&#39;');
+    return '<!doctype html><html><head>'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '</head><body style="margin:0;background:#000">'
+        '<iframe src="$segura" '
+        'style="border:0;position:fixed;inset:0;width:100%;height:100%" '
+        'allow="autoplay; fullscreen; encrypted-media; picture-in-picture" '
+        'allowfullscreen></iframe></body></html>';
   }
 
   Future<void> _navegador() async {

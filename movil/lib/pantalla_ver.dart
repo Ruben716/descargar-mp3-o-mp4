@@ -8,6 +8,7 @@ import 'canales_oficiales.dart';
 import 'nucleo.dart';
 import 'pantalla_anime.dart';
 import 'pantalla_fuente.dart';
+import 'pantalla_pelis.dart';
 import 'pantalla_serie.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -65,7 +66,7 @@ class _PantallaVerState extends State<PantallaVer> {
             child: switch (_seccion) {
               SeccionVer.anime => const _SeccionAnime(key: ValueKey<SeccionVer>(SeccionVer.anime)),
               SeccionVer.peliculas =>
-                const _PeliculasPronto(key: ValueKey<SeccionVer>(SeccionVer.peliculas)),
+                const PantallaPelis(key: ValueKey<SeccionVer>(SeccionVer.peliculas)),
             },
           ),
         ),
@@ -437,72 +438,6 @@ class _Resultados extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// El sitio de las peliculas, preparado para lo que viene.
-class _PeliculasPronto extends StatelessWidget {
-  const _PeliculasPronto({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 24),
-      children: const <Widget>[
-        Icon(Icons.movie_filter_outlined, size: 56, color: Tema.acento),
-        SizedBox(height: 14),
-        Text(
-          'Peliculas: muy pronto',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-        ),
-        SizedBox(height: 8),
-        Text(
-          'Esta seccion se esta preparando. Todo lo que tendra es gratis y legal:',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white60, height: 1.4),
-        ),
-        SizedBox(height: 22),
-        _Pronto(
-          icono: Icons.account_balance_outlined,
-          titulo: 'Clasicos de dominio publico',
-          texto: 'Peliculas de Internet Archive que ya son de todos: verlas y descargarlas.',
-        ),
-        _Pronto(
-          icono: Icons.public_rounded,
-          titulo: 'Cine con licencia libre',
-          texto: 'Peliculas hechas para compartirse, como las de la Fundacion Blender.',
-        ),
-        _Pronto(
-          icono: Icons.travel_explore_rounded,
-          titulo: 'Buscador de cualquier pelicula',
-          texto: 'Su ficha, su trailer y en que plataforma se ve en Peru, gratis o de pago.',
-        ),
-      ],
-    );
-  }
-}
-
-class _Pronto extends StatelessWidget {
-  const _Pronto({required this.icono, required this.titulo, required this.texto});
-
-  final IconData icono;
-  final String titulo;
-  final String texto;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: DecoratedBox(
-        decoration: BoxDecoration(color: Tema.superficie, borderRadius: BorderRadius.circular(16)),
-        child: ListTile(
-          leading: Icon(icono, color: Tema.acento),
-          title: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text(texto, style: const TextStyle(height: 1.35)),
-        ),
-      ),
     );
   }
 }
