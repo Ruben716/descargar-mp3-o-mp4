@@ -56,9 +56,15 @@ class _PantallaWebFuenteState extends State<PantallaWebFuente> {
           },
           onNavigationRequest: (NavigationRequest peticion) {
             if (!widget.enIframe) return NavigationDecision.navigate;
-            final String anfitrion = Uri.tryParse(peticion.url)?.host ?? '';
-            final bool permitido = anfitrion.isEmpty ||
-                anfitrion == _anfitrionEmbed ||
+            final Uri? uri = Uri.tryParse(peticion.url);
+            // Se corta todo lo que no sea http(s) (intent://, market://...) y lo
+            // que salga del propio reproductor: asi no abre otra app ni otra
+            // pagina de anuncios.
+            if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+              return NavigationDecision.prevent;
+            }
+            final String anfitrion = uri.host;
+            final bool permitido = anfitrion == _anfitrionEmbed ||
                 anfitrion.endsWith('.$_anfitrionEmbed') ||
                 anfitrion.contains('pelisplushd');
             return permitido ? NavigationDecision.navigate : NavigationDecision.prevent;

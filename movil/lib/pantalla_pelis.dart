@@ -331,6 +331,18 @@ class _PantallaDetallePeliState extends State<PantallaDetallePeli> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.peli.titulo, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Ver en la web del sitio',
+            icon: const Icon(Icons.public_rounded),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => PantallaWebFuente(
+                url: widget.peli.url,
+                titulo: 'Web · ${widget.peli.titulo}',
+              ),
+            )),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 24),
@@ -509,6 +521,18 @@ class _PantallaServidoresPeliState extends State<PantallaServidoresPeli> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.titulo, maxLines: 1, overflow: TextOverflow.ellipsis),
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Ver en la web del sitio',
+            icon: const Icon(Icons.public_rounded),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => PantallaWebFuente(
+                url: widget.url,
+                titulo: 'Web · ${widget.titulo}',
+              ),
+            )),
+          ),
+        ],
       ),
       body: FutureBuilder<List<ServidorPeli>>(
         future: _servidores,
