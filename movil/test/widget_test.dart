@@ -2830,7 +2830,7 @@ void main() {
       expect(AutoEq.buscar(todos, 'xm4').single.nombre, 'Sony WH-1000XM4');
       expect(AutoEq.buscar(todos, ''), isEmpty);
 
-      AutoEq.bajar = (Uri _) async => 'GraphicEQ: 20 2.0; 1000 0.0; 20000 -2.0';
+      AutoEq.bajar = (Uri _) async => 'GraphicEQ: 20 2.0; 100 1.5; 1000 0.0; 10000 -1.0; 20000 -2.0';
       final Correccion c = await AutoEq.correccion(buds.single);
       expect(c.nombre, 'Samsung Galaxy Buds2');
     });
@@ -3058,20 +3058,15 @@ void main() {
       expect(find.text('Hacer copia ahora'), findsOneWidget);
     });
 
-    testWidgets('hacer la copia desde ajustes la guarda en Descargas', (WidgetTester tester) async {
+    test('hacer la copia la guarda en Descargas y apunta cuando', () async {
       biblioteca = _conCanciones;
-      comoElTelefono(tester);
-      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const PantallaAjustes()));
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Hacer copia ahora'), 300);
-      await tester.runAsync(() async {
-        await tester.tap(find.text('Hacer copia ahora'));
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-      });
-      await tester.pumpAndSettle();
+      expect(await CopiaSeguridad.ultima(), isNull);
+      final String ruta = await CopiaSeguridad.guardar();
+      expect(ruta, 'Descargas/Tumbao/tumbao-copia.json');
       final MethodCall guardada = llamadas.lastWhere((MethodCall l) => l.method == 'guardarCopia');
       expect((guardada.arguments as Map<dynamic, dynamic>)['nombre'], 'tumbao-copia.json');
-      expect(find.textContaining('Descargas/Tumbao'), findsWidgets);
+      expect(jsonDecode('${(guardada.arguments as Map<dynamic, dynamic>)['contenido']}')['app'], 'Tumbao');
+      expect(await CopiaSeguridad.ultima(), isNotNull);
     });
 
     test('una cancion sustituida ocupa el mismo sitio en todas las listas', () async {
