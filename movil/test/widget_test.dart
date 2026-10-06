@@ -6,7 +6,6 @@ import 'dart:math';
 import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
-import 'package:descargador_movil/pantalla_ajustes.dart';
 import 'package:descargador_movil/mejor_calidad.dart';
 import 'package:descargador_movil/copia_seguridad.dart';
 import 'package:descargador_movil/autoeq.dart';
