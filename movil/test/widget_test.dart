@@ -3072,6 +3072,46 @@ void main() {
       expect(Videoclip.elegir(<Resultado>[r('Otra cosa', 100)], cancion), isNull);
     });
 
+    test('el videoclip sale del canal del artista y no de un directo subido por otro', () {
+      // Lo que devolvio YouTube de verdad al buscar «Warriors» desde el telefono.
+      const Elemento warriors = Elemento(
+        nombre: 'Nicky Romero vs. Volt & State - Warriors [TDGC2VlRbRY].mp3',
+        uri: 'content://audio/196',
+        duracion: 178,
+        tamano: 1,
+        audio: true,
+      );
+      Resultado r(String autor, String titulo, double duracion) =>
+          Resultado(titulo: titulo, autor: autor, duracion: duracion, url: 'https://yt/$titulo');
+      final List<Resultado> hallados = <Resultado>[
+        r('Protocol Recordings', 'Nicky Romero vs. Volt & State - Warriors (Official Lyric Video)', 179),
+        r('Miguel Cahuana', 'Nicky Romero vs. Volt & State - Warriors (Live Tomorrowland 2015)', 208),
+        r('EDM Latest', 'Nicky Romero vs. Volt & State - Warriors (Tomorrowland 2014)', 196),
+        r('Rui Santos', 'Nicky Romero vs. Volt & State - Warriors @ UMF 2015', 316),
+        r('Happy Music', 'Nicky Romero vs Volt & State - Warriors (Radio Edit)', 189),
+      ];
+      expect(Videoclip.elegir(hallados, warriors), isNull,
+          reason: 'no hay videoclip oficial: se dice, no se ensenia un festival');
+
+      const Elemento westCoast = Elemento(
+        nombre: 'OneRepublic - West Coast [iVZaUF4aMOY].mp3',
+        uri: 'content://audio/197',
+        duracion: 194,
+        tamano: 1,
+        audio: true,
+      );
+      expect(
+        Videoclip.elegir(<Resultado>[
+          r('OneRepublic', 'OneRepublic - West Coast (Live From The Today Show)', 195),
+          r('Luis Mihajlow 1', 'OneRepublic - West Coast | Sub. Español + Lyrics', 202),
+          r('OneRepublic', 'OneRepublic - West Coast (Official Music Video)', 202),
+        ], westCoast)?.titulo,
+        'OneRepublic - West Coast (Official Music Video)',
+      );
+      expect(Videoclip.delArtista('ShakiraVEVO', 'Shakira'), isTrue);
+      expect(Videoclip.delArtista('EDM Latest', 'Nicky Romero'), isFalse);
+    });
+
     testWidgets('los ajustes salen desde Inicio con todo lo nuevo', (WidgetTester tester) async {
       await abrirInicio(tester);
       await tester.tap(find.byTooltip('Ajustes'));
