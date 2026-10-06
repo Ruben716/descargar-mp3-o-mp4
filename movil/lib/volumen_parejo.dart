@@ -42,6 +42,11 @@ class VolumenParejo extends ChangeNotifier {
 
   double? lufsDe(String uri) => _lufs[uri];
 
+  /// Si una medida es posible. Fuera de esto es un fallo al medir: la primera
+  /// version guardo 0,0 para todo porque el FFmpeg del telefono no arrancaba el
+  /// filtro y aun asi imprimia un resumen a cero.
+  static bool valida(double lufs) => lufs > -70 && lufs < -1;
+
   /// Lo que hay que hacer con una cancion de [lufs] para llevarla al objetivo.
   ///
   /// Bajar se hace con el volumen del reproductor (factor de 0 a 1); subir no
@@ -65,7 +70,15 @@ class VolumenParejo extends ChangeNotifier {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
       _activo = memoria.getBool(claveActivo) ?? true;
       _saltarSilencios = memoria.getBool(claveSilencios) ?? false;
-      _lufs.addAll(await Catalogo.instancia.volumenes());
+      final Map<String, double> guardadas = await Catalogo.instancia.volumenes();
+      for (final MapEntry<String, double> m in guardadas.entries) {
+        if (valida(m.value)) {
+          _lufs[m.key] = m.value;
+        } else {
+          // Se borra para que se vuelva a medir, ahora bien.
+          await Catalogo.instancia.olvidarVolumen(m.key);
+        }
+      }
     } catch (_) {
       // Sin datos se empieza de cero: se ira midiendo.
     }
@@ -136,7 +149,7 @@ class VolumenParejo extends ChangeNotifier {
         final String uri = _cola.removeAt(0);
         _intentadas.add(uri);
         final double? lufs = await medir(uri);
-        if (lufs != null) {
+        if (lufs != null && valida(lufs)) {
           _lufs[uri] = lufs;
           try {
             await Catalogo.instancia.anotarVolumen(uri, lufs);

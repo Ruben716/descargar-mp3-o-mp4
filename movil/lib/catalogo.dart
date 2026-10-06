@@ -422,6 +422,10 @@ class Catalogo {
     );
   }
 
+  Future<void> olvidarVolumen(String uri) async {
+    await (await _abierta).delete(_tablaVolumenes, where: 'uri = ?', whereArgs: <Object>[uri]);
+  }
+
   /// Todo lo medido, de una vez: son pocos numeros y se miran a cada cancion.
   Future<Map<String, double>> volumenes() async {
     final List<Map<String, Object?>> filas = await (await _abierta).query(_tablaVolumenes);

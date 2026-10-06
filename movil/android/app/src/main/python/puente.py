@@ -310,10 +310,18 @@ def sonoridad_de(salida_ffmpeg: str) -> float | None:
     """La sonoridad integrada (LUFS) del resumen que imprime el filtro ebur128.
 
     El filtro va imprimiendo medidas parciales mientras avanza y al final un
-    resumen; la ultima coincidencia es la del resumen, la de la pista entera.
+    resumen: se lee solo lo que hay despues de «Summary:». Un valor fuera de lo
+    posible no es una medida: el FFmpeg del telefono imprime un resumen a cero
+    incluso cuando el filtro ni siquiera llego a arrancar.
     """
-    halladas = _SONORIDAD.findall(salida_ffmpeg)
-    return float(halladas[-1]) if halladas else None
+    resumen = salida_ffmpeg.rsplit("Summary:", 1)
+    if len(resumen) < 2:
+        return None
+    hallada = _SONORIDAD.search(resumen[1])
+    if not hallada:
+        return None
+    lufs = float(hallada.group(1))
+    return lufs if -70.0 < lufs < -1.0 else None
 
 
 def medir_volumen(ruta: str) -> str:
@@ -327,11 +335,13 @@ def medir_volumen(ruta: str) -> str:
         return _respuesta({"ok": False, "error": "FFmpeg no esta disponible."})
     try:
         hecho = subprocess.run(
+            # Sin opciones: el FFmpeg del telefono es antiguo y no conoce
+            # «framelog=quiet»; con ella el filtro no arrancaba.
             [ffmpeg, "-hide_banner", "-nostats", "-i", ruta,
-             "-af", "ebur128=framelog=quiet", "-f", "null", "-"],
+             "-af", "ebur128", "-f", "null", "-"],
             capture_output=True, text=True, timeout=180, check=False,
         )
-        lufs = sonoridad_de(hecho.stderr)
+        lufs = sonoridad_de(hecho.stderr) if hecho.returncode == 0 else None
         if lufs is None:
             return _respuesta({"ok": False, "error": "No se pudo medir el volumen."})
         return _respuesta({"ok": True, "lufs": lufs})

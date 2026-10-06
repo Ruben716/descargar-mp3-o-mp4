@@ -100,7 +100,8 @@ class CopiaSeguridad {
             'nombre': e.nombre,
             'duracion': e.duracion,
             'audio': e.audio,
-            if (enlaces[e.uri] != null) 'url': enlaces[e.uri],
+            if ((enlaces[e.uri] ?? enlaceDelNombre(e.nombre)) != null)
+              'url': enlaces[e.uri] ?? enlaceDelNombre(e.nombre),
           },
       ],
       'listas': Listas.instancia.todas,
@@ -110,6 +111,20 @@ class CopiaSeguridad {
           if (memoria.get(clave) != null) clave: memoria.get(clave),
       },
     });
+  }
+
+  static final RegExp _idYoutube = RegExp(r'\[([A-Za-z0-9_-]{11})\]');
+
+  /// El enlace de YouTube que lleva el nombre del archivo, si lo lleva.
+  ///
+  /// Lo bajado antes de que existiera el catalogo no esta apuntado en el, pero
+  /// yt-dlp pone el id del video entre corchetes: «West Coast [iVZaUF4aMOY]».
+  /// Un id de puros numeros es de otra web (SoundCloud), no de YouTube.
+  static String? enlaceDelNombre(String nombre) {
+    final RegExpMatch? m = _idYoutube.allMatches(nombre).lastOrNull;
+    final String? id = m?.group(1);
+    if (id == null || RegExp(r'^\d+$').hasMatch(id)) return null;
+    return 'https://www.youtube.com/watch?v=$id';
   }
 
   /// Hace la copia y la deja en Descargas/Tumbao. Devuelve donde quedo.

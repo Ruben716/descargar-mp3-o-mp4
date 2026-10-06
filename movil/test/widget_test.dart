@@ -2871,6 +2871,34 @@ void main() {
       expect(v.para('content://audio/1'), (factor: 1.0, extraDb: 0.0));
     });
 
+    test('el enlace sale del nombre del archivo cuando el catalogo no lo sabe', () {
+      expect(CopiaSeguridad.enlaceDelNombre('West Coast [iVZaUF4aMOY].mp3'),
+          'https://www.youtube.com/watch?v=iVZaUF4aMOY');
+      expect(CopiaSeguridad.enlaceDelNombre('Cicatrices - Mentira La Verdad [U3PUjIy6X_Q].mp3'),
+          'https://www.youtube.com/watch?v=U3PUjIy6X_Q');
+      expect(CopiaSeguridad.enlaceDelNombre('ROSÉ - messy [20974434211].mp3'), isNull,
+          reason: 'solo numeros: es de SoundCloud');
+      expect(CopiaSeguridad.enlaceDelNombre('Sin corchetes.mp3'), isNull);
+    });
+
+    test('una medida imposible no se usa, y las guardadas asi se borran', () async {
+      await Catalogo.instancia.anotarVolumen('content://audio/1', 0);
+      await Catalogo.instancia.anotarVolumen('content://audio/2', -9);
+      final VolumenParejo v = VolumenParejo.instancia;
+      await v.cargar();
+      expect(v.lufsDe('content://audio/1'), isNull, reason: 'el 0,0 del FFmpeg roto');
+      expect(v.lufsDe('content://audio/2'), -9);
+      expect((await Catalogo.instancia.volumenes()).keys, <String>['content://audio/2']);
+
+      VolumenParejo.medir = (String _) async => -0.5;
+      v.pedirSiFalta('content://audio/3');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(v.lufsDe('content://audio/3'), isNull);
+      expect(VolumenParejo.valida(-14), isTrue);
+      expect(VolumenParejo.valida(0), isFalse);
+      expect(VolumenParejo.valida(-70), isFalse);
+    });
+
     test('la copia lleva canciones, enlaces, listas, catalogo y ajustes', () async {
       biblioteca = _conCanciones;
       await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=c1', audio: true, uri: 'content://audio/1');
