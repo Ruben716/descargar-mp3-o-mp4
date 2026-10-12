@@ -132,6 +132,15 @@ class Nucleo {
     return datos['ruta']?.toString() ?? 'Descargas/Tumbao/$nombre';
   }
 
+  /// Guarda una lista .m3u en Music/Tumbao. Devuelve donde quedo.
+  static Future<String> guardarLista(String nombre, String contenido) async {
+    final Map<String, dynamic> datos = await _pedir(
+      'guardarLista',
+      <String, dynamic>{'nombre': nombre, 'contenido': contenido},
+    );
+    return datos['ruta']?.toString() ?? 'Music/Tumbao/$nombre';
+  }
+
   /// Deja elegir el archivo de una copia. Null si el usuario se echo atras.
   static Future<String?> abrirCopia() async {
     final Map<String, dynamic> datos = await _canal
@@ -474,6 +483,7 @@ class Elemento {
     this.etiquetaTitulo = '',
     this.etiquetaArtista = '',
     this.fecha = 0,
+    this.carpeta = '',
   });
 
   factory Elemento.desdeJson(Map<String, dynamic> j) => Elemento(
@@ -485,6 +495,7 @@ class Elemento {
         etiquetaTitulo: j['titulo']?.toString() ?? '',
         etiquetaArtista: j['artista']?.toString() ?? '',
         fecha: (j['fecha'] as num?)?.toInt() ?? 0,
+        carpeta: j['carpeta']?.toString() ?? '',
       );
 
   /// Lo que dicen las etiquetas del archivo. Vacio si no las tiene.
@@ -493,6 +504,9 @@ class Elemento {
 
   /// Cuando llego al telefono, en segundos desde 1970. 0 si no se sabe.
   final int fecha;
+
+  /// La carpeta del telefono donde vive, como «Music/Tumbao/». Vacia si no se sabe.
+  final String carpeta;
 
   /// Artista y tema para ensenar; ver [nombreVisible].
   ({String artista, String tema}) get partes =>

@@ -5,6 +5,8 @@ import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/posiciones.dart';
+import 'package:descargador_movil/m3u.dart';
+import 'package:descargador_movil/pantalla_lista.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
 import 'package:descargador_movil/mejor_calidad.dart';
@@ -159,6 +161,8 @@ void main() {
         'urlCompartida' => compartida,
         'medirVolumen' => '{"ok":true,"lufs":-9.0}',
         'guardarCopia' => '{"ok":true,"ruta":"Descargas/Tumbao/tumbao-copia.json"}',
+        'guardarLista' => '{"ok":true,"ruta":"Music/Tumbao/'
+            '${(llamada.arguments as Map<dynamic, dynamic>)['nombre']}"}',
         'abrirCopia' => copiaElegida ?? '{"ok":false,"cancelado":true}',
         'redSinLimite' => redSinLimite,
         'versionApp' => '2.0.0',
@@ -1238,6 +1242,72 @@ void main() {
       formatoAudio: 'mp3',
     ).aMapa();
     expect(mp3['normalizar'], isTrue);
+  });
+
+  group('listas en .m3u', () {
+    const Elemento tumbao = Elemento(
+      nombre: 'Bad Bunny - Titi [a1].opus',
+      uri: 'content://audio/1',
+      duracion: 243.4,
+      tamano: 1,
+      audio: true,
+      carpeta: 'Music/Tumbao/',
+    );
+    const Elemento vieja = Elemento(
+      nombre: 'Tema viejo [a2].mp3',
+      uri: 'content://audio/2',
+      duracion: 180,
+      tamano: 1,
+      audio: true,
+      carpeta: 'Music/Descargador/',
+    );
+    const Elemento video = Elemento(
+      nombre: 'Clip [a3].mp4',
+      uri: 'content://video/3',
+      duracion: 200,
+      tamano: 1,
+      audio: false,
+      carpeta: 'Movies/Tumbao/',
+    );
+
+    test('las rutas van desde la carpeta de la lista', () {
+      expect(M3u.ruta(tumbao), 'Bad Bunny - Titi [a1].opus');
+      expect(M3u.ruta(vieja), '../Descargador/Tema viejo [a2].mp3');
+    });
+
+    test('lleva duracion y artista - tema, y solo el audio', () {
+      final String texto = M3u.texto(<Elemento>[tumbao, video, vieja]);
+      expect(texto, startsWith('#EXTM3U\n'));
+      expect(texto, contains('#EXTINF:243,Bad Bunny - Titi\nBad Bunny - Titi [a1].opus\n'));
+      expect(texto, isNot(contains('Clip')));
+      expect('\n'.allMatches(texto).length, 5);
+    });
+
+    test('el nombre no lleva lo que Android no acepta', () {
+      expect(M3u.nombreArchivo('Rock/Pop: 2026'), 'Rock_Pop_ 2026.m3u');
+      expect(M3u.nombreArchivo('  '), 'Lista.m3u');
+    });
+
+    testWidgets('el boton de la lista la guarda y lo dice', (WidgetTester tester) async {
+      await Listas.instancia.cargar();
+      await Listas.instancia.crear('Para el coche');
+      await Listas.instancia.anadir('Para el coche', tumbao.uri);
+      await tester.pumpWidget(MaterialApp(
+        home: const PantallaLista(nombre: 'Para el coche', biblioteca: <Elemento>[tumbao]),
+        theme: ThemeData.dark(),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Guardar como .m3u'));
+      await tester.pumpAndSettle();
+
+      final MethodCall guardada = llamadas.lastWhere((MethodCall c) => c.method == 'guardarLista');
+      final Map<dynamic, dynamic> datos = guardada.arguments as Map<dynamic, dynamic>;
+      expect(datos['nombre'], 'Para el coche.m3u');
+      expect(datos['contenido'], contains('Bad Bunny - Titi [a1].opus'));
+      expect(find.textContaining('Music/Tumbao/Para el coche.m3u'), findsOneWidget);
+      await Listas.instancia.borrar('Para el coche');
+    });
   });
 
   group('audios largos', () {

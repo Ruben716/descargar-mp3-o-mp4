@@ -218,6 +218,11 @@ class MainActivity : AudioServiceActivity() {
                         enHiloSuelto(respuesta) { guardarCopia(nombre, contenido) }
                     }
                     "abrirCopia" -> abrirCopia(respuesta)
+                    "guardarLista" -> {
+                        val nombre = llamada.argument<String>("nombre").orEmpty()
+                        val contenido = llamada.argument<String>("contenido").orEmpty()
+                        enHiloSuelto(respuesta) { guardarLista(nombre, contenido) }
+                    }
                     "redSinLimite" -> respuesta.success(redSinLimite())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
@@ -464,6 +469,43 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    /**
+     * Guarda una lista .m3u junto a la musica, en Music/Tumbao.
+     *
+     * Ahi la encuentran VLC, Poweramp y compania, y las rutas de dentro son
+     * relativas a esa carpeta. Si ya habia una con ese nombre, se reescribe.
+     */
+    private fun guardarLista(nombre: String, contenido: String): String {
+        if (nombre.isEmpty() || nombre.contains('/')) return fallo("Nombre de lista no valido.")
+        val carpeta = CARPETAS_AUDIO.first() + "/"
+        return try {
+            val coleccion = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val existente = contentResolver.query(
+                coleccion,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                arrayOf(nombre, carpeta),
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(coleccion, cursor.getLong(0)) else null
+            }
+            val destino = existente ?: contentResolver.insert(
+                coleccion,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "audio/x-mpegurl")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, carpeta)
+                },
+            ) ?: return fallo("No se pudo crear la lista.")
+            contentResolver.openOutputStream(destino, "wt")?.use { salida ->
+                salida.write(contenido.toByteArray(Charsets.UTF_8))
+            } ?: return fallo("No se pudo escribir la lista.")
+            JSONObject().put("ok", true).put("ruta", "$carpeta$nombre").toString()
+        } catch (error: Exception) {
+            fallo("No se pudo guardar la lista: ${error.message}")
+        }
+    }
+
     /** La respuesta pendiente mientras el usuario elige el archivo de la copia. */
     private var copiaPedida: MethodChannel.Result? = null
 
@@ -634,6 +676,7 @@ class MainActivity : AudioServiceActivity() {
             MediaStore.MediaColumns.TITLE,
             MediaStore.Audio.AudioColumns.ARTIST,
             MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.MediaColumns.RELATIVE_PATH,
         )
         // Las carpetas van en una sola consulta y no en varias: asi el orden por
         // fecha sale mezclado de verdad y lo antiguo no se amontona al final.
@@ -659,7 +702,8 @@ class MainActivity : AudioServiceActivity() {
                             .put("uri", ContentUris.withAppendedId(coleccion, id).toString())
                             .put("titulo", cursor.getString(4) ?: "")
                             .put("artista", cursor.getString(5) ?: "")
-                            .put("fecha", cursor.getLong(6)),
+                            .put("fecha", cursor.getLong(6))
+                            .put("carpeta", cursor.getString(7) ?: ""),
                     )
                 }
             }
