@@ -492,7 +492,8 @@ def _extraer_episodio(engine, programa: str, episodio: str, **opciones):
     if entrada is None:
         raise DownloadError("Ese episodio ya no está en el programa.")
     # El motor le pone de identificador la dirección entera, y el archivo se
-    # llamaba «Tema [https：⧸⧸www.ivoox.com⧸16758032].mp3». Uno corto, fijo
+    # llamaba «Tema [https www.ivoox.com 16758032].mp3», con la dirección
+    # escrita con dos puntos y barras de otro alfabeto. Uno corto, fijo
     # para cada episodio, sirve igual para no bajarlo dos veces.
     entrada = {**entrada, "id": "ep-" + hashlib.sha1(episodio.encode()).hexdigest()[:10]}
     if not opciones.get("process", True):
