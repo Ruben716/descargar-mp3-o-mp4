@@ -4,7 +4,10 @@ import 'animaciones.dart';
 
 import 'estado_reproductor.dart';
 import 'gestos.dart';
+import 'nucleo.dart';
+import 'pantalla_radio.dart';
 import 'portadas.dart';
+import 'radio_mundial.dart';
 import 'reproductor.dart';
 import 'tema.dart';
 
@@ -31,9 +34,13 @@ class MiniReproductor extends StatelessWidget {
               position: Tween<Offset>(begin: const Offset(0, 0.4), end: Offset.zero).animate(a),
               child: FadeTransition(opacity: a, child: hijo),
             ),
-            child: actual?.elemento == null
-                ? const SizedBox(width: double.infinity, key: ValueKey<String>('nada'))
-                : _Barra(key: const ValueKey<String>('barra'), pista: actual!, estado: estado),
+            child: switch (actual) {
+              Pista(enVivo: final EstacionRadio emisora) =>
+                _BarraEnVivo(key: const ValueKey<String>('radio'), emisora: emisora, estado: estado),
+              Pista(elemento: Elemento()) =>
+                _Barra(key: const ValueKey<String>('barra'), pista: actual, estado: estado),
+              _ => const SizedBox(width: double.infinity, key: ValueKey<String>('nada')),
+            },
           ),
         );
       },
@@ -140,6 +147,71 @@ class _Barra extends StatelessWidget {
                 },
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// La barra cuando suena una radio: sin anterior ni siguiente, y sin barra
+/// de avance, porque el directo no tiene principio ni final.
+class _BarraEnVivo extends StatelessWidget {
+  const _BarraEnVivo({required this.emisora, required this.estado, super.key});
+
+  final EstacionRadio emisora;
+  final EstadoReproductor estado;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+      child: Material(
+        color: Tema.superficieAlta,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const PantallaRadio()),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: <Widget>[
+                LogoEmisora(emisora: emisora, lado: 44),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        emisora.nombre,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'EN VIVO  ·  ${emisora.sello}',
+                        style: const TextStyle(
+                          fontSize: 10, letterSpacing: 0.8, fontWeight: FontWeight.w800, color: Tema.acento),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  onPressed: estado.alternar,
+                  icon: Icon(estado.sonando ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 28),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Apagar la radio',
+                  onPressed: estado.cerrar,
+                  icon: const Icon(Icons.close_rounded, size: 18, color: Colors.white54),
+                ),
+              ],
+            ),
           ),
         ),
       ),

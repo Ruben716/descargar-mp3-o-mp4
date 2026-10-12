@@ -19,13 +19,18 @@ AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "
 #: Tidal, Qobuz y compañía llevan DRM, y lo que se ofrece en foros para sacar
 #: su FLAC usa cuentas de pago ajenas: no se contempla. El original de
 #: SoundCloud tampoco: su servidor solo lo da con sesión iniciada (401).
-FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo")
+#:
+#: hearthis.at son sesiones de DJ y temas propios, a veces con el archivo
+#: original para bajar; los podcasts salen del directorio de Apple, que da el
+#: RSS de cada programa, y el RSS lo abre el motor como una lista más.
+FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "hearthis", "podcasts")
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
 #:
 #: El Archive guarda conciertos enteros: cada resultado es una lista de pistas,
-#: no un tema. Quien lo use tiene que tratarlo como tal.
-FUENTES_DE_LISTAS = ("archive",)
+#: no un tema. Un podcast, igual: cada resultado es el programa, y sus
+#: episodios se ven al abrirlo. Quien lo use tiene que tratarlo como tal.
+FUENTES_DE_LISTAS = ("archive", "podcasts")
 
 #: Formatos donde no se puede garantizar la normalización de volumen.
 #:

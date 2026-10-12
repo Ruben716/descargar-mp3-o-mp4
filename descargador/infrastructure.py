@@ -1,5 +1,6 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import functools
+import hashlib
 import json
 import os
 import re
@@ -9,7 +10,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .domain import (
@@ -115,6 +116,32 @@ JAMENDO_API = "https://api.jamendo.com/v3.0"
 #: archivo es lo que lleva el APK: GitHub Actions lo escribe desde un secreto
 #: antes de compilar, y git lo ignora para que la clave no acabe publicada.
 VARIABLE_JAMENDO = "JAMENDO_CLIENT_ID"
+
+#: El buscador público de hearthis.at. Sin clave.
+BUSCADOR_HEARTHIS = "https://api-v2.hearthis.at/search/"
+
+#: El directorio de podcasts de Apple. Sin clave: da el RSS de cada programa.
+BUSCADOR_PODCASTS = "https://itunes.apple.com/search"
+
+#: Marca con la que un episodio recuerda de qué programa (RSS) salió.
+#:
+#: Bajado suelto, un episodio pierde su título: el motor solo ve un MP3 y lo
+#: llama por el nombre del archivo («micro1elizabeth...-ivoox16758032»). Bajado
+#: desde su programa, el título del RSS viaja con él.
+MARCA_EPISODIO = "#tumbao-episodio="
+
+
+def enlace_de_episodio(programa: str, episodio: str) -> str:
+    """La dirección con la que se baja un episodio sin perder su título."""
+    return f"{programa}{MARCA_EPISODIO}{quote(episodio, safe='')}"
+
+
+def partir_episodio(url: str) -> tuple[str, str] | None:
+    """El programa y el episodio de una dirección de [enlace_de_episodio]."""
+    if MARCA_EPISODIO not in url:
+        return None
+    programa, _, episodio = url.partition(MARCA_EPISODIO)
+    return programa, unquote(episodio)
 
 #: Las direcciones de una pista de Jamendo: «jamendo.com/track/123».
 ES_JAMENDO = re.compile(r"https?://(?:www\.)?jamendo\.com/track/(\d+)")
@@ -458,6 +485,22 @@ def trozos(total: int, tamano: int = TROZO_PARALELO) -> list[dict]:
             for inicio in range(0, total, tamano)]
 
 
+def _extraer_episodio(engine, programa: str, episodio: str, **opciones):
+    """Un episodio sacado de su programa, con el título y la fecha del RSS."""
+    lista = engine.extract_info(programa, download=False, process=False) or {}
+    entrada = next((e for e in lista.get("entries") or [] if e and e.get("url") == episodio), None)
+    if entrada is None:
+        raise DownloadError("Ese episodio ya no está en el programa.")
+    # El motor le pone de identificador la dirección entera, y el archivo se
+    # llamaba «Tema [https www.ivoox.com 16758032].mp3», con la dirección
+    # escrita con dos puntos y barras de otro alfabeto. Uno corto, fijo
+    # para cada episodio, sirve igual para no bajarlo dos veces.
+    entrada = {**entrada, "id": "ep-" + hashlib.sha1(episodio.encode()).hexdigest()[:10]}
+    if not opciones.get("process", True):
+        return entrada
+    return engine.process_ie_result(entrada, download=opciones.get("download", True))
+
+
 @functools.cache
 def _extractor_jamendo():
     """El extractor de Jamendo del motor, pero bajando de la descarga oficial.
@@ -483,6 +526,8 @@ def _extractor_jamendo():
 
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
+    if (partes := partir_episodio(url)) is not None:
+        return _extraer_episodio(engine, *partes, **opciones)
     for patron, fabrica in ((ES_AUDIUS, _extractor_audius), (ES_JAMENDO, _extractor_jamendo)):
         if patron.match(url):
             clase = fabrica()
@@ -715,6 +760,10 @@ class YtDlpDownloader:
             return self._buscar_en_bandcamp(query)
         if query.source == "jamendo":
             return self._buscar_en_jamendo(query)
+        if query.source == "hearthis":
+            return self._buscar_en_hearthis(query)
+        if query.source == "podcasts":
+            return self._buscar_podcasts(query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -833,6 +882,50 @@ class YtDlpDownloader:
         return tuple(resultados[:query.limit])
 
     @staticmethod
+    def _buscar_en_hearthis(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en hearthis.at: sesiones de DJ, mezclas y temas propios.
+
+        Medido: la mayoría se escucha en MP3, y algunas traen el archivo que
+        subió el artista para bajarlo (M4A, WAV...). Cuál es cuál lo decide el
+        motor al bajar, así que aquí no se promete calidad.
+        """
+        datos = _consultar(BUSCADOR_HEARTHIS + "?" + urlencode(
+            {"t": query.text, "page": 1, "count": query.limit}), "hearthis.at")
+        pistas: list = datos if isinstance(datos, list) else []
+        return tuple(
+            VideoInfo(
+                title=str(p.get("title") or "(sin título)"),
+                uploader=(p.get("user") or {}).get("username"),
+                duration=int(p["duration"]) if str(p.get("duration") or "").isdigit() else None,
+                url=str(p["permalink_url"]),
+                thumbnail=str(p.get("artwork_url") or p.get("thumb") or ""),
+            )
+            for p in pistas[:query.limit]
+            if p.get("permalink_url")
+        )
+
+    @staticmethod
+    def _buscar_podcasts(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca programas en el directorio de podcasts de Apple.
+
+        Cada resultado es un programa y su URL es el RSS: abrirlo como lista
+        trae los episodios, y cada episodio se baja como cualquier audio.
+        """
+        datos = _consultar(BUSCADOR_PODCASTS + "?" + urlencode({
+            "term": query.text, "media": "podcast", "entity": "podcast", "limit": query.limit,
+        }), "el directorio de podcasts")
+        return tuple(
+            VideoInfo(
+                title=str(p.get("collectionName") or "(sin título)"),
+                uploader=p.get("artistName"),
+                url=str(p["feedUrl"]),
+                thumbnail=str(p.get("artworkUrl600") or p.get("artworkUrl100") or ""),
+            )
+            for p in datos.get("results") or []
+            if p.get("feedUrl")
+        )
+
+    @staticmethod
     def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
         """Busca grabaciones con audio sin pérdida en el Internet Archive.
 
@@ -905,9 +998,17 @@ class YtDlpDownloader:
             entradas = (info or {}).get("entries")
             if entradas is None:
                 raise DownloadError("Ese enlace no es una lista de reproducción.")
+            # Lo que el motor solo entiende como una lista suelta de archivos
+            # (el RSS de un podcast) se baja desde la lista, para no perder
+            # el título de cada episodio.
+            desde_lista = (info or {}).get("extractor_key") == "Generic"
             return Playlist(
                 title=(info or {}).get("title") or "Lista importada",
-                items=tuple(self._resultado(e) for e in entradas if e),
+                items=tuple(
+                    replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
+                    if desde_lista and e.get("url") else self._resultado(e)
+                    for e in entradas if e
+                ),
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo leer la lista: {exc}") from exc

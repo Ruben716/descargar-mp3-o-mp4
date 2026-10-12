@@ -7,6 +7,11 @@ import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
+import 'package:descargador_movil/radio_mundial.dart';
+import 'package:descargador_movil/traducir_letra.dart';
+import 'package:descargador_movil/panel_letras.dart';
+import 'package:descargador_movil/pantalla_radio.dart';
+import 'package:descargador_movil/mini_reproductor.dart';
 import 'package:descargador_movil/pantalla_lista.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
@@ -1289,6 +1294,148 @@ void main() {
       expect(find.text('Disco Entero'), findsOneWidget);
       expect(find.byTooltip('Oir el disco entero'), findsOneWidget);
       expect(tester.getTopLeft(find.text('Uno')).dy, lessThan(tester.getTopLeft(find.text('Dos')).dy));
+    });
+  });
+
+  group('letra traducida con la IA del telefono', () {
+    const String lrc = '[00:01.00] I just called to say I love you\n'
+        '[00:05.00] I just called to say how much I care\n'
+        '[00:09.00]\n'
+        '[00:12.00] I just called to say I love you, and I mean it';
+
+    test('solo se ofrece cuando la letra parece en ingles', () {
+      expect(TraducirLetra.pareceIngles(lrc), isTrue);
+      expect(TraducirLetra.pareceIngles('Yo te quiero a ti, y tu me quieres a mi, que bonito es el amor contigo'), isFalse);
+      expect(TraducirLetra.pareceIngles('oh yeah'), isFalse, reason: 'con tan poco no se sabe');
+    });
+
+    test('vuelve una traduccion por linea, en su orden', () async {
+      Traduccion.motor = (String t) async => t.split('\n').map((String l) => l.isEmpty ? '' : 'ES:$l').join('\n');
+      final Letra letra = Letra(lineas: Letras.analizarLrc(lrc), texto: '');
+      final List<String>? t = await TraducirLetra.traducir(letra);
+      expect(t, hasLength(letra.lineas.length));
+      expect(t!.first, 'ES:I just called to say I love you');
+      expect(t[2], '', reason: 'la linea vacia sigue vacia');
+    });
+
+    test('si el traductor descoloca las lineas, no se usa', () async {
+      Traduccion.motor = (String t) async => 'Te llamo para decirte que te quiero';
+      final Letra letra = Letra(lineas: Letras.analizarLrc(lrc), texto: '');
+      expect(await TraducirLetra.traducir(letra), isNull);
+    });
+
+    testWidgets('el boton pone la traduccion debajo de cada verso', (WidgetTester tester) async {
+      Traduccion.motor = (String t) async => t.split('\n').map((String l) => l.isEmpty ? '' : 'ES:$l').join('\n');
+      const Elemento cancion = Elemento(
+        nombre: 'Stevie Wonder - I Just Called [s1].opus',
+        uri: 'content://audio/stevie',
+        duracion: 200,
+        tamano: 1,
+        audio: true,
+      );
+      await tester.runAsync(() => Catalogo.instancia.guardarLetra(cancion.uri, lrc: lrc, texto: ''));
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: const Scaffold(body: PanelLetras(elemento: cancion)),
+      ));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pumpAndSettle();
+      expect(find.text('Traducir'), findsOneWidget);
+
+      await tester.tap(find.text('Traducir'));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      expect(find.text('ES:I just called to say I love you'), findsOneWidget);
+      expect(find.text('Ver solo original'), findsOneWidget);
+    });
+  });
+
+  group('radio en vivo', () {
+    // Lo que devolvio Radio Browser de verdad, recortado.
+    const String respuesta = '['
+        '{"stationuuid":"a","name":"Radio Paradise Serenity - FLAC","codec":"FLAC","bitrate":0,'
+        '"country":"The United States Of America","favicon":"https://img/rp.png",'
+        '"url_resolved":"https://audio-geo.radioparadise.com/chan/42/x/4254/4/b/4254-0.flac"},'
+        '{"stationuuid":"b","name":"Radio RPP Noticias","codec":"AAC","bitrate":128,"country":"Peru",'
+        '"favicon":"","url_resolved":"https://mdstrm.com/audio/5fab3416b5f9ef165cfab6e9/icecast.audio"},'
+        '{"stationuuid":"c","name":"RPP repetida","codec":"AAC","bitrate":128,"country":"Peru",'
+        '"url_resolved":"https://mdstrm.com/audio/5fab3416b5f9ef165cfab6e9/icecast.audio"},'
+        '{"stationuuid":"d","name":"Sin direccion","codec":"MP3","bitrate":128,"url_resolved":""}'
+        ']';
+    final List<Uri> pedidas = <Uri>[];
+
+    setUp(() {
+      pedidas.clear();
+      RadioMundial.transporte = (Uri u) async {
+        pedidas.add(u);
+        return respuesta;
+      };
+      RadiosFavoritas.instancia.reiniciar();
+    });
+
+    test('sin direccion no hay emisora, y la repetida sale una vez', () {
+      final List<EstacionRadio> e = RadioMundial.desdeRespuesta(respuesta);
+      expect(e.map((EstacionRadio x) => x.nombre), <String>['Radio Paradise Serenity - FLAC', 'Radio RPP Noticias']);
+      expect(e.first.sinPerdida, isTrue);
+      expect(e.first.sello, 'FLAC · sin perdida');
+      expect(e.last.sello, 'AAC 128 kb/s');
+    });
+
+    test('la busqueda pide lo elegido y oculta las caidas', () async {
+      await RadioMundial.buscar(paisCodigo: 'PE', etiqueta: 'salsa', soloSinPerdida: true);
+      final Map<String, String> q = pedidas.single.queryParameters;
+      expect(q['countrycode'], 'PE');
+      expect(q['tag'], 'salsa');
+      expect(q['codec'], 'FLAC');
+      expect(q['hidebroken'], 'true');
+      expect(q['order'], 'votes');
+    });
+
+    test('las favoritas se guardan y vuelven', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final EstacionRadio rpp = RadioMundial.desdeRespuesta(respuesta).last;
+      await RadiosFavoritas.instancia.alternar(rpp);
+      RadiosFavoritas.instancia.reiniciar();
+      await RadiosFavoritas.instancia.cargar();
+      expect(RadiosFavoritas.instancia.todas.single.url, rpp.url);
+      expect(CopiaSeguridad.preferencias, contains(RadiosFavoritas.clave));
+    });
+
+    testWidgets('tocar una emisora la pone en directo y la barra lo dice', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: const Scaffold(
+          body: Column(children: <Widget>[Expanded(child: PantallaRadio()), MiniReproductor()]),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Radio RPP Noticias'), findsOneWidget);
+
+      await tester.tap(find.text('Radio RPP Noticias'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.actual?.enVivo?.nombre, 'Radio RPP Noticias');
+      expect(find.text('EN VIVO  ·  AAC 128 kb/s'), findsOneWidget);
+
+      expect(find.byTooltip('Apagar la radio'), findsOneWidget);
+      // El motor de audio trabaja con tiempo real: se apaga fuera del reloj
+      // de mentira de la prueba.
+      await tester.runAsync(() => EstadoReproductor.instancia.cerrar());
+      await tester.pumpAndSettle();
+      expect(find.textContaining('EN VIVO'), findsNothing);
+    });
+
+    test('apagar la radio no borra lo que se oia de la biblioteca', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        EstadoReproductor.claveSesion: '{"uris":["content://audio/1"],"indice":0,"posicion":1000}',
+      });
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await runZonedGuarded(() async {
+        unawaited(estado.reproducirEmisora(RadioMundial.desdeRespuesta(respuesta).first));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await estado.cerrar();
+      }, (Object _, StackTrace _) {});
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      expect(memoria.getString(EstadoReproductor.claveSesion), isNotNull);
     });
   });
 
@@ -3776,7 +3923,8 @@ void main() {
         .where((MethodCall c) => c.method == 'buscar')
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
-    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo'});
+    // Los podcasts no: se buscan a proposito, no mezclados con canciones.
+    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo', 'hearthis'});
   });
 
   /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
@@ -3923,13 +4071,16 @@ void main() {
     expect(find.text('Cancion uno'), findsNothing);
   });
 
-  test('solo el Archive devuelve grabaciones enteras', () {
+  test('solo el Archive y los podcasts devuelven grabaciones enteras', () {
     // Sus resultados son conciertos: se abren como lista, no se bajan de una
     // pieza. Espeja FUENTES_DE_LISTAS del nucleo.
     expect(Fuente.archive.daListas, isTrue);
     expect(Fuente.youtube.daListas, isFalse);
     expect(Fuente.soundcloud.daListas, isFalse);
     expect(Fuente.jamendo.daListas, isFalse);
+    // Un podcast es el programa: sus episodios se eligen al abrirlo.
+    expect(Fuente.podcasts.daListas, isTrue);
+    expect(Fuente.hearthis.daListas, isFalse);
   });
 
   test('Jamendo se busca con las demas y entra en la mejor calidad', () {

@@ -351,7 +351,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     FocusScope.of(context).unfocus();
     _control.limpiarMensaje();
     final int esta = ++_busqueda;
-    final List<Fuente> donde = _fuente == Fuente.todas ? Fuente.reales : <Fuente>[_fuente];
+    final List<Fuente> donde = _fuente == Fuente.todas ? Fuente.deMusica : <Fuente>[_fuente];
     setState(() {
       _buscado = texto;
       _aviso = '';

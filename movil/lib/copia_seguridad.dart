@@ -8,6 +8,7 @@ import 'control_descarga.dart';
 import 'favoritas.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'radio_mundial.dart';
 
 /// Una cancion de la copia que no esta en este telefono.
 @immutable
@@ -75,6 +76,7 @@ class CopiaSeguridad {
     'suscripciones_v1',
     'posiciones_video_v1',
     'posiciones_audio_v1',
+    RadiosFavoritas.clave,
   ];
 
   /// Arma la copia como texto.

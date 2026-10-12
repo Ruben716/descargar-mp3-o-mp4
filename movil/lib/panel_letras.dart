@@ -5,6 +5,7 @@ import 'estado_reproductor.dart';
 import 'letras.dart';
 import 'nucleo.dart';
 import 'tema.dart';
+import 'traducir_letra.dart';
 
 /// La letra de lo que suena, resaltando la linea que toca.
 class PanelLetras extends StatefulWidget {
@@ -26,6 +27,13 @@ class _PanelLetrasState extends State<PanelLetras> {
 
   Letra? _letra;
   int _resaltada = -1;
+
+  /// La letra en castellano, una por linea, si se pidio y se pudo.
+  List<String>? _traduccion;
+  bool _traduciendo = false;
+
+  /// Alto de cada linea: con traduccion debajo hace falta mas.
+  double get _altoLinea => _traduccion == null ? _alto : _alto + 22;
 
   @override
   void initState() {
@@ -49,6 +57,7 @@ class _PanelLetrasState extends State<PanelLetras> {
     setState(() {
       _letra = null;
       _resaltada = -1;
+      _traduccion = null;
     });
     final Letra letra = await Letras.de(
       uri: widget.elemento.uri,
@@ -80,11 +89,56 @@ class _PanelLetrasState extends State<PanelLetras> {
     // La linea que canta se lleva al centro; el resto queda arriba y abajo,
     // que es lo que deja seguir la cancion sin buscar donde va.
     final double alto = _desplazamiento.position.viewportDimension;
-    final double destino = (toca * _alto) - (alto / 2) + (_alto / 2);
+    final double destino = (toca * _altoLinea) - (alto / 2) + (_altoLinea / 2);
     _desplazamiento.animateTo(
       destino.clamp(0, _desplazamiento.position.maxScrollExtent),
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// Pone o quita la traduccion. La primera vez puede tardar: baja el idioma.
+  Future<void> _alternarTraduccion() async {
+    final Letra? letra = _letra;
+    if (letra == null || _traduciendo) return;
+    if (_traduccion != null) {
+      setState(() {
+        _traduccion = null;
+        _resaltada = -1;
+      });
+      return;
+    }
+    setState(() => _traduciendo = true);
+    final List<String>? lineas = await TraducirLetra.traducir(letra);
+    if (!mounted) return;
+    setState(() {
+      _traduciendo = false;
+      _traduccion = lineas;
+      _resaltada = -1;
+    });
+    if (lineas == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('No se pudo traducir. La primera vez hace falta internet para bajar el idioma.'),
+      ));
+    }
+  }
+
+  Widget _botonTraducir() {
+    final bool puesta = _traduccion != null;
+    final Color tono = puesta ? Tema.acento : Colors.white54;
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.only(right: 12),
+        child: TextButton.icon(
+          onPressed: _alternarTraduccion,
+          icon: _traduciendo
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : Icon(Icons.translate_rounded, size: 18, color: tono),
+          label: Text(puesta ? 'Ver solo original' : 'Traducir', style: TextStyle(fontSize: 12, color: tono)),
+        ),
+      ),
     );
   }
 
@@ -97,19 +151,39 @@ class _PanelLetrasState extends State<PanelLetras> {
     if (letra.vacia) {
       return const _SinLetra();
     }
+    final bool traducible = TraducirLetra.ofrecer(letra);
     if (!letra.sincronizada) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(28, 20, 28, 40),
-        child: Text(
-          letra.texto,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Colors.white70, height: 1.9, fontSize: 16),
-        ),
+      final List<String> originales = letra.texto.split('\n');
+      final List<String>? traducidas = _traduccion;
+      return Column(
+        children: <Widget>[
+          if (traducible) _botonTraducir(),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),
+              child: Text.rich(
+                TextSpan(children: <InlineSpan>[
+                  for (int i = 0; i < originales.length; i++) ...<InlineSpan>[
+                    TextSpan(text: '${originales[i]}\n'),
+                    if (traducidas != null && i < traducidas.length && traducidas[i].trim().isNotEmpty)
+                      TextSpan(
+                        text: '${traducidas[i]}\n',
+                        style: const TextStyle(color: Tema.acento, fontSize: 13, fontStyle: FontStyle.italic),
+                      ),
+                  ],
+                ]),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, height: 1.9, fontSize: 16),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
     return Column(
       children: <Widget>[
+        if (traducible) _botonTraducir(),
         Expanded(child: _versos(letra)),
         _ControlSincronia(desfase: letra.desfase, alAjustar: _ajustar),
       ],
@@ -132,7 +206,7 @@ class _PanelLetrasState extends State<PanelLetras> {
           controller: _desplazamiento,
           padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 24),
           itemCount: letra.lineas.length,
-          itemExtent: _alto,
+          itemExtent: _altoLinea,
           itemBuilder: (BuildContext context, int i) {
             final bool suena = i == activa;
             return GestureDetector(
@@ -153,11 +227,29 @@ class _PanelLetrasState extends State<PanelLetras> {
                         ? Tema.acento
                         : (i < activa ? Colors.white24 : Colors.white60),
                   ),
-                  child: Text(
-                    letra.lineas[i].texto.isEmpty ? '·' : letra.lineas[i].texto,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        letra.lineas[i].texto.isEmpty ? '·' : letra.lineas[i].texto,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                      if (_traduccion case final List<String> t when i < t.length && t[i].trim().isNotEmpty)
+                        Text(
+                          t[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            fontStyle: FontStyle.italic,
+                            color: suena ? Tema.acento.withValues(alpha: 0.8) : Colors.white38,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),

@@ -63,6 +63,7 @@ from descargador.infrastructure import (
     calidad_jamendo,
     clave_jamendo,
     codec_legible,
+    enlace_de_episodio,
     escribir_etiquetas,
     formatos_jamendo,
     incrusta_caratula,
@@ -72,6 +73,7 @@ from descargador.infrastructure import (
     nombre_con_etiquetas,
     original_sin_perdida,
     partes_del_nombre,
+    partir_episodio,
     trozos,
 )
 
@@ -460,9 +462,10 @@ class FuentesTests(unittest.TestCase):
         SearchVideos(adaptador).execute("algo", 5, "soundcloud")
         adaptador.search.assert_called_once_with(SearchQuery("algo", 5, "soundcloud"))
 
-    def test_el_archive_es_el_unico_que_devuelve_grabaciones_enteras(self):
-        # Quien lo use tiene que tratar cada resultado como una lista.
-        self.assertEqual(FUENTES_DE_LISTAS, ("archive",))
+    def test_solo_el_archive_y_los_podcasts_devuelven_grabaciones_enteras(self):
+        # Quien lo use tiene que tratar cada resultado como una lista: un
+        # concierto entero, o un programa con sus episodios.
+        self.assertEqual(FUENTES_DE_LISTAS, ("archive", "podcasts"))
 
     def test_la_direccion_de_soundcloud_es_la_de_la_pista_y_no_la_de_su_api(self):
         # Regresión: SoundCloud pone en «url» una dirección de su API que no
@@ -1631,6 +1634,87 @@ class CapitulosTests(unittest.TestCase):
         for valor in ("title=Tema", "artist=Grupo", "album=Disco", "track=3"):
             self.assertEqual(argumentos.count(valor), 2, msg=valor)
         self.assertNotIn("album=", " ".join(argumentos_etiquetas(titulo="T", artista="A")))
+
+
+class HearthisPodcastsTests(unittest.TestCase):
+    """hearthis.at y los podcasts: lo que dicen sus API tal cual se midió."""
+
+    def test_hearthis_da_el_enlace_de_la_pista(self):
+        respuesta = _Json([
+            {"title": "LET'S FLY AWAY", "user": {"username": "Michael Thompson"}, "duration": "4816",
+             "permalink_url": "https://hearthis.at/yhwdxbjp/lets-fly-away/",
+             "artwork_url": "https://img/a.jpg"},
+            {"title": "Sin enlace"},
+        ])
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            r = YtDlpDownloader._buscar_en_hearthis(SearchQuery("lofi", source="hearthis"))
+        self.assertEqual(len(r), 1)
+        self.assertEqual(r[0].url, "https://hearthis.at/yhwdxbjp/lets-fly-away/")
+        self.assertEqual(r[0].duration, 4816)
+        self.assertIn("t=lofi", red.call_args.args[0].full_url)
+
+    def test_un_podcast_es_su_rss_y_se_abre_como_lista(self):
+        respuesta = _Json({"results": [
+            {"collectionName": "Podcast de Historia Deconstruida", "artistName": "Gabriel Rodríguez",
+             "feedUrl": "https://feeds.ivoox.com/feed_fg_f1140169_filtro_1.xml",
+             "artworkUrl600": "https://img/600.jpg"},
+            {"collectionName": "Sin RSS"},
+        ]})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            r = YtDlpDownloader._buscar_podcasts(SearchQuery("historia", source="podcasts"))
+        self.assertEqual([p.url for p in r], ["https://feeds.ivoox.com/feed_fg_f1140169_filtro_1.xml"])
+        self.assertEqual(r[0].thumbnail, "https://img/600.jpg")
+        self.assertIn("media=podcast", red.call_args.args[0].full_url)
+        self.assertIn("podcasts", FUENTES_DE_LISTAS)
+
+    PROGRAMA = "https://feeds.ivoox.com/feed_fg_f1140169_filtro_1.xml"
+    EPISODIO = "https://www.ivoox.com/mozart_mf_175346932_feed_1.mp3#__youtubedl_smuggle=%7B%22a%22%7D"
+
+    def test_el_episodio_recuerda_su_programa(self):
+        enlace = enlace_de_episodio(self.PROGRAMA, self.EPISODIO)
+        self.assertTrue(enlace.startswith(self.PROGRAMA))
+        self.assertEqual(partir_episodio(enlace), (self.PROGRAMA, self.EPISODIO))
+        self.assertIsNone(partir_episodio("https://www.youtube.com/watch?v=x"))
+        # Sigue siendo una dirección que el dominio acepta.
+        self.assertEqual(DownloadRequest(enlace, Path(".")).url, enlace)
+
+    def test_se_baja_desde_el_programa_y_conserva_el_titulo(self):
+        """Suelto, el motor lo llamaba «micro1elizabeth...-ivoox16758032»."""
+        entrada = {"_type": "url_transparent", "url": self.EPISODIO, "title": "Wolfgang Amadeus Mozart"}
+        motor = Mock()
+        motor.extract_info.return_value = {"_type": "playlist", "entries": iter([
+            {"_type": "url_transparent", "url": "https://otro/episodio.mp3", "title": "Otro"}, entrada])}
+        motor.process_ie_result.side_effect = lambda e, download: {**e, "_type": "video"}
+        info = _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False)
+        self.assertEqual(motor.extract_info.call_args.args[0], self.PROGRAMA)
+        self.assertEqual(info["title"], "Wolfgang Amadeus Mozart")
+        # Sin procesar se devuelve la entrada, que procesa luego la descarga.
+        motor.extract_info.return_value = {"entries": [entrada]}
+        crudo = _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False,
+                         process=False)
+        self.assertEqual(crudo["title"], "Wolfgang Amadeus Mozart")
+        # Un identificador corto y fijo, no la dirección entera en el nombre.
+        self.assertRegex(crudo["id"], r"^ep-[0-9a-f]{10}$")
+        self.assertEqual(crudo["id"], info["id"])
+
+    def test_un_episodio_retirado_se_dice(self):
+        motor = Mock()
+        motor.extract_info.return_value = {"entries": []}
+        with self.assertRaises(DownloadError):
+            _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False)
+
+    def test_la_lista_de_un_rss_da_enlaces_que_conservan_el_titulo(self):
+        info = {"_type": "playlist", "title": "Historia", "extractor_key": "Generic", "entries": [
+            {"_type": "url_transparent", "url": self.EPISODIO, "title": "Mozart", "duration": 2166}]}
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.return_value = info
+            lista = YtDlpDownloader().playlist(self.PROGRAMA)
+        self.assertEqual(lista.items[0].title, "Mozart")
+        self.assertEqual(partir_episodio(lista.items[0].url), (self.PROGRAMA, self.EPISODIO))
+
+    def test_las_dos_fuentes_se_aceptan(self):
+        for fuente in ("hearthis", "podcasts"):
+            self.assertEqual(SearchQuery("algo", source=fuente).source, fuente)
 
 
 class CabeceraTests(unittest.TestCase):
