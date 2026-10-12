@@ -132,6 +132,15 @@ class Nucleo {
     return datos['ruta']?.toString() ?? 'Descargas/Tumbao/$nombre';
   }
 
+  /// Guarda una lista .m3u en Music/Tumbao. Devuelve donde quedo.
+  static Future<String> guardarLista(String nombre, String contenido) async {
+    final Map<String, dynamic> datos = await _pedir(
+      'guardarLista',
+      <String, dynamic>{'nombre': nombre, 'contenido': contenido},
+    );
+    return datos['ruta']?.toString() ?? 'Music/Tumbao/$nombre';
+  }
+
   /// Deja elegir el archivo de una copia. Null si el usuario se echo atras.
   static Future<String?> abrirCopia() async {
     final Map<String, dynamic> datos = await _canal
@@ -202,6 +211,11 @@ class Nucleo {
   /// Borra una descarga de la biblioteca del telefono.
   static Future<void> eliminar(String uri) =>
       _pedir('eliminar', <String, dynamic>{'uri': uri});
+
+  /// Pone la cancion como tono de llamada. La primera vez Android pide
+  /// permiso y esto falla explicando que hacer; despues, ya funciona.
+  static Future<void> ponerTono(String uri) =>
+      _pedir('ponerTono', <String, dynamic>{'uri': uri});
 
   /// Cierto mientras la app va encogida en una ventana flotante.
   static final ValueNotifier<bool> enVentanaFlotante = ValueNotifier<bool>(false);
@@ -474,6 +488,9 @@ class Elemento {
     this.etiquetaTitulo = '',
     this.etiquetaArtista = '',
     this.fecha = 0,
+    this.carpeta = '',
+    this.etiquetaAlbum = '',
+    this.pista = 0,
   });
 
   factory Elemento.desdeJson(Map<String, dynamic> j) => Elemento(
@@ -485,6 +502,9 @@ class Elemento {
         etiquetaTitulo: j['titulo']?.toString() ?? '',
         etiquetaArtista: j['artista']?.toString() ?? '',
         fecha: (j['fecha'] as num?)?.toInt() ?? 0,
+        carpeta: j['carpeta']?.toString() ?? '',
+        etiquetaAlbum: j['album']?.toString() ?? '',
+        pista: (j['pista'] as num?)?.toInt() ?? 0,
       );
 
   /// Lo que dicen las etiquetas del archivo. Vacio si no las tiene.
@@ -493,6 +513,24 @@ class Elemento {
 
   /// Cuando llego al telefono, en segundos desde 1970. 0 si no se sabe.
   final int fecha;
+
+  /// La carpeta del telefono donde vive, como «Music/Tumbao/». Vacia si no se sabe.
+  final String carpeta;
+
+  /// El album tal como lo da Android, y el numero de pista (0 si no tiene).
+  final String etiquetaAlbum;
+  final int pista;
+
+  /// El disco al que pertenece, o vacio si no es de ninguno.
+  ///
+  /// Android, cuando el archivo no dice album, pone el nombre de la carpeta
+  /// («Tumbao»): eso no es un disco y no se cuenta.
+  String get album {
+    final String a = etiquetaAlbum.trim();
+    final List<String> trozos = carpeta.split('/')..removeWhere((String t) => t.isEmpty);
+    if (a.isEmpty || a == '<unknown>' || (trozos.isNotEmpty && a == trozos.last)) return '';
+    return a;
+  }
 
   /// Artista y tema para ensenar; ver [nombreVisible].
   ({String artista, String tema}) get partes =>
@@ -531,8 +569,8 @@ class Avance {
 /// Lo que el usuario puede ajustar. Refleja DownloadOptions del dominio.
 /// De donde se puede buscar musica.
 ///
-/// Espeja FUENTES del nucleo. Bandcamp queda fuera porque su reproductor sirve
-/// 128 kb/s y el FLAC esta detras del pago; Tidal y companiia llevan DRM.
+/// Espeja FUENTES del nucleo. Tidal y companiia llevan DRM, y el original de
+/// SoundCloud solo lo da con sesion iniciada: no estan.
 enum Fuente {
   /// Todas a la vez. No existe en el nucleo: la app pregunta a cada una en
   /// paralelo y junta lo que va llegando.
@@ -541,7 +579,8 @@ enum Fuente {
   soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
   audius('audius', 'Audius', 'Artistas que suben a 320 y a veces el original sin perdida'),
   bandcamp('bandcamp', 'Bandcamp', 'Independientes; algunos regalan el FLAC'),
-  archive('archive', 'Archive', 'Conciertos sin perdida');
+  archive('archive', 'Archive', 'Conciertos, netlabels y discos de 78, sin perdida'),
+  jamendo('jamendo', 'Jamendo', 'Musica libre en FLAC, si el artista la deja bajar');
 
   const Fuente(this.clave, this.etiqueta, this.pista);
 
@@ -564,6 +603,7 @@ enum Fuente {
     Fuente.audius,
     Fuente.bandcamp,
     Fuente.archive,
+    Fuente.jamendo,
   ];
 }
 
@@ -579,7 +619,7 @@ class Ajustes {
     required this.url,
     this.soloAudio = false,
     this.calidad = 720,
-    this.formatoAudio = 'mp3',
+    this.formatoAudio = 'best',
     this.bitrate = '192',
     this.subtitulos = '',
     this.fragmento = '',
@@ -587,11 +627,16 @@ class Ajustes {
     this.normalizar = false,
     this.etiquetasLimpias = true,
     this.portadaOficial = true,
+    this.porCapitulos = false,
   });
 
   final String url;
   final bool soloAudio;
   final int calidad;
+
+  /// En que se guarda el audio. «best» es el original tal como llega, sin
+  /// volver a comprimirlo: pasar un Opus de YouTube a MP3 pierde algo mas y
+  /// encima ocupa mas. Por eso es lo de fabrica.
   final String formatoAudio;
   final String bitrate;
   final String subtitulos;
@@ -607,6 +652,10 @@ class Ajustes {
   /// Cambia el fotograma del video por la caratula oficial del tema.
   final bool portadaOficial;
 
+  /// Parte un album o un mix entero en una pista por capitulo. Como el
+  /// fragmento, vale para un video concreto y no se recuerda.
+  final bool porCapitulos;
+
   Ajustes copiar({
     String? url,
     bool? soloAudio,
@@ -619,6 +668,7 @@ class Ajustes {
     bool? normalizar,
     bool? etiquetasLimpias,
     bool? portadaOficial,
+    bool? porCapitulos,
   }) =>
       Ajustes(
         url: url ?? this.url,
@@ -632,6 +682,7 @@ class Ajustes {
         normalizar: normalizar ?? this.normalizar,
         etiquetasLimpias: etiquetasLimpias ?? this.etiquetasLimpias,
         portadaOficial: portadaOficial ?? this.portadaOficial,
+        porCapitulos: porCapitulos ?? this.porCapitulos,
       );
 
   Map<String, dynamic> aMapa() => <String, dynamic>{
@@ -651,5 +702,7 @@ class Ajustes {
         'etiquetasLimpias': etiquetasLimpias,
         // Solo tiene sentido en audio: un video no lleva caratula dentro.
         'portadaOficial': soloAudio && portadaOficial,
+        // Con un trozo elegido no hay album que partir: el nucleo lo rechazaria.
+        'porCapitulos': soloAudio && porCapitulos && fragmento.isEmpty,
       };
 }

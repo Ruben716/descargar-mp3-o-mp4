@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
 import 'dialogo_etiquetas.dart';
+import 'emisora.dart';
 import 'estado_reproductor.dart';
 import 'dialogos.dart';
 import 'favoritas.dart';
@@ -297,6 +298,18 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
     if (nueva != null) await recargar();
   }
 
+  Future<void> _ponerTono(Elemento elemento) async {
+    final ScaffoldMessengerState avisos = ScaffoldMessenger.of(context);
+    String mensaje;
+    try {
+      await Nucleo.ponerTono(elemento.uri);
+      mensaje = '«${elemento.tema}» suena ahora al llamarte';
+    } catch (error) {
+      mensaje = error is ErrorNucleo ? error.mensaje : '$error';
+    }
+    avisos.showSnackBar(SnackBar(content: Text(mensaje), behavior: SnackBarBehavior.floating));
+  }
+
   List<AccionPista> _accionesDe(Elemento elemento) => <AccionPista>[
     if (elemento.audio)
       AccionPista(
@@ -305,6 +318,12 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
             : Icons.favorite_border_rounded,
         texto: Favoritas.instancia.contiene(elemento.uri) ? 'Quitar de Me gusta' : 'Me gusta',
         alElegir: () => Favoritas.instancia.alternar(elemento.uri),
+      ),
+    if (elemento.audio)
+      AccionPista(
+        icono: Icons.radio_rounded,
+        texto: 'Radio de esta cancion',
+        alElegir: () => Emisora.poner(elemento, _elementos),
       ),
     AccionPista(
       icono: Icons.playlist_add_rounded,
@@ -317,6 +336,12 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
         icono: Icons.edit_rounded,
         texto: 'Editar etiquetas',
         alElegir: () => _etiquetar(elemento),
+      ),
+    if (elemento.audio)
+      AccionPista(
+        icono: Icons.ring_volume_rounded,
+        texto: 'Poner como tono',
+        alElegir: () => _ponerTono(elemento),
       ),
     if (elemento.audio)
       AccionPista(

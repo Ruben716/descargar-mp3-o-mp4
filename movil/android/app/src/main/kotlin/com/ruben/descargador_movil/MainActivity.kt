@@ -12,11 +12,13 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.media.AudioManager
+import android.media.RingtoneManager
 import android.net.ConnectivityManager
 import android.os.Environment
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Base64
 import android.util.Rational
 import android.util.Size
@@ -137,6 +139,7 @@ class MainActivity : AudioServiceActivity() {
                             normalizar = llamada.argument<Boolean>("normalizar") ?: false,
                             etiquetasLimpias = llamada.argument<Boolean>("etiquetasLimpias") ?: true,
                             portadaOficial = llamada.argument<Boolean>("portadaOficial") ?: true,
+                            porCapitulos = llamada.argument<Boolean>("porCapitulos") ?: false,
                             avisar = llamada.argument<Boolean>("avisar") ?: true,
                         )
                         enHilo(respuesta) { puente -> descargar(puente, ajustes) }
@@ -217,6 +220,11 @@ class MainActivity : AudioServiceActivity() {
                         enHiloSuelto(respuesta) { guardarCopia(nombre, contenido) }
                     }
                     "abrirCopia" -> abrirCopia(respuesta)
+                    "guardarLista" -> {
+                        val nombre = llamada.argument<String>("nombre").orEmpty()
+                        val contenido = llamada.argument<String>("contenido").orEmpty()
+                        enHiloSuelto(respuesta) { guardarLista(nombre, contenido) }
+                    }
                     "redSinLimite" -> respuesta.success(redSinLimite())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
@@ -243,6 +251,10 @@ class MainActivity : AudioServiceActivity() {
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHiloSuelto(respuesta) { eliminar(uri) }
+                    }
+                    "ponerTono" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        respuesta.success(ponerTono(uri))
                     }
                     "caratula" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
@@ -300,6 +312,8 @@ class MainActivity : AudioServiceActivity() {
         val normalizar: Boolean,
         val etiquetasLimpias: Boolean,
         val portadaOficial: Boolean,
+        /** Parte un album o un mix en una pista por capitulo. */
+        val porCapitulos: Boolean,
         /** En un lote solo avisa la ultima, o saldrian cientos de avisos. */
         val avisar: Boolean,
     )
@@ -461,6 +475,43 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
+    /**
+     * Guarda una lista .m3u junto a la musica, en Music/Tumbao.
+     *
+     * Ahi la encuentran VLC, Poweramp y compania, y las rutas de dentro son
+     * relativas a esa carpeta. Si ya habia una con ese nombre, se reescribe.
+     */
+    private fun guardarLista(nombre: String, contenido: String): String {
+        if (nombre.isEmpty() || nombre.contains('/')) return fallo("Nombre de lista no valido.")
+        val carpeta = CARPETAS_AUDIO.first() + "/"
+        return try {
+            val coleccion = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val existente = contentResolver.query(
+                coleccion,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+                arrayOf(nombre, carpeta),
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) ContentUris.withAppendedId(coleccion, cursor.getLong(0)) else null
+            }
+            val destino = existente ?: contentResolver.insert(
+                coleccion,
+                ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "audio/x-mpegurl")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, carpeta)
+                },
+            ) ?: return fallo("No se pudo crear la lista.")
+            contentResolver.openOutputStream(destino, "wt")?.use { salida ->
+                salida.write(contenido.toByteArray(Charsets.UTF_8))
+            } ?: return fallo("No se pudo escribir la lista.")
+            JSONObject().put("ok", true).put("ruta", "$carpeta$nombre").toString()
+        } catch (error: Exception) {
+            fallo("No se pudo guardar la lista: ${error.message}")
+        }
+    }
+
     /** La respuesta pendiente mientras el usuario elige el archivo de la copia. */
     private var copiaPedida: MethodChannel.Result? = null
 
@@ -575,6 +626,34 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
+     * Pone una cancion de la biblioteca como tono de llamada.
+     *
+     * Cambiar el tono es un ajuste del sistema: Android solo lo deja si el
+     * usuario lo permite a mano. La primera vez se abre esa pantalla y se
+     * explica; al volver, el mismo boton ya funciona.
+     */
+    private fun ponerTono(uri: String): String {
+        if (uri.isEmpty()) return fallo("No hay cancion que poner.")
+        if (!Settings.System.canWrite(this)) {
+            return try {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                fallo("Activa «Modificar ajustes del sistema» para Tumbao y vuelve a intentarlo.")
+            } catch (error: Exception) {
+                fallo("No se pudo pedir permiso para cambiar el tono: ${error.message}")
+            }
+        }
+        return try {
+            RingtoneManager.setActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE, Uri.parse(uri))
+            JSONObject().put("ok", true).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo poner como tono: ${error.message}")
+        }
+    }
+
+    /**
      * Borra un archivo de la biblioteca.
      *
      * Funciona sin pedir permiso porque los inserto esta misma app y por tanto
@@ -631,6 +710,13 @@ class MainActivity : AudioServiceActivity() {
             MediaStore.MediaColumns.TITLE,
             MediaStore.Audio.AudioColumns.ARTIST,
             MediaStore.MediaColumns.DATE_ADDED,
+            MediaStore.MediaColumns.RELATIVE_PATH,
+            // Album y numero de pista: los pone «una pista por capitulo» y
+            // sirven para oir un disco en su orden. «track» solo existe en la
+            // tabla de audio; en video se pide otra vez el album por no
+            // descolocar las posiciones.
+            MediaStore.Audio.AudioColumns.ALBUM,
+            if (esAudio) MediaStore.Audio.AudioColumns.TRACK else MediaStore.Audio.AudioColumns.ALBUM,
         )
         // Las carpetas van en una sola consulta y no en varias: asi el orden por
         // fecha sale mezclado de verdad y lo antiguo no se amontona al final.
@@ -656,7 +742,11 @@ class MainActivity : AudioServiceActivity() {
                             .put("uri", ContentUris.withAppendedId(coleccion, id).toString())
                             .put("titulo", cursor.getString(4) ?: "")
                             .put("artista", cursor.getString(5) ?: "")
-                            .put("fecha", cursor.getLong(6)),
+                            .put("fecha", cursor.getLong(6))
+                            .put("carpeta", cursor.getString(7) ?: "")
+                            .put("album", cursor.getString(8) ?: "")
+                            // MediaStore guarda disco*1000 + pista.
+                            .put("pista", if (esAudio) cursor.getInt(9) % 1000 else 0),
                     )
                 }
             }
@@ -672,9 +762,14 @@ class MainActivity : AudioServiceActivity() {
      * FLAC, un WAV o un M4A eso es falso, y Android, al ver que la extension no
      * casa con el tipo, puede cambiarle el nombre al archivo al guardarlo.
      */
-    private fun tipoDe(archivo: File, esAudio: Boolean): String =
-        MimeTypeMap.getSingleton().getMimeTypeFromExtension(archivo.extension.lowercase())
+    private fun tipoDe(archivo: File, esAudio: Boolean): String {
+        val extension = archivo.extension.lowercase()
+        // El formato Original guarda Opus y M4A tal cual llegan, y no todas
+        // las versiones de Android conocen la extension .opus.
+        TIPOS_PROPIOS[extension]?.let { return it }
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?: if (esAudio) "audio/mpeg" else "video/mp4"
+    }
 
     /**
      * Copia el archivo a Musica/ o Peliculas/ mediante MediaStore y borra el
@@ -996,6 +1091,7 @@ class MainActivity : AudioServiceActivity() {
             cookies,
             nativo,
             ajustes.portadaOficial,
+            ajustes.porCapitulos,
         ).toString()
 
     /** Si el fallo huele a que la web sirvio un muro en vez de la pagina. */
@@ -1094,6 +1190,9 @@ class MainActivity : AudioServiceActivity() {
     private companion object {
         /** Codigo de la peticion al selector de archivos de la copia. */
         const val PEDIR_COPIA = 4107
+
+        /** Tipos que MimeTypeMap no siempre sabe y el formato Original produce. */
+        val TIPOS_PROPIOS = mapOf("opus" to "audio/ogg", "m4a" to "audio/mp4")
 
         /**
          * Un unico vigilante para todo el proceso: la actividad se recrea y

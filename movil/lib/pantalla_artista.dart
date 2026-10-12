@@ -42,7 +42,32 @@ class Artistas {
   }
 }
 
-/// Todas las pistas de un artista.
+/// Los discos de un artista: lo que lleva album, agrupado y en su orden.
+class Albumes {
+  const Albumes._();
+
+  /// Las pistas repartidas por disco y, dentro, por su numero de pista.
+  ///
+  /// Lo suelto (sin album) va al final y tal cual estaba: no es un disco.
+  /// Un «disco» de una sola cancion tampoco: casi siempre es un single.
+  static List<({String album, List<Elemento> pistas})> agrupar(List<Elemento> pistas) {
+    final Map<String, List<Elemento>> discos = <String, List<Elemento>>{};
+    for (final Elemento p in pistas) {
+      if (p.album.isNotEmpty) discos.putIfAbsent(p.album, () => <Elemento>[]).add(p);
+    }
+    discos.removeWhere((String _, List<Elemento> l) => l.length < 2);
+    final List<String> nombres = discos.keys.toList()..sort((String a, String b) => sinTildes(a).compareTo(sinTildes(b)));
+    final Set<String> enDisco = <String>{for (final List<Elemento> l in discos.values) ...l.map((Elemento e) => e.uri)};
+    return <({String album, List<Elemento> pistas})>[
+      for (final String n in nombres)
+        (album: n, pistas: discos[n]!..sort((Elemento a, Elemento b) => a.pista.compareTo(b.pista))),
+      if (pistas.any((Elemento e) => !enDisco.contains(e.uri)))
+        (album: '', pistas: pistas.where((Elemento e) => !enDisco.contains(e.uri)).toList()),
+    ];
+  }
+}
+
+/// Todas las pistas de un artista, con sus discos en orden si los tiene.
 class PantallaArtista extends StatelessWidget {
   const PantallaArtista({required this.artista, required this.pistas, super.key});
 
@@ -68,14 +93,34 @@ class PantallaArtista extends StatelessWidget {
           ),
         ],
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.only(top: 8, bottom: 24),
-        itemCount: pistas.length,
-        itemBuilder: (BuildContext context, int i) => FilaPista(
-          elemento: pistas[i],
-          enCola: pistas,
-        ),
-      ),
+      body: Builder(builder: (BuildContext context) {
+        final List<({String album, List<Elemento> pistas})> grupos = Albumes.agrupar(pistas);
+        // Sin discos, la lista de siempre, sin cabeceras que no dicen nada.
+        if (grupos.length == 1 && grupos.first.album.isEmpty) {
+          return ListView.builder(
+            padding: const EdgeInsets.only(top: 8, bottom: 24),
+            itemCount: pistas.length,
+            itemBuilder: (BuildContext context, int i) => FilaPista(
+              elemento: pistas[i],
+              enCola: pistas,
+            ),
+          );
+        }
+        return ListView(
+          padding: const EdgeInsets.only(top: 8, bottom: 24),
+          children: <Widget>[
+            for (final ({String album, List<Elemento> pistas}) g in grupos) ...<Widget>[
+              _CabeceraDisco(
+                titulo: g.album.isEmpty ? 'Sueltas' : g.album,
+                pistas: g.pistas,
+                // Un disco se oye en su orden; lo suelto, como venga.
+                enOrden: g.album.isNotEmpty,
+              ),
+              for (final Elemento p in g.pistas) FilaPista(elemento: p, enCola: g.pistas),
+            ],
+          ],
+        );
+      }),
     );
   }
 }
@@ -134,6 +179,46 @@ class FilaArtista extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// El nombre de un disco, cuanto dura y un boton para oirlo entero.
+class _CabeceraDisco extends StatelessWidget {
+  const _CabeceraDisco({required this.titulo, required this.pistas, required this.enOrden});
+
+  final String titulo;
+  final List<Elemento> pistas;
+  final bool enOrden;
+
+  @override
+  Widget build(BuildContext context) {
+    final int segundos = pistas.fold(0, (int s, Elemento e) => s + e.duracion.round());
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 4),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(titulo, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                Text(
+                  '${pistas.length} canciones  ·  ${formatoTiempo(segundos)}',
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          if (enOrden)
+            IconButton(
+              tooltip: 'Oir el disco entero',
+              icon: const Icon(Icons.album_rounded),
+              onPressed: () => EstadoReproductor.instancia.reproducirEnOrden(pistas),
+            ),
+        ],
       ),
     );
   }

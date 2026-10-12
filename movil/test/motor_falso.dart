@@ -22,10 +22,14 @@ class MotorFalso extends JustAudioPlatform {
   /// Cuantas cargas le han llegado de verdad.
   int cargas = 0;
 
+  /// A donde se le ha pedido saltar, en orden.
+  final List<Duration?> saltos = <Duration?>[];
+
   void reiniciar() {
     fallosDelEcualizador = 0;
     activaciones = 0;
     cargas = 0;
+    saltos.clear();
   }
 
   @override
@@ -160,7 +164,10 @@ class _JugadorFalso extends AudioPlayerPlatform {
   ) async =>
       SetPreferredPeakBitRateResponse();
   @override
-  Future<SeekResponse> seek(SeekRequest request) async => SeekResponse();
+  Future<SeekResponse> seek(SeekRequest request) async {
+    _motor.saltos.add(request.position);
+    return SeekResponse();
+  }
   @override
   Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(
     SetAndroidAudioAttributesRequest request,

@@ -21,6 +21,7 @@ import 'panel_letras.dart';
 import 'portadas.dart';
 import 'hoja_fundido.dart';
 import 'hoja_mejor_calidad.dart';
+import 'posiciones.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -412,6 +413,7 @@ class _AudioState extends State<_Audio> {
                 _BotonAleatorio(estado: _estado),
                 _BotonRepeticion(estado: _estado),
                 _BotonVelocidad(estado: _estado),
+                _BotonTramo(estado: _estado),
               ],
             ),
           ),
@@ -533,7 +535,7 @@ class _VideoState extends State<_Video> {
     _motor.initialize().then((_) async {
       if (!mounted) return;
       // Si se dejo a medias, se retoma ahi y se ofrece empezar de cero.
-      final Duration? antes = await PosicionesVideo.de(widget.elemento.uri);
+      final Duration? antes = await Posiciones.video.de(widget.elemento.uri);
       if (antes != null && antes < _motor.value.duration) await _motor.seekTo(antes);
       if (!mounted) return;
       setState(() => _listo = true);
@@ -561,7 +563,7 @@ class _VideoState extends State<_Video> {
   void dispose() {
     // Donde se quedo, para la proxima vez.
     if (_listo) {
-      unawaited(PosicionesVideo.guardar(
+      unawaited(Posiciones.video.guardar(
         widget.elemento.uri,
         _motor.value.position,
         _motor.value.duration,
@@ -743,6 +745,38 @@ class _BotonVelocidad extends StatelessWidget {
       label: Text(
         etiqueta,
         style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : tono),
+      ),
+    );
+  }
+}
+
+/// Marca el principio y el final de un tramo que se repite, y lo quita.
+class _BotonTramo extends StatelessWidget {
+  const _BotonTramo({required this.estado});
+
+  final EstadoReproductor estado;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color tono = Theme.of(context).colorScheme.primary;
+    final Duration? a = estado.puntoA;
+    final Duration? b = estado.puntoB;
+    final bool activo = a != null;
+    // Lo que se ve dice lo que hara el siguiente toque.
+    final (String etiqueta, String ayuda) = switch ((a, b)) {
+      (null, _) => ('A-B', 'Marcar el principio del tramo'),
+      (_, null) => ('A ${formatoTiempo(a!.inSeconds)}…', 'Marcar el final del tramo'),
+      _ => (
+          '${formatoTiempo(a!.inSeconds)}-${formatoTiempo(b!.inSeconds)}',
+          'Dejar de repetir el tramo',
+        ),
+    };
+    return Tooltip(
+      message: ayuda,
+      child: TextButton.icon(
+        onPressed: estado.alternarTramo,
+        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Colors.white38),
+        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Colors.white38)),
       ),
     );
   }

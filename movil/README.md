@@ -20,6 +20,21 @@ flutter run            # con el telefono conectado o por depuracion wifi
 El nucleo de Python no se copia a mano: la tarea Gradle `sincronizarNucleo`
 lleva `descargador/` a `android/app/src/main/python/` en cada compilacion.
 
+## Clave de Jamendo
+
+Jamendo es la unica fuente que pide una clave, y es de la app, no del usuario:
+
+1. Crea una cuenta de desarrollador en <https://devportal.jamendo.com> y registra
+   una aplicacion (uso no comercial). Te da un **Client ID**.
+2. En GitHub: *Settings → Secrets and variables → Actions → New repository
+   secret*, con el nombre `JAMENDO_CLIENT_ID` y el Client ID como valor. El
+   flujo `apk.yml` lo mete en el APK al compilar.
+3. Para la consola o un `flutter run` local, pon el Client ID en
+   `descargador/clave_jamendo.txt` (git lo ignora) o en la variable de entorno
+   `JAMENDO_CLIENT_ID`.
+
+Sin clave todo sigue funcionando; solo la busqueda en Jamendo avisa de que falta.
+
 ## Icono
 
 El icono sale del dibujo en `herramientas/icono_origen.jpeg`. Para rehacerlo

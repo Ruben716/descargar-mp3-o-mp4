@@ -91,6 +91,13 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   yt-dlp solo pide el streaming y nunca bajaría el original. Toda extracción de una pista suelta
   debe pasar por `_extraer`. Los bits y la frecuencia reales salen de la cabecera del archivo ya
   bajado (`cabecera_sin_perdida`): ninguna web los dice al buscar.
+- **Jamendo pide una clave de la app** (no del usuario): `clave_jamendo()` la lee de
+  `JAMENDO_CLIENT_ID` o de `descargador/clave_jamendo.txt`, que git ignora y que GitHub Actions
+  escribe desde el secreto del mismo nombre antes de compilar el APK. Solo se ofrecen las pistas
+  con `audiodownload_allowed`: de las demás su servidor no da el FLAC. El original de SoundCloud
+  no se contempla: su servidor responde 401 sin sesión.
+- **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
+  Opus o AAC llega tal cual. Pasarlo a MP3 lo comprimiría por segunda vez.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,
   canales y directos; `continuedl` + `overwrites: False` reanudan sin sobrescribir; el nombre incluye
   `%(id)s`; `bv*+ba/b` une sin recodificar.

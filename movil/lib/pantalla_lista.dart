@@ -5,6 +5,7 @@ import 'estado_reproductor.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
 import 'listas.dart';
+import 'm3u.dart';
 import 'nucleo.dart';
 import 'tema.dart';
 
@@ -46,6 +47,19 @@ class _PantallaListaState extends State<PantallaLista> {
     );
   }
 
+  /// Deja la lista en Music/Tumbao como .m3u, para oirla en otro reproductor.
+  Future<void> _exportar() async {
+    final ScaffoldMessengerState avisos = ScaffoldMessenger.of(context);
+    String mensaje;
+    try {
+      final String ruta = await Nucleo.guardarLista(M3u.nombreArchivo(widget.nombre), M3u.texto(_pistas));
+      mensaje = 'Guardada en $ruta. VLC o Poweramp la abren desde ahi.';
+    } catch (error) {
+      mensaje = error is ErrorNucleo ? error.mensaje : 'No se pudo guardar la lista: $error';
+    }
+    avisos.showSnackBar(SnackBar(content: Text(mensaje), behavior: SnackBarBehavior.floating));
+  }
+
   Future<void> _reproducirTodo() async {
     final List<Elemento> soloAudio =
         _pistas.where((Elemento e) => e.audio).toList();
@@ -66,6 +80,14 @@ class _PantallaListaState extends State<PantallaLista> {
           appBar: AppBar(
             title: Text(widget.nombre, overflow: TextOverflow.ellipsis),
             backgroundColor: Colors.transparent,
+            actions: <Widget>[
+              if (pistas.isNotEmpty)
+                IconButton(
+                  tooltip: 'Guardar como .m3u',
+                  icon: const Icon(Icons.ios_share_rounded),
+                  onPressed: _exportar,
+                ),
+            ],
           ),
           body: pistas.isEmpty
               ? const Center(

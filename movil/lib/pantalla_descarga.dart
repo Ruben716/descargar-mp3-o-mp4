@@ -247,8 +247,24 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// Un fallo del reproductor se avisa de paso y sin ocupar la pantalla:
   /// la vista previa ya tiene su propio motor y muestra los suyos aparte.
   void _vigilarReproductor() {
+    if (!mounted) return;
+    // Un mix o un podcast largo sigue donde se dejo; se dice, por si se
+    // queria desde el principio.
+    final Duration? retomada = _reproductor.consumirRetomada();
+    if (retomada != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Sigue donde lo dejaste: ${formatoTiempo(retomada.inSeconds)}'),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(
+            label: 'Desde el principio',
+            onPressed: () => _reproductor.motor.seek(Duration.zero),
+          ),
+        ),
+      );
+    }
     final String? fallo = _reproductor.consumirError();
-    if (fallo == null || !mounted) return;
+    if (fallo == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('No se pudo reproducir: $fallo'),

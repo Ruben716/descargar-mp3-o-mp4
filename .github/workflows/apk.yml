@@ -90,6 +90,19 @@ jobs:
             echo "::warning::Sin el secreto DEBUG_KEYSTORE: el APK no se podra instalar encima del actual."
           fi
 
+      # La clave de Jamendo viaja dentro del nucleo: Gradle copia descargador/
+      # entero al APK. Sin el secreto la app funciona igual, solo que la
+      # busqueda en Jamendo explica que falta la clave.
+      - name: Clave de Jamendo
+        env:
+          JAMENDO: ${{ secrets.JAMENDO_CLIENT_ID }}
+        run: |
+          if [ -n "$JAMENDO" ]; then
+            printf '%s' "$JAMENDO" | tr -d '\r\n ' > descargador/clave_jamendo.txt
+          else
+            echo "::warning::Sin el secreto JAMENDO_CLIENT_ID: la busqueda en Jamendo no funcionara."
+          fi
+
       - name: Compilar
         working-directory: movil
         run: flutter build apk --release

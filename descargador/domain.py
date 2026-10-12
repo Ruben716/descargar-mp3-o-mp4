@@ -7,15 +7,19 @@ from urllib.parse import urlsplit
 #: Códecs que acepta el extractor de audio.
 AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "best")
 
-#: Dónde se puede buscar música, todas sin cuenta ni clave.
+#: Dónde se puede buscar música, todas sin cuenta de usuario.
 #:
 #: Medido lo mejor que da cada una: Audius, MP3 a 320 kb/s y el original sin
 #: pérdida cuando el artista lo deja bajar; SoundCloud, AAC 160 si no lleva
 #: DRM; YouTube, Opus ~127; Bandcamp, 128 kb/s salvo lo que el artista regala,
-#: que llega en FLAC; el Archive, FLAC. Tidal, Qobuz y compañía llevan DRM, y
-#: lo que se ofrece en foros para sacar su FLAC usa cuentas de pago ajenas:
-#: no se contempla.
-FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive")
+#: que llega en FLAC; el Archive, FLAC; Jamendo, FLAC de música con licencia
+#: Creative Commons. Jamendo es la única que pide algo: una clave de la app
+#: (no del usuario), gratuita, que se saca en devportal.jamendo.com.
+#:
+#: Tidal, Qobuz y compañía llevan DRM, y lo que se ofrece en foros para sacar
+#: su FLAC usa cuentas de pago ajenas: no se contempla. El original de
+#: SoundCloud tampoco: su servidor solo lo da con sesión iniciada (401).
+FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo")
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
 #:
@@ -106,6 +110,9 @@ class DownloadOptions:
     #: Separa artista y tema del título de YouTube y los escribe en la etiqueta,
     #: en vez de dejar «Artista - Tema (Official Video) [4K]» como título.
     clean_tags: bool = False
+    #: Parte un álbum o un mix entero en una pista por capítulo. Solo audio:
+    #: un vídeo partido en trozos no le sirve a nadie.
+    split_chapters: bool = False
 
     def __post_init__(self):
         if self.quality is not None and self.quality <= 0:
@@ -120,6 +127,11 @@ class DownloadOptions:
             inicio, fin = self.section
             if inicio < 0 or fin <= inicio:
                 raise DownloadError("El final del fragmento debe ser posterior al inicio.")
+        if self.split_chapters:
+            if not self.audio_only:
+                raise DownloadError("Separar por capítulos solo se aplica al descargar audio.")
+            if self.section is not None:
+                raise DownloadError("Elige entre bajar un fragmento o separar por capítulos, no ambos.")
         if self.normalize:
             if not self.audio_only:
                 raise DownloadError("Normalizar el volumen solo se aplica al descargar audio.")

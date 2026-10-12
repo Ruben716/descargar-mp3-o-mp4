@@ -4,6 +4,10 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/posiciones.dart';
+import 'package:descargador_movil/m3u.dart';
+import 'package:descargador_movil/emisora.dart';
+import 'package:descargador_movil/pantalla_lista.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
 import 'package:descargador_movil/mejor_calidad.dart';
@@ -158,6 +162,8 @@ void main() {
         'urlCompartida' => compartida,
         'medirVolumen' => '{"ok":true,"lufs":-9.0}',
         'guardarCopia' => '{"ok":true,"ruta":"Descargas/Tumbao/tumbao-copia.json"}',
+        'guardarLista' => '{"ok":true,"ruta":"Music/Tumbao/'
+            '${(llamada.arguments as Map<dynamic, dynamic>)['nombre']}"}',
         'abrirCopia' => copiaElegida ?? '{"ok":false,"cancelado":true}',
         'redSinLimite' => redSinLimite,
         'versionApp' => '2.0.0',
@@ -1234,8 +1240,247 @@ void main() {
       url: 'https://y/1',
       soloAudio: true,
       normalizar: true,
+      formatoAudio: 'mp3',
     ).aMapa();
     expect(mp3['normalizar'], isTrue);
+  });
+
+  group('discos', () {
+    Elemento pista(String tema, {String album = '', int numero = 0}) => Elemento(
+          nombre: 'Grupo - $tema [x$numero].opus',
+          uri: 'content://audio/$tema',
+          duracion: 180,
+          tamano: 1,
+          audio: true,
+          carpeta: 'Music/Tumbao/',
+          etiquetaAlbum: album,
+          pista: numero,
+        );
+
+    test('el nombre de la carpeta no es un album', () {
+      expect(pista('a', album: 'Tumbao').album, '');
+      expect(pista('a', album: '<unknown>').album, '');
+      expect(pista('a', album: 'Disco Entero').album, 'Disco Entero');
+    });
+
+    test('cada disco en el orden de sus pistas, y lo suelto al final', () {
+      final List<({String album, List<Elemento> pistas})> grupos = Albumes.agrupar(<Elemento>[
+        pista('Tercera', album: 'Disco', numero: 3),
+        pista('Suelta'),
+        pista('Primera', album: 'Disco', numero: 1),
+        pista('Single', album: 'Solo una', numero: 1),
+        pista('Segunda', album: 'Disco', numero: 2),
+      ]);
+      expect(grupos.map((({String album, List<Elemento> pistas}) g) => g.album), <String>['Disco', '']);
+      expect(grupos.first.pistas.map((Elemento e) => e.tema), <String>['Primera', 'Segunda', 'Tercera']);
+      // Un disco de una sola cancion es un single: va con lo suelto.
+      expect(grupos.last.pistas.map((Elemento e) => e.tema), <String>['Suelta', 'Single']);
+    });
+
+    testWidgets('el artista ensenia sus discos y deja oirlos enteros', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: PantallaArtista(artista: 'Grupo', pistas: <Elemento>[
+          pista('Dos', album: 'Disco Entero', numero: 2),
+          pista('Uno', album: 'Disco Entero', numero: 1),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Disco Entero'), findsOneWidget);
+      expect(find.byTooltip('Oir el disco entero'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Uno')).dy, lessThan(tester.getTopLeft(find.text('Dos')).dy));
+    });
+  });
+
+  group('radio de una cancion', () {
+    Elemento cancion(String nombre, {bool audio = true}) => Elemento(
+          nombre: '$nombre [${nombre.hashCode}].opus',
+          uri: 'content://audio/${nombre.hashCode}',
+          duracion: 200,
+          tamano: 1,
+          audio: audio,
+        );
+    final Elemento semilla = cancion('Bad Bunny - Titi Me Pregunto');
+    final List<Elemento> biblioteca = <Elemento>[
+      semilla,
+      for (int i = 0; i < 40; i++) cancion('Otro $i - Tema $i'),
+      cancion('Bad Bunny - Monaco'),
+      cancion('bad bunny - Un Preview'),
+      cancion('Bad Bunny - El videoclip', audio: false),
+    ];
+
+    test('empieza por la elegida y no pasa del largo', () {
+      final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca, azar: Random(1));
+      expect(radio.first, semilla);
+      expect(radio.length, Emisora.largo);
+      expect(radio.where((Elemento e) => e.uri == semilla.uri).length, 1);
+      expect(radio.any((Elemento e) => !e.audio), isFalse, reason: 'una radio es solo audio');
+    });
+
+    test('lo del mismo artista va delante, se escriba como se escriba', () {
+      for (int vuelta = 0; vuelta < 20; vuelta++) {
+        final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca, azar: Random(vuelta));
+        expect(radio.skip(1).take(2).map((Elemento e) => e.partes.artista.toLowerCase()),
+            everyElement('bad bunny'));
+      }
+    });
+
+    test('lo que gusta y lo que mas suena sube, y el azar cambia el orden', () {
+      final Elemento querida = biblioteca[10];
+      final Elemento oida = biblioteca[20];
+      final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca,
+          favoritas: <String>{querida.uri}, escuchas: <String, int>{oida.uri: 50}, azar: Random(3));
+      expect(radio.indexOf(querida), lessThan(12));
+      expect(radio.indexOf(oida), lessThan(12));
+      final List<Elemento> otra = Emisora.mezcla(semilla, biblioteca, azar: Random(4));
+      expect(otra.skip(3).map((Elemento e) => e.uri), isNot(orderedEquals(radio.skip(3).map((Elemento e) => e.uri))));
+    });
+  });
+
+  group('repetir un tramo', () {
+    const Duration s10 = Duration(seconds: 10);
+    const Duration s40 = Duration(seconds: 40);
+
+    test('primero A, luego B, luego se quita', () {
+      final ({Duration? a, Duration? b}) uno = EstadoReproductor.siguienteTramo(null, null, s10);
+      expect((uno.a, uno.b), (s10, null));
+      final ({Duration? a, Duration? b}) dos = EstadoReproductor.siguienteTramo(uno.a, uno.b, s40);
+      expect((dos.a, dos.b), (s10, s40));
+      final ({Duration? a, Duration? b}) tres = EstadoReproductor.siguienteTramo(dos.a, dos.b, s40);
+      expect((tres.a, tres.b), (null, null));
+    });
+
+    test('marcar B antes que A les da la vuelta', () {
+      final ({Duration? a, Duration? b}) t = EstadoReproductor.siguienteTramo(s40, null, s10);
+      expect((t.a, t.b), (s10, s40));
+    });
+
+    test('un B pegado a A no hace un tramo', () {
+      final ({Duration? a, Duration? b}) t =
+          EstadoReproductor.siguienteTramo(s10, null, s10 + const Duration(milliseconds: 400));
+      expect((t.a, t.b), (s10, null));
+    });
+
+    test('cambiar de cancion quita el tramo', () async {
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await runZonedGuarded(() async {
+        await estado.alternarTramo();
+        expect(estado.puntoA, isNotNull);
+        unawaited(estado.reproducirLista(_biblioteca3, 0));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await estado.cerrar();
+      }, (Object _, StackTrace _) {});
+      expect(estado.puntoA, isNull);
+      expect(estado.puntoB, isNull);
+    });
+  });
+
+  group('listas en .m3u', () {
+    const Elemento tumbao = Elemento(
+      nombre: 'Bad Bunny - Titi [a1].opus',
+      uri: 'content://audio/1',
+      duracion: 243.4,
+      tamano: 1,
+      audio: true,
+      carpeta: 'Music/Tumbao/',
+    );
+    const Elemento vieja = Elemento(
+      nombre: 'Tema viejo [a2].mp3',
+      uri: 'content://audio/2',
+      duracion: 180,
+      tamano: 1,
+      audio: true,
+      carpeta: 'Music/Descargador/',
+    );
+    const Elemento video = Elemento(
+      nombre: 'Clip [a3].mp4',
+      uri: 'content://video/3',
+      duracion: 200,
+      tamano: 1,
+      audio: false,
+      carpeta: 'Movies/Tumbao/',
+    );
+
+    test('las rutas van desde la carpeta de la lista', () {
+      expect(M3u.ruta(tumbao), 'Bad Bunny - Titi [a1].opus');
+      expect(M3u.ruta(vieja), '../Descargador/Tema viejo [a2].mp3');
+    });
+
+    test('lleva duracion y artista - tema, y solo el audio', () {
+      final String texto = M3u.texto(<Elemento>[tumbao, video, vieja]);
+      expect(texto, startsWith('#EXTM3U\n'));
+      expect(texto, contains('#EXTINF:243,Bad Bunny - Titi\nBad Bunny - Titi [a1].opus\n'));
+      expect(texto, isNot(contains('Clip')));
+      expect('\n'.allMatches(texto).length, 5);
+    });
+
+    test('el nombre no lleva lo que Android no acepta', () {
+      expect(M3u.nombreArchivo('Rock/Pop: 2026'), 'Rock_Pop_ 2026.m3u');
+      expect(M3u.nombreArchivo('  '), 'Lista.m3u');
+    });
+
+    testWidgets('el boton de la lista la guarda y lo dice', (WidgetTester tester) async {
+      await Listas.instancia.cargar();
+      await Listas.instancia.crear('Para el coche');
+      await Listas.instancia.anadir('Para el coche', tumbao.uri);
+      await tester.pumpWidget(MaterialApp(
+        home: const PantallaLista(nombre: 'Para el coche', biblioteca: <Elemento>[tumbao]),
+        theme: ThemeData.dark(),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Guardar como .m3u'));
+      await tester.pumpAndSettle();
+
+      final MethodCall guardada = llamadas.lastWhere((MethodCall c) => c.method == 'guardarLista');
+      final Map<dynamic, dynamic> datos = guardada.arguments as Map<dynamic, dynamic>;
+      expect(datos['nombre'], 'Para el coche.m3u');
+      expect(datos['contenido'], contains('Bad Bunny - Titi [a1].opus'));
+      expect(find.textContaining('Music/Tumbao/Para el coche.m3u'), findsOneWidget);
+      await Listas.instancia.borrar('Para el coche');
+    });
+  });
+
+  group('audios largos', () {
+    Elemento de(double segundos) => Elemento(
+          nombre: 'Mix [x].opus',
+          uri: 'content://audio/mix',
+          duracion: segundos,
+          tamano: 10,
+          audio: true,
+        );
+
+    test('solo un mix, un concierto o un podcast es largo', () {
+      expect(EstadoReproductor.esLarga(de(3 * 60)), isFalse);
+      expect(EstadoReproductor.esLarga(de(20 * 60)), isTrue);
+      expect(EstadoReproductor.esLarga(de(90 * 60)), isTrue);
+    });
+
+    test('recuerdan por donde iban sin pisar a los videos', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      const Duration total = Duration(hours: 1);
+      await Posiciones.audio.guardar('content://audio/mix', const Duration(minutes: 40), total);
+      expect(await Posiciones.audio.de('content://audio/mix'), const Duration(minutes: 40));
+      expect(await Posiciones.video.de('content://audio/mix'), isNull);
+
+      // Acabado no se recuerda: la proxima vez empieza desde el principio.
+      await Posiciones.audio.guardar('content://audio/mix', total - const Duration(seconds: 5), total);
+      expect(await Posiciones.audio.de('content://audio/mix'), isNull);
+    });
+
+    test('la copia de seguridad se lleva tambien donde iban', () {
+      for (final String clave in Posiciones.claves) {
+        expect(CopiaSeguridad.preferencias, contains(clave));
+      }
+    });
+  });
+
+  test('partir por capitulos solo viaja en audio y sin trozo elegido', () {
+    const Ajustes album = Ajustes(url: 'https://y/1', soloAudio: true, porCapitulos: true);
+    expect(album.aMapa()['porCapitulos'], isTrue);
+    expect(album.copiar(soloAudio: false).aMapa()['porCapitulos'], isFalse);
+    expect(album.copiar(fragmento: '0:10-0:20').aMapa()['porCapitulos'], isFalse);
+    expect(resumenDescarga(album), contains('una pista por capitulo'));
   });
 
   test('igualar el volumen no viaja al bajar video', () {
@@ -1864,6 +2109,34 @@ void main() {
     expect(estado.error, isNull, reason: 'la abandono el usuario, no fallo');
   });
 
+  test('un mix largo sigue sonando donde se dejo, y se dice', () async {
+    final Elemento mix = Elemento(
+      nombre: 'Mix entero [m1].opus',
+      uri: 'content://audio/mix',
+      duracion: 3600,
+      tamano: 100,
+      audio: true,
+    );
+    biblioteca = '{"ok":true,"elementos":[{"nombre":"Mix entero [m1].opus","tamano":100,'
+        '"duracion":3600,"audio":true,"uri":"content://audio/mix"}]}';
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'posiciones_audio_v1': '{"content://audio/mix":${const Duration(minutes: 40).inMilliseconds}}',
+    });
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    await runZonedGuarded(() async {
+      unawaited(estado.reproducirLista(<Elemento>[mix], 0));
+      for (int i = 0; i < 20 && motorFalso.saltos.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await estado.cerrar();
+    }, (Object _, StackTrace _) {});
+
+    expect(motorFalso.saltos, contains(const Duration(minutes: 40)));
+    expect(estado.consumirRetomada(), const Duration(minutes: 40));
+    expect(estado.consumirRetomada(), isNull, reason: 'se avisa una sola vez');
+  });
+
   group('el ecualizador de Android que a veces no esta', () {
     // En el telefono, al abrir, el plugin preguntaba por las bandas antes de
     // que Android hubiera creado el ecualizador: NullPointerException, la
@@ -2001,7 +2274,7 @@ void main() {
     });
 
     test('el formato se ajusta al origen, y se dice', () {
-      const Ajustes mp3 = Ajustes(url: '', soloAudio: true);
+      const Ajustes mp3 = Ajustes(url: '', soloAudio: true, formatoAudio: 'mp3');
       const CalidadAudio entero = CalidadAudio(codec: 'wav');
       final ({Ajustes ajustes, String? motivo}) a = formatoSegunOrigen(mp3, entero);
       expect(a.ajustes.formatoAudio, 'flac');
@@ -2009,7 +2282,8 @@ void main() {
 
       final ({Ajustes ajustes, String? motivo}) b = formatoSegunOrigen(
           mp3.copiar(formatoAudio: 'wav'), CalidadAudio.tipicaDeYoutube);
-      expect(b.ajustes.formatoAudio, 'mp3');
+      // Comprimido en origen: tal cual, ni inflado ni comprimido otra vez.
+      expect(b.ajustes.formatoAudio, 'best');
 
       // Sin saber el origen, o bajando video, no se toca nada.
       expect(formatoSegunOrigen(mp3, null).motivo, isNull);
@@ -2020,7 +2294,10 @@ void main() {
       const CalidadAudio comprimido = CalidadAudio(codec: 'opus', kbps: 127);
       const CalidadAudio entero = CalidadAudio(codec: 'flac');
       expect(consejoDeFormato(comprimido, 'flac'), contains('sonara igual'));
-      expect(consejoDeFormato(comprimido, 'mp3'), isNull);
+      expect(consejoDeFormato(comprimido, 'mp3'), contains('Original'));
+      expect(consejoDeFormato(comprimido, 'best'), isNull);
+      expect(consejoDeFormato(comprimido, 'opus'), isNull, reason: 'el mismo codec se copia');
+      expect(consejoDeFormato(const CalidadAudio(codec: 'aac', kbps: 160), 'm4a'), isNull);
       expect(consejoDeFormato(entero, 'mp3'), contains('FLAC'));
       expect(consejoDeFormato(entero, 'flac'), isNull);
     });
@@ -3194,7 +3471,8 @@ void main() {
 
   test('el resumen dice que va a salir sin abrir las opciones', () {
     const Ajustes base = Ajustes(url: '');
-    expect(resumenDescarga(base.copiar(soloAudio: true)), 'MP3 · 192 kb/s');
+    expect(resumenDescarga(base.copiar(soloAudio: true)), 'ORIGINAL · sin reconvertir');
+    expect(resumenDescarga(base.copiar(soloAudio: true, formatoAudio: 'mp3')), 'MP3 · 192 kb/s');
     expect(resumenDescarga(base.copiar(soloAudio: true, formatoAudio: 'flac')),
         'FLAC · sin perdida');
     expect(resumenDescarga(base.copiar(calidad: 0)), 'MP4 · la mejor calidad');
@@ -3352,6 +3630,36 @@ void main() {
     expect(find.text('Editar etiquetas'), findsNothing);
   });
 
+  testWidgets('una cancion se pone como tono, y si falta permiso se explica',
+      (WidgetTester tester) async {
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Soda Stereo - Persiana Americana [c1].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/1"}]}';
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Poner como tono'));
+    await tester.pumpAndSettle();
+
+    final MethodCall tono = llamadas.lastWhere((MethodCall c) => c.method == 'ponerTono');
+    expect(tono.arguments['uri'], 'content://audio/1');
+    expect(find.textContaining('suena ahora al llamarte'), findsOneWidget);
+  });
+
+  testWidgets('la radio sale del menu de la cancion', (WidgetTester tester) async {
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Soda Stereo - Persiana Americana [c1].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/1"},'
+        '{"nombre":"Soda Stereo - Musica Ligera [c2].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/2"}]}';
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Radio de esta cancion'), findsOneWidget);
+  });
+
   // --- El detalle del motor -----------------------------------------------
 
   testWidgets('sin detalle no se ofrece nada', (WidgetTester tester) async {
@@ -3468,7 +3776,7 @@ void main() {
         .where((MethodCall c) => c.method == 'buscar')
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
-    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive'});
+    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo'});
   });
 
   /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
@@ -3592,9 +3900,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('sonara igual'), findsOneWidget);
 
-    await tester.tap(find.text('Usar MP3'));
+    // Lo que propone es el original tal cual, no reconvertirlo a MP3.
+    await tester.tap(find.text('Usar Original'));
     await tester.pumpAndSettle();
     expect(find.textContaining('sonara igual'), findsNothing);
+    expect(find.text('ORIGINAL · sin reconvertir'), findsOneWidget);
   });
 
   testWidgets('cambiar de fuente limpia lo encontrado en la anterior',
@@ -3619,6 +3929,13 @@ void main() {
     expect(Fuente.archive.daListas, isTrue);
     expect(Fuente.youtube.daListas, isFalse);
     expect(Fuente.soundcloud.daListas, isFalse);
+    expect(Fuente.jamendo.daListas, isFalse);
+  });
+
+  test('Jamendo se busca con las demas y entra en la mejor calidad', () {
+    // Espeja FUENTES del nucleo: si falta aqui, buscar en todas no la pregunta.
+    expect(Fuente.reales, contains(Fuente.jamendo));
+    expect(MejorCalidad.fuentes, contains(Fuente.jamendo));
   });
 
   testWidgets('tocar un concierto del Archive trae sus pistas',

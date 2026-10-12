@@ -67,6 +67,13 @@ RECORTE_CUADRADO = "crop='min(iw,ih)':'min(iw,ih)'"
 #: Cómo se reparte «Artista - Tema» dentro del título.
 PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
 
+#: Nombre de cada pista al partir un álbum por capítulos.
+#:
+#: «Artista - Tema», como cualquier otra descarga, para que la biblioteca la
+#: agrupe por artista; el número va junto al identificador para que dos
+#: capítulos con el mismo nombre no se pisen.
+PLANTILLA_CAPITULO = "%(artist,uploader|Varios)s - %(section_title)s [%(id)s-%(section_number)02d].%(ext)s"
+
 #: La API pública de Audius. No pide clave: basta con decir quién pregunta.
 AUDIUS_API = "https://api.audius.co/v1"
 APP_AUDIUS = "tumbao"
@@ -91,11 +98,42 @@ FORMATOS_SIN_PERDIDA = ("flac", "wav", "alac")
 #: Prefijo de búsqueda del motor, por fuente. Las demás van por su propia API.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 
-#: Colección del Internet Archive con conciertos que los grupos dejan compartir.
+#: Colecciones del Internet Archive donde se busca, todas de libre descarga.
 #:
-#: Es la única fuente gratuita con audio sin pérdida de verdad: lo demás que se
-#: puede buscar sirve siempre algo ya comprimido con pérdida.
-COLECCION_ARCHIVE = "etree"
+#: «etree» son conciertos que los grupos dejan compartir; «netlabels», sellos
+#: que publican gratis (mucha electrónica); «georgeblood», el Great 78
+#: Project, discos de pizarra de 1900 a 1960 digitalizados. Solo se piden
+#: fichas con FLAC: lo demás que se puede buscar ya llega comprimido.
+COLECCIONES_ARCHIVE = ("etree", "netlabels", "georgeblood")
+
+#: La API pública de Jamendo: música con licencia Creative Commons.
+JAMENDO_API = "https://api.jamendo.com/v3.0"
+
+#: De dónde sale la clave de Jamendo, que es de la app y no del usuario.
+#:
+#: La variable de entorno manda; si no está, el archivo junto al núcleo. El
+#: archivo es lo que lleva el APK: GitHub Actions lo escribe desde un secreto
+#: antes de compilar, y git lo ignora para que la clave no acabe publicada.
+VARIABLE_JAMENDO = "JAMENDO_CLIENT_ID"
+ARCHIVO_JAMENDO = Path(__file__).with_name("clave_jamendo.txt")
+
+
+def clave_jamendo() -> str | None:
+    """La clave de Jamendo, o None si nadie la ha puesto."""
+    clave = os.environ.get(VARIABLE_JAMENDO, "").strip()
+    if not clave and ARCHIVO_JAMENDO.is_file():
+        clave = ARCHIVO_JAMENDO.read_text(encoding="utf-8").strip()
+    return clave or None
+
+
+def calidad_jamendo(pista: dict) -> AudioQuality | None:
+    """FLAC si el artista deja bajar la pista; si no, None.
+
+    Jamendo solo sirve el FLAC de lo que el artista deja descargar
+    (`audiodownload_allowed`); con lo demás su API responde 404. Ofrecer una
+    pista que luego no se puede bajar sería prometer en falso.
+    """
+    return AudioQuality("flac") if pista.get("audiodownload_allowed") else None
 
 
 def acciones_etiquetas() -> tuple:
@@ -627,6 +665,8 @@ class YtDlpDownloader:
             return self._buscar_en_audius(query)
         if query.source == "bandcamp":
             return self._buscar_en_bandcamp(query)
+        if query.source == "jamendo":
+            return self._buscar_en_jamendo(query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -701,13 +741,54 @@ class YtDlpDownloader:
         )
 
     @staticmethod
+    def _buscar_en_jamendo(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en Jamendo, que tiene el FLAC de lo que el artista deja bajar.
+
+        Se piden más pistas de las que se enseñan porque las que no se pueden
+        descargar se descartan. La descarga la hace el motor con su extractor
+        de Jamendo, que ya ordena el FLAC como el mejor formato.
+        """
+        clave = clave_jamendo()
+        if clave is None:
+            raise DownloadError(
+                "Falta la clave de Jamendo. Sácala gratis en devportal.jamendo.com y "
+                f"ponla en la variable {VARIABLE_JAMENDO} o en descargador/clave_jamendo.txt.")
+        direccion = f"{JAMENDO_API}/tracks/?" + urlencode({
+            "client_id": clave,
+            "format": "json",
+            "search": query.text,
+            "limit": min(query.limit * 3, 200),
+            "audiodlformat": "flac",
+            "imagesize": 300,
+        })
+        datos = _consultar(direccion, "Jamendo")
+        cabecera = datos.get("headers") or {}
+        if cabecera.get("status") == "failed":
+            raise DownloadError(
+                f"Jamendo rechazó la búsqueda: {cabecera.get('error_message') or 'clave no válida'}.")
+        resultados = []
+        for pista in datos.get("results") or []:
+            calidad = calidad_jamendo(pista)
+            if calidad is None or not pista.get("id"):
+                continue
+            resultados.append(VideoInfo(
+                title=pista.get("name") or "(sin título)",
+                uploader=pista.get("artist_name"),
+                duration=pista.get("duration"),
+                url=f"https://www.jamendo.com/track/{pista['id']}",
+                thumbnail=pista.get("image") or pista.get("album_image") or "",
+                quality=calidad,
+            ))
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
     def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
-        """Busca conciertos con audio sin pérdida en el Internet Archive.
+        """Busca grabaciones con audio sin pérdida en el Internet Archive.
 
         No pasa por el motor porque este no trae buscador para esa web: se le
         pregunta a su propia API y se arman las direcciones. Cada resultado es
-        un concierto entero, no una canción, de ahí que la fuente figure en
-        FUENTES_DE_LISTAS.
+        un concierto o un disco entero, no una canción, de ahí que la fuente
+        figure en FUENTES_DE_LISTAS.
         """
         # Se busca en el título y en el intérprete, no en todo el registro: a
         # campo abierto salían conciertos de otros grupos solo porque la ficha
@@ -716,8 +797,9 @@ class YtDlpDownloader:
         texto = re.sub(r'["\+\-!(){}\[\]^~*?:/]', " ", query.text).strip()
         if not texto:
             raise DownloadError("Escribe algo que buscar en el Archive.")
+        colecciones = " OR ".join(COLECCIONES_ARCHIVE)
         consulta = (
-            f"collection:{COLECCION_ARCHIVE} AND format:FLAC "
+            f"collection:({colecciones}) AND format:FLAC "
             f"AND (title:({texto}) OR creator:({texto}))"
         )
         direccion = "https://archive.org/advancedsearch.php?" + urlencode(
@@ -836,10 +918,16 @@ class YtDlpDownloader:
         YoutubeDL, YoutubeDLError, download_range_func = _cargar_motor()
         opts = request.options
         archivos: list[Path] = []
+        capitulos: list[dict] = []
 
         def terminado(nombre):
             if nombre:
                 archivos.append(Path(nombre).resolve())
+
+        def partido(datos):
+            # Los capítulos ya partidos, cada uno con la ruta de su archivo.
+            if datos.get("status") == "finished" and datos.get("postprocessor") == "SplitChapters":
+                capitulos.extend((datos.get("info_dict") or {}).get("chapters") or [])
 
         try:
             destino = request.destination.expanduser().resolve()
@@ -850,7 +938,7 @@ class YtDlpDownloader:
             caratula = incrusta_caratula(opts.audio_only)
             options = {
                 "paths": {"home": str(destino)},
-                "outtmpl": {"default": "%(title).120B [%(id)s].%(ext)s"},
+                "outtmpl": {"default": "%(title).120B [%(id)s].%(ext)s", "chapter": PLANTILLA_CAPITULO},
                 "windowsfilenames": True,
                 "format": self._seleccion_formato(opts),
                 "ffmpeg_location": ffmpeg,
@@ -868,6 +956,7 @@ class YtDlpDownloader:
                 "socket_timeout": 30,
                 "color": "no_color",
                 "post_hooks": [terminado],
+                "postprocessor_hooks": [partido],
                 "postprocessors": self._postprocesadores(opts, caratula),
                 "postprocessor_args": self._argumentos_postproceso(opts),
                 "writethumbnail": caratula,
@@ -897,6 +986,8 @@ class YtDlpDownloader:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
                 procesado = engine.process_ie_result(info, download=True) if info else None
             existentes = tuple(dict.fromkeys(p for p in archivos if p.is_file()))
+            if opts.split_chapters:
+                existentes = self._quedarse_con_capitulos(existentes, capitulos, procesado or {})
             if not existentes:
                 if opts.use_archive:
                     # Ya figuraba en el registro: se omite, no es un fallo.
@@ -905,6 +996,42 @@ class YtDlpDownloader:
             return DownloadResult(existentes, quality=self._calidad_bajada(procesado, existentes))
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(mensaje_claro(exc)) from exc
+
+    @staticmethod
+    def _quedarse_con_capitulos(
+        enteros: tuple[Path, ...], capitulos: list[dict], info: dict,
+    ) -> tuple[Path, ...]:
+        """Cambia el archivo entero por sus pistas, ya con su nombre de tema.
+
+        yt-dlp parte el audio pero deja en cada trozo las etiquetas del
+        entero: todas se llamarían como el álbum. Aquí cada una recibe su
+        título, el artista, el álbum y su número. Con uno o ningún capítulo no
+        hay nada que partir y se queda el entero.
+        """
+        # yt-dlp avisa de que terminó más de una vez: cada ruta, una sola.
+        rutas = dict.fromkeys(
+            str(c["filepath"]) for c in capitulos if c.get("filepath") and Path(c["filepath"]).is_file())
+        titulos = {str(c.get("filepath")): c.get("title") for c in capitulos}
+        if len(rutas) < 2:
+            return enteros
+        artista = str(info.get("artist") or info.get("uploader") or "")
+        album = str(info.get("album") or info.get("track") or info.get("title") or "")
+        pistas: list[Path] = []
+        for numero, camino in enumerate(rutas, start=1):
+            ruta = Path(camino).resolve()
+            temporal = ruta.with_name(f"etiquetando-{numero}{ruta.suffix}")
+            try:
+                escribir_etiquetas(ruta, temporal, titulo=str(titulos.get(camino) or ruta.stem),
+                                   artista=artista, album=album, pista=numero, sin_capitulos=True)
+                temporal.replace(ruta)
+            except DownloadError:
+                # Sin etiquetas la pista se oye igual: mejor eso que perderla.
+                temporal.unlink(missing_ok=True)
+            pistas.append(ruta)
+        for entero in enteros:
+            if entero not in pistas:
+                entero.unlink(missing_ok=True)
+        return tuple(pistas)
 
     @staticmethod
     def _calidad_bajada(info: dict | None, archivos: tuple[Path, ...] = ()) -> AudioQuality | None:
@@ -999,6 +1126,9 @@ class YtDlpDownloader:
             pps.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
         if caratula:
             pps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+        if opts.split_chapters and opts.audio_only:
+            # Al final, para que cada pista herede la carátula ya incrustada.
+            pps.append({"key": "FFmpegSplitChapters", "force_keyframes": False})
         return pps
 
     def _notificar(self, datos: dict) -> None:
@@ -1023,13 +1153,35 @@ class YtDlpDownloader:
         return None
 
 
-def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str) -> None:
-    """Reescribe título y artista de un audio ya descargado.
+def argumentos_etiquetas(*, titulo: str, artista: str, album: str | None = None,
+                         pista: int | None = None) -> list[str]:
+    """Los «-metadata» de FFmpeg para escribir las etiquetas en cualquier formato.
+
+    Cada una va dos veces: en la cabecera general, que es donde la lee el MP3,
+    y en la pista de audio, que es donde la guardan Opus y OGG. Con solo la
+    general, en un Opus seguía mandando el título que traía la pista.
+    """
+    etiquetas = {"title": titulo, "artist": artista}
+    if album:
+        etiquetas["album"] = album
+    if pista:
+        etiquetas["track"] = str(pista)
+    argumentos: list[str] = []
+    for clave, valor in etiquetas.items():
+        argumentos += ["-metadata", f"{clave}={valor}", "-metadata:s:a:0", f"{clave}={valor}"]
+    return argumentos
+
+
+def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str,
+                       album: str | None = None, pista: int | None = None,
+                       sin_capitulos: bool = False) -> None:
+    """Reescribe título y artista (y si se dan, álbum y número) de un audio ya descargado.
 
     Con «-c copy -map 0» el sonido y la carátula pasan tal cual: solo cambia la
     cabecera, así que no se pierde calidad ni tarda. FFmpeg no sabe escribir
     sobre el archivo que está leyendo, de ahí que el destino tenga que ser otro
-    y sea quien llama el que lo ponga en su sitio.
+    y sea quien llama el que lo ponga en su sitio. `sin_capitulos` quita los
+    capítulos, que en una pista sacada de un álbum serían los del álbum entero.
     """
     if not origen.is_file():
         raise DownloadError("No se encontró el archivo que se quería etiquetar.")
@@ -1037,11 +1189,11 @@ def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str
     orden = [
         ffmpeg, "-y", "-i", str(origen),
         "-map", "0", "-c", "copy",
+        *(["-map_chapters", "-1"] if sin_capitulos else []),
         # La versión 3 es la que entienden todos los reproductores; con la 4
         # hay teléfonos que no leen ni el título.
         "-id3v2_version", "3",
-        "-metadata", f"title={titulo}",
-        "-metadata", f"artist={artista}",
+        *argumentos_etiquetas(titulo=titulo, artista=artista, album=album, pista=pista),
         str(destino),
     ]
     try:

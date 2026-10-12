@@ -158,7 +158,30 @@ String? consejoDeFormato(CalidadAudio origen, String formato) {
     return 'El origen es ${origen.etiqueta}: en ${formato.toUpperCase()} ocupara '
         'mucho mas y sonara igual. No se puede recuperar lo que ya se perdio.';
   }
+  if (!origen.sinPerdida && reconvierte(origen, formato)) {
+    return 'El origen es ${origen.etiqueta}: pasarlo a ${formato.toUpperCase()} lo '
+        'vuelve a comprimir y pierde algo mas. Original lo guarda tal cual.';
+  }
   return null;
+}
+
+/// Codec que sale de cada formato con perdida que se puede elegir.
+const Map<String, String> _codecDelFormato = <String, String>{
+  'mp3': 'mp3',
+  'm4a': 'aac',
+  'aac': 'aac',
+  'opus': 'opus',
+  'vorbis': 'vorbis',
+};
+
+/// Si guardar un origen comprimido en [formato] obliga a comprimirlo otra vez.
+///
+/// «best» nunca reconvierte, y tampoco cuando el destino es el mismo codec
+/// (un AAC en M4A se copia). Cada vuelta por un codec con perdida tira algo
+/// que ya no vuelve.
+bool reconvierte(CalidadAudio origen, String formato) {
+  final String? destino = _codecDelFormato[formato];
+  return destino != null && destino != origen.codec;
 }
 
 /// El sello de calidad, pequenio, para tarjetas, filas y el reproductor.
