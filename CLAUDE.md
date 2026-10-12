@@ -96,6 +96,15 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   escribe desde el secreto del mismo nombre antes de compilar el APK. Solo se ofrecen las pistas
   con `audiodownload_allowed`: de las demás su servidor no da el FLAC. El original de SoundCloud
   no se contempla: su servidor responde 401 sin sesión.
+- **Un episodio de podcast se baja desde su programa.** Suelto, el motor solo ve un MP3 y lo llama
+  por el nombre del archivo. `playlist()` da enlaces `programa#tumbao-episodio=<episodio>`
+  (`enlace_de_episodio`) y `_extraer` los resuelve dentro del RSS, con el título y la fecha de
+  allí y un identificador corto (`ep-…`). Los podcasts cuentan en `FUENTES_DE_LISTAS`.
+- **Las fuentes nuevas se comprueban contra internet antes de darlas por buenas**, con
+  `.github/prueba_red.py` (flujo «Prueba de red»): las pruebas normales no salen a la red, y así se
+  vio que el FLAC de Jamendo daba 404 por la dirección que usaba el motor.
+- **La radio en vivo va por HTTP plano**: casi todas las emisoras emiten así, y
+  `network_security_config.xml` lo permite. Solo afecta a lo que reproduce la app.
 - **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
   Opus o AAC llega tal cual. Pasarlo a MP3 lo comprimiría por segunda vez.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,
