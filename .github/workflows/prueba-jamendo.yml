@@ -19,16 +19,23 @@ jobs:
           python - <<'PY'
           import json, os
           from urllib.request import Request, urlopen
+          from urllib.error import HTTPError
           from urllib.parse import urlencode
           clave = os.environ["JAMENDO_CLIENT_ID"]
-          for fmt in ("flac", "mp32"):
-              d = json.load(urlopen(f"https://api.jamendo.com/v3.0/tracks/?" + urlencode({
-                  "client_id": clave, "format": "json", "search": "lofi", "limit": 3,
-                  "audiodlformat": fmt, "audioformat": "mp32"})))
+          def ver(url):
+              try:
+                  r = urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}))
+                  print("   ->", r.status, r.geturl()[:110], r.headers.get("Content-Type"), r.headers.get("Content-Length"), r.read(8))
+              except HTTPError as e:
+                  print("   -> HTTP", e.code, url[:110])
+          for extra in ({"audiodlformat": "flac"}, {"audioformat": "flac"}, {"audiodlformat": "flac", "audioformat": "flac"}):
+              d = json.load(urlopen("https://api.jamendo.com/v3.0/tracks/?" + urlencode({
+                  "client_id": clave, "format": "json", "search": "lofi", "limit": 2, **extra})))
+              print(extra, "status", d["headers"].get("status"), d["headers"].get("error_message"), "n", len(d["results"]))
               for t in d["results"]:
-                  print(fmt, t["id"], t["audiodownload_allowed"], "DL:", t["audiodownload"], "AUDIO:", t["audio"])
-                  if t["audiodownload"]:
-                      r = urlopen(Request(t["audiodownload"], headers={"User-Agent": "Mozilla/5.0"}))
-                      cab = r.read(16)
-                      print("   ->", r.status, r.geturl()[:120], r.headers.get("Content-Type"), r.headers.get("Content-Length"), cab[:8])
+                  print("  ", t["id"], t["audiodownload_allowed"], "DL:", t["audiodownload"], "AUDIO:", t["audio"][:90])
+                  if t["audiodownload"]: ver(t["audiodownload"])
+                  ver(t["audio"])
+          for fmt in ("flac", "mp32", "ogg"):
+              ver(f"https://prod-1.storage.jamendo.com/download/track/2277995/{fmt}/")
           PY
