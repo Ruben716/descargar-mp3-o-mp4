@@ -677,6 +677,12 @@ class MainActivity : AudioServiceActivity() {
             MediaStore.Audio.AudioColumns.ARTIST,
             MediaStore.MediaColumns.DATE_ADDED,
             MediaStore.MediaColumns.RELATIVE_PATH,
+            // Album y numero de pista: los pone «una pista por capitulo» y
+            // sirven para oir un disco en su orden. «track» solo existe en la
+            // tabla de audio; en video se pide otra vez el album por no
+            // descolocar las posiciones.
+            MediaStore.Audio.AudioColumns.ALBUM,
+            if (esAudio) MediaStore.Audio.AudioColumns.TRACK else MediaStore.Audio.AudioColumns.ALBUM,
         )
         // Las carpetas van en una sola consulta y no en varias: asi el orden por
         // fecha sale mezclado de verdad y lo antiguo no se amontona al final.
@@ -703,7 +709,10 @@ class MainActivity : AudioServiceActivity() {
                             .put("titulo", cursor.getString(4) ?: "")
                             .put("artista", cursor.getString(5) ?: "")
                             .put("fecha", cursor.getLong(6))
-                            .put("carpeta", cursor.getString(7) ?: ""),
+                            .put("carpeta", cursor.getString(7) ?: "")
+                            .put("album", cursor.getString(8) ?: "")
+                            // MediaStore guarda disco*1000 + pista.
+                            .put("pista", if (esAudio) cursor.getInt(9) % 1000 else 0),
                     )
                 }
             }

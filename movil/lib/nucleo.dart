@@ -484,6 +484,8 @@ class Elemento {
     this.etiquetaArtista = '',
     this.fecha = 0,
     this.carpeta = '',
+    this.etiquetaAlbum = '',
+    this.pista = 0,
   });
 
   factory Elemento.desdeJson(Map<String, dynamic> j) => Elemento(
@@ -496,6 +498,8 @@ class Elemento {
         etiquetaArtista: j['artista']?.toString() ?? '',
         fecha: (j['fecha'] as num?)?.toInt() ?? 0,
         carpeta: j['carpeta']?.toString() ?? '',
+        etiquetaAlbum: j['album']?.toString() ?? '',
+        pista: (j['pista'] as num?)?.toInt() ?? 0,
       );
 
   /// Lo que dicen las etiquetas del archivo. Vacio si no las tiene.
@@ -507,6 +511,21 @@ class Elemento {
 
   /// La carpeta del telefono donde vive, como «Music/Tumbao/». Vacia si no se sabe.
   final String carpeta;
+
+  /// El album tal como lo da Android, y el numero de pista (0 si no tiene).
+  final String etiquetaAlbum;
+  final int pista;
+
+  /// El disco al que pertenece, o vacio si no es de ninguno.
+  ///
+  /// Android, cuando el archivo no dice album, pone el nombre de la carpeta
+  /// («Tumbao»): eso no es un disco y no se cuenta.
+  String get album {
+    final String a = etiquetaAlbum.trim();
+    final List<String> trozos = carpeta.split('/')..removeWhere((String t) => t.isEmpty);
+    if (a.isEmpty || a == '<unknown>' || (trozos.isNotEmpty && a == trozos.last)) return '';
+    return a;
+  }
 
   /// Artista y tema para ensenar; ver [nombreVisible].
   ({String artista, String tema}) get partes =>

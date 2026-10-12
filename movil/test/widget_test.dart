@@ -1245,6 +1245,53 @@ void main() {
     expect(mp3['normalizar'], isTrue);
   });
 
+  group('discos', () {
+    Elemento pista(String tema, {String album = '', int numero = 0}) => Elemento(
+          nombre: 'Grupo - $tema [x$numero].opus',
+          uri: 'content://audio/$tema',
+          duracion: 180,
+          tamano: 1,
+          audio: true,
+          carpeta: 'Music/Tumbao/',
+          etiquetaAlbum: album,
+          pista: numero,
+        );
+
+    test('el nombre de la carpeta no es un album', () {
+      expect(pista('a', album: 'Tumbao').album, '');
+      expect(pista('a', album: '<unknown>').album, '');
+      expect(pista('a', album: 'Disco Entero').album, 'Disco Entero');
+    });
+
+    test('cada disco en el orden de sus pistas, y lo suelto al final', () {
+      final List<({String album, List<Elemento> pistas})> grupos = Albumes.agrupar(<Elemento>[
+        pista('Tercera', album: 'Disco', numero: 3),
+        pista('Suelta'),
+        pista('Primera', album: 'Disco', numero: 1),
+        pista('Single', album: 'Solo una', numero: 1),
+        pista('Segunda', album: 'Disco', numero: 2),
+      ]);
+      expect(grupos.map((({String album, List<Elemento> pistas}) g) => g.album), <String>['Disco', '']);
+      expect(grupos.first.pistas.map((Elemento e) => e.tema), <String>['Primera', 'Segunda', 'Tercera']);
+      // Un disco de una sola cancion es un single: va con lo suelto.
+      expect(grupos.last.pistas.map((Elemento e) => e.tema), <String>['Suelta', 'Single']);
+    });
+
+    testWidgets('el artista ensenia sus discos y deja oirlos enteros', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: PantallaArtista(artista: 'Grupo', pistas: <Elemento>[
+          pista('Dos', album: 'Disco Entero', numero: 2),
+          pista('Uno', album: 'Disco Entero', numero: 1),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Disco Entero'), findsOneWidget);
+      expect(find.byTooltip('Oir el disco entero'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Uno')).dy, lessThan(tester.getTopLeft(find.text('Dos')).dy));
+    });
+  });
+
   group('radio de una cancion', () {
     Elemento cancion(String nombre, {bool audio = true}) => Elemento(
           nombre: '$nombre [${nombre.hashCode}].opus',
