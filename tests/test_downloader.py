@@ -62,6 +62,7 @@ from descargador.infrastructure import (
     calidad_de,
     calidad_jamendo,
     clave_jamendo,
+    formatos_jamendo,
     codec_legible,
     escribir_etiquetas,
     incrusta_caratula,
@@ -1495,6 +1496,32 @@ class JamendoTests(unittest.TestCase):
 
     def test_la_fuente_se_acepta(self):
         self.assertEqual(SearchQuery("algo", source="jamendo").source, "jamendo")
+
+    def test_se_baja_de_la_descarga_oficial_y_el_flac_es_lo_mejor(self):
+        """La dirección que usa el motor para el FLAC respondía 404: medido de verdad."""
+        formatos = formatos_jamendo("2277995")
+        self.assertEqual(formatos[-1]["format_id"], "flac")
+        self.assertEqual(formatos[-1]["url"],
+                         "https://prod-1.storage.jamendo.com/download/track/2277995/flac/")
+        self.assertEqual([f["quality"] for f in formatos], sorted(f["quality"] for f in formatos))
+        self.assertTrue(all(f["vcodec"] == "none" for f in formatos))
+
+    def test_sus_enlaces_van_por_el_extractor_que_baja_de_la_descarga(self):
+        motor = Mock()
+        _extraer(motor, "https://www.jamendo.com/track/2277995", download=False)
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "JamendoDescarga")
+
+    def test_el_motor_elige_el_flac_si_se_pide_sin_perdida_y_el_mp3_si_no(self):
+        from yt_dlp import YoutubeDL
+
+        info = {"id": "1", "title": "t", "formats": formatos_jamendo("1"),
+                "extractor": "jamendo", "extractor_key": "Jamendo", "webpage_url": "https://x"}
+        for formato, esperado in (("flac", "flac"), ("mp3", "mp32"), ("best", "mp32")):
+            seleccion = YtDlpDownloader._seleccion_formato(
+                DownloadOptions(audio_only=True, audio_format=formato))
+            with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
+                elegido = motor.process_ie_result(dict(info), download=False)
+            self.assertEqual(elegido["format_id"], esperado, msg=formato)
 
 
 class CapitulosTests(unittest.TestCase):

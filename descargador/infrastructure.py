@@ -115,6 +115,16 @@ JAMENDO_API = "https://api.jamendo.com/v3.0"
 #: archivo es lo que lleva el APK: GitHub Actions lo escribe desde un secreto
 #: antes de compilar, y git lo ignora para que la clave no acabe publicada.
 VARIABLE_JAMENDO = "JAMENDO_CLIENT_ID"
+
+#: Las direcciones de una pista de Jamendo: «jamendo.com/track/123».
+ES_JAMENDO = re.compile(r"https?://(?:www\.)?jamendo\.com/track/(\d+)")
+
+#: La descarga oficial de una pista, por formato.
+#:
+#: Medido: sirve el FLAC de verdad (empieza por «fLaC», unos 13 MB por
+#: tema), el MP3 VBR y el OGG. El extractor de yt-dlp pide el FLAC a otra
+#: dirección, la del reproductor web, que responde 404.
+DESCARGA_JAMENDO = "https://prod-1.storage.jamendo.com/download/track/{ident}/{formato}/"
 ARCHIVO_JAMENDO = Path(__file__).with_name("clave_jamendo.txt")
 
 
@@ -124,6 +134,20 @@ def clave_jamendo() -> str | None:
     if not clave and ARCHIVO_JAMENDO.is_file():
         clave = ARCHIVO_JAMENDO.read_text(encoding="utf-8").strip()
     return clave or None
+
+
+def formatos_jamendo(ident: str) -> list[dict]:
+    """Lo que se puede bajar de una pista de Jamendo, de peor a mejor."""
+    formatos: tuple[dict, ...] = (
+        {"format_id": "ogg", "ext": "ogg", "acodec": "vorbis", "abr": 112},
+        {"format_id": "mp32", "ext": "mp3", "acodec": "mp3", "abr": 192},
+        {"format_id": "flac", "ext": "flac", "acodec": "flac"},
+    )
+    return [
+        {**f, "url": DESCARGA_JAMENDO.format(ident=ident, formato=f["format_id"]),
+         "vcodec": "none", "quality": calidad}
+        for calidad, f in enumerate(formatos)
+    ]
 
 
 def calidad_jamendo(pista: dict) -> AudioQuality | None:
@@ -434,12 +458,36 @@ def trozos(total: int, tamano: int = TROZO_PARALELO) -> list[dict]:
             for inicio in range(0, total, tamano)]
 
 
+@functools.cache
+def _extractor_jamendo():
+    """El extractor de Jamendo del motor, pero bajando de la descarga oficial.
+
+    Los datos de la pista (título, artista, carátula) se siguen sacando con
+    el del motor; solo cambian las direcciones de los formatos.
+    """
+    try:
+        from yt_dlp.extractor.jamendo import JamendoIE
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class JamendoDescargaIE(JamendoIE):
+        IE_NAME = "jamendo:descarga"
+
+        def _real_extract(self, url):
+            info = super()._real_extract(url)
+            info["formats"] = formatos_jamendo(str(info["id"]))
+            return info
+
+    return JamendoDescargaIE
+
+
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
-    if ES_AUDIUS.match(url):
-        clase = _extractor_audius()
-        engine.add_info_extractor(clase())
-        return engine.extract_info(url, ie_key=clase.ie_key(), **opciones)
+    for patron, fabrica in ((ES_AUDIUS, _extractor_audius), (ES_JAMENDO, _extractor_jamendo)):
+        if patron.match(url):
+            clase = fabrica()
+            engine.add_info_extractor(clase())
+            return engine.extract_info(url, ie_key=clase.ie_key(), **opciones)
     return engine.extract_info(url, **opciones)
 
 
@@ -758,6 +806,9 @@ class YtDlpDownloader:
             "format": "json",
             "search": query.text,
             "limit": min(query.limit * 3, 200),
+            # Las dos: con solo la de descarga, la API ha devuelto alguna
+            # vez cero resultados para una búsqueda que sí los tiene.
+            "audioformat": "flac",
             "audiodlformat": "flac",
             "imagesize": 300,
         })
