@@ -1244,6 +1244,44 @@ void main() {
     expect(mp3['normalizar'], isTrue);
   });
 
+  group('repetir un tramo', () {
+    const Duration s10 = Duration(seconds: 10);
+    const Duration s40 = Duration(seconds: 40);
+
+    test('primero A, luego B, luego se quita', () {
+      final ({Duration? a, Duration? b}) uno = EstadoReproductor.siguienteTramo(null, null, s10);
+      expect((uno.a, uno.b), (s10, null));
+      final ({Duration? a, Duration? b}) dos = EstadoReproductor.siguienteTramo(uno.a, uno.b, s40);
+      expect((dos.a, dos.b), (s10, s40));
+      final ({Duration? a, Duration? b}) tres = EstadoReproductor.siguienteTramo(dos.a, dos.b, s40);
+      expect((tres.a, tres.b), (null, null));
+    });
+
+    test('marcar B antes que A les da la vuelta', () {
+      final ({Duration? a, Duration? b}) t = EstadoReproductor.siguienteTramo(s40, null, s10);
+      expect((t.a, t.b), (s10, s40));
+    });
+
+    test('un B pegado a A no hace un tramo', () {
+      final ({Duration? a, Duration? b}) t =
+          EstadoReproductor.siguienteTramo(s10, null, s10 + const Duration(milliseconds: 400));
+      expect((t.a, t.b), (s10, null));
+    });
+
+    test('cambiar de cancion quita el tramo', () async {
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await runZonedGuarded(() async {
+        await estado.alternarTramo();
+        expect(estado.puntoA, isNotNull);
+        unawaited(estado.reproducirLista(_biblioteca3, 0));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        await estado.cerrar();
+      }, (Object _, StackTrace _) {});
+      expect(estado.puntoA, isNull);
+      expect(estado.puntoB, isNull);
+    });
+  });
+
   group('listas en .m3u', () {
     const Elemento tumbao = Elemento(
       nombre: 'Bad Bunny - Titi [a1].opus',

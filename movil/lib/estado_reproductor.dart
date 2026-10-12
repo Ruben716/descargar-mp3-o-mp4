@@ -37,6 +37,7 @@ class EstadoReproductor extends ChangeNotifier {
     motor.playerStateStream.listen((_) => notifyListeners());
     motor.positionStream.listen((Duration instante) {
       _anotarSiYaCuenta(instante);
+      _repetirTramo(instante);
       _aplicarFundido(instante);
       _quizasGuardarSesion();
     });
@@ -49,6 +50,8 @@ class EstadoReproductor extends ChangeNotifier {
       if (indice == null || indice >= _cola.length) return;
       final Elemento actual = _cola[indice];
       if (actual.uri != _anotada) _anotada = null;
+      // El tramo era de la pista anterior: en esta no significa nada.
+      if (actual.uri != _actual?.elemento?.uri) _quitarTramo();
       _actual = Pista(titulo: actual.nombre, fuente: actual.uri, elemento: actual);
       unawaited(_guardarSesion());
       unawaited(_retomarSiEsLarga(actual));
@@ -155,6 +158,56 @@ class EstadoReproductor extends ChangeNotifier {
     _ultimoGuardado = ahora;
     unawaited(_guardarSesion());
     _guardarSiEsLarga();
+  }
+
+  // --- Repetir un tramo (A-B) -------------------------------------------------
+
+  /// Donde empieza y acaba el tramo que se repite. Sin B no se repite nada.
+  ///
+  /// Para aprenderse una parte, sacarla con un instrumento o oir otra vez ese
+  /// solo: al llegar a B vuelve a A, una y otra vez, hasta quitarlo.
+  Duration? _puntoA;
+  Duration? _puntoB;
+  Duration? get puntoA => _puntoA;
+  Duration? get puntoB => _puntoB;
+  bool _volviendoAlTramo = false;
+
+  /// Lo que pasa al pulsar el boton: marca A, luego B, y luego lo quita.
+  ///
+  /// Marcar B antes que A (porque se volvio atras) les da la vuelta. Un B
+  /// pegado a A no hace un tramo: se espera a que se pulse mas adelante.
+  @visibleForTesting
+  static ({Duration? a, Duration? b}) siguienteTramo(Duration? a, Duration? b, Duration ahora) {
+    if (a == null) return (a: ahora, b: null);
+    if (b != null) return (a: null, b: null);
+    if ((ahora - a).abs() < const Duration(seconds: 1)) return (a: a, b: null);
+    return ahora < a ? (a: ahora, b: a) : (a: a, b: ahora);
+  }
+
+  Future<void> alternarTramo() async {
+    final ({Duration? a, Duration? b}) nuevo = siguienteTramo(_puntoA, _puntoB, motor.position);
+    _puntoA = nuevo.a;
+    _puntoB = nuevo.b;
+    notifyListeners();
+    // Recien cerrado, se oye ya desde el principio del tramo.
+    if (nuevo.a != null && nuevo.b != null) await motor.seek(nuevo.a);
+  }
+
+  void _quitarTramo() {
+    if (_puntoA == null && _puntoB == null) return;
+    _puntoA = null;
+    _puntoB = null;
+    notifyListeners();
+  }
+
+  void _repetirTramo(Duration instante) {
+    final Duration? a = _puntoA;
+    final Duration? b = _puntoB;
+    if (a == null || b == null || instante < b || _volviendoAlTramo) return;
+    // El motor sigue avisando de la posicion vieja mientras salta: sin esto
+    // pediria volver una vez por aviso.
+    _volviendoAlTramo = true;
+    motor.seek(a).whenComplete(() => _volviendoAlTramo = false);
   }
 
   // --- Audios largos: cada uno recuerda por donde iba ------------------------
@@ -428,6 +481,7 @@ class EstadoReproductor extends ChangeNotifier {
   Future<void> reproducirLista(List<Elemento> elementos, int desde) async {
     if (elementos.isEmpty) return;
     final int ordenes = ++_ordenes;
+    _quitarTramo();
     // Desde el mismo momento en que cambia la cola: a partir de aqui, un
     // aviso del motor (que aun suena con la vieja) se traduciria mal.
     _cargasEnCurso++;
@@ -911,6 +965,7 @@ class EstadoReproductor extends ChangeNotifier {
 
   Future<void> _poner(Pista pista) async {
     final int ordenes = ++_ordenes;
+    _quitarTramo();
     // Una sola pista en el motor, una sola en la cola. Si se quedaba la cola
     // anterior, el motor decia «voy por la 0» y la app ensenaba la primera
     // de aquella lista: otra cancion y otra portada.
