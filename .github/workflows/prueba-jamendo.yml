@@ -1,0 +1,40 @@
+# Temporal: comprueba Jamendo y el Archive contra la red de verdad. Se borra al terminar.
+name: Prueba real de fuentes
+on:
+  push:
+    branches: [prueba-jamendo-temporal]
+jobs:
+  prueba:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -q -e ".[dev]"
+      - name: Buscar y bajar de verdad
+        env:
+          JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from descargador.domain import SearchQuery, DownloadOptions, DownloadRequest
+          from descargador.infrastructure import YtDlpDownloader, cabecera_sin_perdida
+          motor = YtDlpDownloader()
+          for texto in ("lofi", "jazz", "rock"):
+              r = motor.search(SearchQuery(texto, limit=5, source="jamendo"))
+              print(f"JAMENDO '{texto}': {len(r)} resultados")
+              for x in r[:3]:
+                  print("   ", x.uploader, "-", x.title, "|", x.url, "|", x.quality)
+          primero = motor.search(SearchQuery("lofi", limit=3, source="jamendo"))[0]
+          print("CALIDAD COMPROBADA:", motor.quality(DownloadRequest(primero.url, Path("x"))))
+          res = motor.download(DownloadRequest(primero.url, Path("salida"),
+                               DownloadOptions(audio_only=True, audio_format="flac")))
+          for f in res.files:
+              print("BAJADO:", f.name, f.stat().st_size // 1024, "KB", "cabecera:", cabecera_sin_perdida(f))
+          print("ORIGEN:", res.quality)
+          a = motor.search(SearchQuery("jazz", limit=5, source="archive"))
+          print(f"ARCHIVE 'jazz': {len(a)} resultados")
+          for x in a[:5]:
+              print("   ", x.uploader, "-", x.title, "|", x.url)
+          PY
