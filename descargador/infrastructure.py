@@ -116,6 +116,12 @@ JAMENDO_API = "https://api.jamendo.com/v3.0"
 #: antes de compilar, y git lo ignora para que la clave no acabe publicada.
 VARIABLE_JAMENDO = "JAMENDO_CLIENT_ID"
 
+#: El buscador público de hearthis.at. Sin clave.
+BUSCADOR_HEARTHIS = "https://api-v2.hearthis.at/search/"
+
+#: El directorio de podcasts de Apple. Sin clave: da el RSS de cada programa.
+BUSCADOR_PODCASTS = "https://itunes.apple.com/search"
+
 #: Las direcciones de una pista de Jamendo: «jamendo.com/track/123».
 ES_JAMENDO = re.compile(r"https?://(?:www\.)?jamendo\.com/track/(\d+)")
 
@@ -715,6 +721,10 @@ class YtDlpDownloader:
             return self._buscar_en_bandcamp(query)
         if query.source == "jamendo":
             return self._buscar_en_jamendo(query)
+        if query.source == "hearthis":
+            return self._buscar_en_hearthis(query)
+        if query.source == "podcasts":
+            return self._buscar_podcasts(query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -831,6 +841,50 @@ class YtDlpDownloader:
                 quality=calidad,
             ))
         return tuple(resultados[:query.limit])
+
+    @staticmethod
+    def _buscar_en_hearthis(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en hearthis.at: sesiones de DJ, mezclas y temas propios.
+
+        Medido: la mayoría se escucha en MP3, y algunas traen el archivo que
+        subió el artista para bajarlo (M4A, WAV...). Cuál es cuál lo decide el
+        motor al bajar, así que aquí no se promete calidad.
+        """
+        datos = _consultar(BUSCADOR_HEARTHIS + "?" + urlencode(
+            {"t": query.text, "page": 1, "count": query.limit}), "hearthis.at")
+        pistas: list = datos if isinstance(datos, list) else []
+        return tuple(
+            VideoInfo(
+                title=str(p.get("title") or "(sin título)"),
+                uploader=(p.get("user") or {}).get("username"),
+                duration=int(p["duration"]) if str(p.get("duration") or "").isdigit() else None,
+                url=str(p["permalink_url"]),
+                thumbnail=str(p.get("artwork_url") or p.get("thumb") or ""),
+            )
+            for p in pistas[:query.limit]
+            if p.get("permalink_url")
+        )
+
+    @staticmethod
+    def _buscar_podcasts(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca programas en el directorio de podcasts de Apple.
+
+        Cada resultado es un programa y su URL es el RSS: abrirlo como lista
+        trae los episodios, y cada episodio se baja como cualquier audio.
+        """
+        datos = _consultar(BUSCADOR_PODCASTS + "?" + urlencode({
+            "term": query.text, "media": "podcast", "entity": "podcast", "limit": query.limit,
+        }), "el directorio de podcasts")
+        return tuple(
+            VideoInfo(
+                title=str(p.get("collectionName") or "(sin título)"),
+                uploader=p.get("artistName"),
+                url=str(p["feedUrl"]),
+                thumbnail=str(p.get("artworkUrl600") or p.get("artworkUrl100") or ""),
+            )
+            for p in datos.get("results") or []
+            if p.get("feedUrl")
+        )
 
     @staticmethod
     def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
