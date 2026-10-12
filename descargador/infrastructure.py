@@ -91,11 +91,42 @@ FORMATOS_SIN_PERDIDA = ("flac", "wav", "alac")
 #: Prefijo de búsqueda del motor, por fuente. Las demás van por su propia API.
 PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 
-#: Colección del Internet Archive con conciertos que los grupos dejan compartir.
+#: Colecciones del Internet Archive donde se busca, todas de libre descarga.
 #:
-#: Es la única fuente gratuita con audio sin pérdida de verdad: lo demás que se
-#: puede buscar sirve siempre algo ya comprimido con pérdida.
-COLECCION_ARCHIVE = "etree"
+#: «etree» son conciertos que los grupos dejan compartir; «netlabels», sellos
+#: que publican gratis (mucha electrónica); «georgeblood», el Great 78
+#: Project, discos de pizarra de 1900 a 1960 digitalizados. Solo se piden
+#: fichas con FLAC: lo demás que se puede buscar ya llega comprimido.
+COLECCIONES_ARCHIVE = ("etree", "netlabels", "georgeblood")
+
+#: La API pública de Jamendo: música con licencia Creative Commons.
+JAMENDO_API = "https://api.jamendo.com/v3.0"
+
+#: De dónde sale la clave de Jamendo, que es de la app y no del usuario.
+#:
+#: La variable de entorno manda; si no está, el archivo junto al núcleo. El
+#: archivo es lo que lleva el APK: GitHub Actions lo escribe desde un secreto
+#: antes de compilar, y git lo ignora para que la clave no acabe publicada.
+VARIABLE_JAMENDO = "JAMENDO_CLIENT_ID"
+ARCHIVO_JAMENDO = Path(__file__).with_name("clave_jamendo.txt")
+
+
+def clave_jamendo() -> str | None:
+    """La clave de Jamendo, o None si nadie la ha puesto."""
+    clave = os.environ.get(VARIABLE_JAMENDO, "").strip()
+    if not clave and ARCHIVO_JAMENDO.is_file():
+        clave = ARCHIVO_JAMENDO.read_text(encoding="utf-8").strip()
+    return clave or None
+
+
+def calidad_jamendo(pista: dict) -> AudioQuality | None:
+    """FLAC si el artista deja bajar la pista; si no, None.
+
+    Jamendo solo sirve el FLAC de lo que el artista deja descargar
+    (`audiodownload_allowed`); con lo demás su API responde 404. Ofrecer una
+    pista que luego no se puede bajar sería prometer en falso.
+    """
+    return AudioQuality("flac") if pista.get("audiodownload_allowed") else None
 
 
 def acciones_etiquetas() -> tuple:
@@ -627,6 +658,8 @@ class YtDlpDownloader:
             return self._buscar_en_audius(query)
         if query.source == "bandcamp":
             return self._buscar_en_bandcamp(query)
+        if query.source == "jamendo":
+            return self._buscar_en_jamendo(query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -701,13 +734,54 @@ class YtDlpDownloader:
         )
 
     @staticmethod
+    def _buscar_en_jamendo(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en Jamendo, que tiene el FLAC de lo que el artista deja bajar.
+
+        Se piden más pistas de las que se enseñan porque las que no se pueden
+        descargar se descartan. La descarga la hace el motor con su extractor
+        de Jamendo, que ya ordena el FLAC como el mejor formato.
+        """
+        clave = clave_jamendo()
+        if clave is None:
+            raise DownloadError(
+                "Falta la clave de Jamendo. Sácala gratis en devportal.jamendo.com y "
+                f"ponla en la variable {VARIABLE_JAMENDO} o en descargador/clave_jamendo.txt.")
+        direccion = f"{JAMENDO_API}/tracks/?" + urlencode({
+            "client_id": clave,
+            "format": "json",
+            "search": query.text,
+            "limit": min(query.limit * 3, 200),
+            "audiodlformat": "flac",
+            "imagesize": 300,
+        })
+        datos = _consultar(direccion, "Jamendo")
+        cabecera = datos.get("headers") or {}
+        if cabecera.get("status") == "failed":
+            raise DownloadError(
+                f"Jamendo rechazó la búsqueda: {cabecera.get('error_message') or 'clave no válida'}.")
+        resultados = []
+        for pista in datos.get("results") or []:
+            calidad = calidad_jamendo(pista)
+            if calidad is None or not pista.get("id"):
+                continue
+            resultados.append(VideoInfo(
+                title=pista.get("name") or "(sin título)",
+                uploader=pista.get("artist_name"),
+                duration=pista.get("duration"),
+                url=f"https://www.jamendo.com/track/{pista['id']}",
+                thumbnail=pista.get("image") or pista.get("album_image") or "",
+                quality=calidad,
+            ))
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
     def _buscar_en_archive(query: SearchQuery) -> tuple[VideoInfo, ...]:
-        """Busca conciertos con audio sin pérdida en el Internet Archive.
+        """Busca grabaciones con audio sin pérdida en el Internet Archive.
 
         No pasa por el motor porque este no trae buscador para esa web: se le
         pregunta a su propia API y se arman las direcciones. Cada resultado es
-        un concierto entero, no una canción, de ahí que la fuente figure en
-        FUENTES_DE_LISTAS.
+        un concierto o un disco entero, no una canción, de ahí que la fuente
+        figure en FUENTES_DE_LISTAS.
         """
         # Se busca en el título y en el intérprete, no en todo el registro: a
         # campo abierto salían conciertos de otros grupos solo porque la ficha
@@ -716,8 +790,9 @@ class YtDlpDownloader:
         texto = re.sub(r'["\+\-!(){}\[\]^~*?:/]', " ", query.text).strip()
         if not texto:
             raise DownloadError("Escribe algo que buscar en el Archive.")
+        colecciones = " OR ".join(COLECCIONES_ARCHIVE)
         consulta = (
-            f"collection:{COLECCION_ARCHIVE} AND format:FLAC "
+            f"collection:({colecciones}) AND format:FLAC "
             f"AND (title:({texto}) OR creator:({texto}))"
         )
         direccion = "https://archive.org/advancedsearch.php?" + urlencode(

@@ -56,6 +56,8 @@ from descargador.infrastructure import (
     cabecera_sin_perdida,
     calidad_audius,
     calidad_de,
+    calidad_jamendo,
+    clave_jamendo,
     codec_legible,
     escribir_etiquetas,
     incrusta_caratula,
@@ -503,6 +505,9 @@ class FuentesTests(unittest.TestCase):
         self.assertIn("title%3A", pedido["url"])
         self.assertIn("creator%3A", pedido["url"])
         self.assertIn("format%3AFLAC", pedido["url"])
+        # Conciertos, netlabels y discos de 78: las tres colecciones a la vez.
+        for coleccion in ("etree", "netlabels", "georgeblood"):
+            self.assertIn(coleccion, pedido["url"])
 
     def test_lo_que_lucene_usa_como_operador_no_cambia_la_consulta(self):
         pedido = {}
@@ -1411,6 +1416,79 @@ class BandcampTests(unittest.TestCase):
     def test_las_nuevas_fuentes_se_aceptan(self):
         for fuente in ("audius", "bandcamp"):
             self.assertEqual(SearchQuery("algo", source=fuente).source, fuente)
+
+
+class JamendoTests(unittest.TestCase):
+    """Jamendo: FLAC de lo que el artista deja bajar, con la clave de la app."""
+
+    PISTA: ClassVar[dict] = {
+        "id": "1886257", "name": "Tema libre", "artist_name": "Artista CC",
+        "duration": 201, "image": "https://img/300.jpg", "audiodownload_allowed": True,
+    }
+
+    def setUp(self):
+        entorno = patch.dict("os.environ", {"JAMENDO_CLIENT_ID": "clave-de-prueba"})
+        entorno.start()
+        self.addCleanup(entorno.stop)
+
+    def test_solo_es_flac_lo_que_se_deja_bajar(self):
+        self.assertEqual(calidad_jamendo(self.PISTA), AudioQuality("flac"))
+        self.assertIsNone(calidad_jamendo(self.PISTA | {"audiodownload_allowed": False}))
+
+    def test_la_busqueda_descarta_lo_que_no_se_puede_bajar(self):
+        cerrada = self.PISTA | {"id": "2", "audiodownload_allowed": False}
+        respuesta = _Json({"headers": {"status": "success"}, "results": [self.PISTA, cerrada]})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_jamendo(SearchQuery("libre", source="jamendo"))
+        self.assertEqual(len(resultados), 1)
+        r = resultados[0]
+        self.assertEqual(r.url, "https://www.jamendo.com/track/1886257")
+        self.assertEqual(r.uploader, "Artista CC")
+        self.assertEqual(r.quality, AudioQuality("flac"))
+        pedido = red.call_args.args[0].full_url
+        self.assertIn("client_id=clave-de-prueba", pedido)
+        self.assertIn("audiodlformat=flac", pedido)
+
+    def test_no_se_ensenian_mas_de_las_pedidas(self):
+        muchas = [self.PISTA | {"id": str(i)} for i in range(30)]
+        respuesta = _Json({"headers": {"status": "success"}, "results": muchas})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta):
+            resultados = YtDlpDownloader._buscar_en_jamendo(
+                SearchQuery("libre", limit=5, source="jamendo"))
+        self.assertEqual(len(resultados), 5)
+
+    def test_sin_clave_se_explica_de_donde_sacarla(self):
+        with (
+            patch.dict("os.environ", {"JAMENDO_CLIENT_ID": ""}),
+            patch("descargador.infrastructure.ARCHIVO_JAMENDO", Path("/no/existe.txt")),
+            patch("descargador.infrastructure.urlopen") as red,
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_jamendo(SearchQuery("libre", source="jamendo"))
+        self.assertIn("devportal.jamendo.com", str(fallo.exception))
+        red.assert_not_called()
+
+    def test_la_clave_tambien_sale_del_archivo(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            archivo = Path(carpeta) / "clave_jamendo.txt"
+            archivo.write_text("  desde-archivo\n", encoding="utf-8")
+            with (
+                patch.dict("os.environ", {"JAMENDO_CLIENT_ID": ""}),
+                patch("descargador.infrastructure.ARCHIVO_JAMENDO", archivo),
+            ):
+                self.assertEqual(clave_jamendo(), "desde-archivo")
+
+    def test_una_clave_rechazada_se_dice(self):
+        respuesta = _Json({"headers": {"status": "failed", "error_message": "Invalid client_id"}})
+        with (
+            patch("descargador.infrastructure.urlopen", return_value=respuesta),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_jamendo(SearchQuery("libre", source="jamendo"))
+        self.assertIn("Invalid client_id", str(fallo.exception))
+
+    def test_la_fuente_se_acepta(self):
+        self.assertEqual(SearchQuery("algo", source="jamendo").source, "jamendo")
 
 
 class CabeceraTests(unittest.TestCase):

@@ -12,9 +12,11 @@ String resumenDescarga(Ajustes a) {
   final List<String> partes = <String>[];
   if (a.soloAudio) {
     final String formato = a.formatoAudio.toUpperCase();
-    partes.add(const <String>['flac', 'wav'].contains(a.formatoAudio)
-        ? '$formato · sin perdida'
-        : '$formato · ${a.bitrate} kb/s');
+    partes.add(switch (a.formatoAudio) {
+      'best' => 'ORIGINAL · sin reconvertir',
+      'flac' || 'wav' => '$formato · sin perdida',
+      _ => '$formato · ${a.bitrate} kb/s',
+    });
   } else {
     partes.add(a.calidad == 0 ? 'MP4 · la mejor calidad' : 'MP4 · hasta ${a.calidad}p');
     if (a.subtitulos.isNotEmpty) partes.add('subtitulos ${a.subtitulos}');
@@ -26,8 +28,9 @@ String resumenDescarga(Ajustes a) {
 /// El formato que le saca partido al origen, y por que se cambio.
 ///
 /// Si el origen es sin perdida, FLAC lo guarda entero; si es comprimido y
-/// estaba elegido FLAC o WAV, se pasa a MP3, porque inflarlo solo ocupa mas.
-/// Solo toca la musica, y solo cuando se sabe de donde viene el sonido.
+/// estaba elegido FLAC o WAV, se guarda el original tal cual, porque inflarlo
+/// solo ocupa mas y pasarlo a MP3 lo volveria a comprimir. Solo toca la
+/// musica, y solo cuando se sabe de donde viene el sonido.
 ({Ajustes ajustes, String? motivo}) formatoSegunOrigen(Ajustes a, CalidadAudio? origen) {
   if (origen == null || !a.soloAudio) return (ajustes: a, motivo: null);
   final bool guardaSinPerdida = const <String>['flac', 'wav'].contains(a.formatoAudio);
@@ -40,8 +43,8 @@ String resumenDescarga(Ajustes a) {
   }
   if (!origen.sinPerdida && guardaSinPerdida) {
     return (
-      ajustes: a.copiar(formatoAudio: 'mp3'),
-      motivo: 'Elegido MP3: el origen ya viene comprimido y en '
+      ajustes: a.copiar(formatoAudio: 'best'),
+      motivo: 'Elegido Original: el origen ya viene comprimido y en '
           '${a.formatoAudio.toUpperCase()} ocuparia mucho mas sin sonar mejor.',
     );
   }
@@ -140,8 +143,8 @@ class _HojaDescargaState extends State<HojaDescarga> {
     final String? texto = consejoDeFormato(origen, _a.formatoAudio);
     if (texto == null) return null;
     // Sin perdida en el origen: FLAC lo guarda entero. Con perdida, lo mejor
-    // es no reconvertir, y MP3 es lo que entiende cualquier aparato.
-    final String propuesto = origen.sinPerdida ? 'flac' : 'mp3';
+    // es no reconvertir: el original tal cual.
+    final String propuesto = origen.sinPerdida ? 'flac' : 'best';
     return Container(
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
@@ -161,7 +164,7 @@ class _HojaDescargaState extends State<HojaDescarga> {
               _a = _a.copiar(formatoAudio: propuesto);
               _ajustado = null;
             }),
-            child: Text('Usar ${propuesto.toUpperCase()}'),
+            child: Text(propuesto == 'best' ? 'Usar Original' : 'Usar ${propuesto.toUpperCase()}'),
           ),
         ],
       ),

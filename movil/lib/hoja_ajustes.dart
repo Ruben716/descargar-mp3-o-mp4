@@ -150,20 +150,33 @@ class _HojaAjustesState extends State<HojaAjustes> {
         _Etiqueta('Formato'),
         const SizedBox(height: 8),
         _Fichas<String>(
-          valores: const <String>['mp3', 'm4a', 'opus', 'flac', 'wav'],
+          // Original primero: es el que no pierde nada por el camino.
+          valores: const <String>['best', 'mp3', 'm4a', 'opus', 'flac', 'wav'],
           elegido: _a.formatoAudio,
-          etiqueta: (String v) => v.toUpperCase(),
+          etiqueta: (String v) => v == 'best' ? 'ORIGINAL' : v.toUpperCase(),
           alElegir: (String v) => setState(() => _a = _a.copiar(formatoAudio: v)),
         ),
-        const SizedBox(height: 16),
-        _Etiqueta('Calidad del audio'),
-        const SizedBox(height: 8),
-        _Fichas<String>(
-          valores: const <String>['128', '192', '256', '320'],
-          elegido: _a.bitrate,
-          etiqueta: (String v) => '$v kb/s',
-          alElegir: (String v) => setState(() => _a = _a.copiar(bitrate: v)),
-        ),
+        if (_a.formatoAudio == 'best')
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'Se guarda tal como llega, sin volver a comprimir: Opus o AAC de '
+              'YouTube y SoundCloud, MP3 de Audius, FLAC si el origen lo es.',
+              style: TextStyle(fontSize: 12, color: Colors.white60, height: 1.35),
+            ),
+          ),
+        // Los kb/s solo cuentan al convertir a un formato con perdida.
+        if (!const <String>['best', 'flac', 'wav'].contains(_a.formatoAudio)) ...<Widget>[
+          const SizedBox(height: 16),
+          _Etiqueta('Calidad del audio'),
+          const SizedBox(height: 8),
+          _Fichas<String>(
+            valores: const <String>['128', '192', '256', '320'],
+            elegido: _a.bitrate,
+            etiqueta: (String v) => '$v kb/s',
+            alElegir: (String v) => setState(() => _a = _a.copiar(bitrate: v)),
+          ),
+        ],
         const SizedBox(height: 8),
         _igualarVolumen(),
         SwitchListTile(
@@ -189,7 +202,8 @@ class _HojaAjustesState extends State<HojaAjustes> {
       subtitle: Text(
         admitido
             ? 'Para que una cancion no reviente despues de otra'
-            : 'Con ${_a.formatoAudio.toUpperCase()} no se puede: elige MP3, FLAC o WAV',
+            : 'Con ${_a.formatoAudio == 'best' ? 'Original' : _a.formatoAudio.toUpperCase()} '
+                'no se puede: elige MP3, FLAC o WAV, o usa Volumen parejo en Ajustes',
       ),
       contentPadding: EdgeInsets.zero,
       activeThumbColor: Tema.acento,

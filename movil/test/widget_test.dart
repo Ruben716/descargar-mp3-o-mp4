@@ -1234,6 +1234,7 @@ void main() {
       url: 'https://y/1',
       soloAudio: true,
       normalizar: true,
+      formatoAudio: 'mp3',
     ).aMapa();
     expect(mp3['normalizar'], isTrue);
   });
@@ -2001,7 +2002,7 @@ void main() {
     });
 
     test('el formato se ajusta al origen, y se dice', () {
-      const Ajustes mp3 = Ajustes(url: '', soloAudio: true);
+      const Ajustes mp3 = Ajustes(url: '', soloAudio: true, formatoAudio: 'mp3');
       const CalidadAudio entero = CalidadAudio(codec: 'wav');
       final ({Ajustes ajustes, String? motivo}) a = formatoSegunOrigen(mp3, entero);
       expect(a.ajustes.formatoAudio, 'flac');
@@ -2009,7 +2010,8 @@ void main() {
 
       final ({Ajustes ajustes, String? motivo}) b = formatoSegunOrigen(
           mp3.copiar(formatoAudio: 'wav'), CalidadAudio.tipicaDeYoutube);
-      expect(b.ajustes.formatoAudio, 'mp3');
+      // Comprimido en origen: tal cual, ni inflado ni comprimido otra vez.
+      expect(b.ajustes.formatoAudio, 'best');
 
       // Sin saber el origen, o bajando video, no se toca nada.
       expect(formatoSegunOrigen(mp3, null).motivo, isNull);
@@ -2020,7 +2022,10 @@ void main() {
       const CalidadAudio comprimido = CalidadAudio(codec: 'opus', kbps: 127);
       const CalidadAudio entero = CalidadAudio(codec: 'flac');
       expect(consejoDeFormato(comprimido, 'flac'), contains('sonara igual'));
-      expect(consejoDeFormato(comprimido, 'mp3'), isNull);
+      expect(consejoDeFormato(comprimido, 'mp3'), contains('Original'));
+      expect(consejoDeFormato(comprimido, 'best'), isNull);
+      expect(consejoDeFormato(comprimido, 'opus'), isNull, reason: 'el mismo codec se copia');
+      expect(consejoDeFormato(const CalidadAudio(codec: 'aac', kbps: 160), 'm4a'), isNull);
       expect(consejoDeFormato(entero, 'mp3'), contains('FLAC'));
       expect(consejoDeFormato(entero, 'flac'), isNull);
     });
@@ -3194,7 +3199,8 @@ void main() {
 
   test('el resumen dice que va a salir sin abrir las opciones', () {
     const Ajustes base = Ajustes(url: '');
-    expect(resumenDescarga(base.copiar(soloAudio: true)), 'MP3 · 192 kb/s');
+    expect(resumenDescarga(base.copiar(soloAudio: true)), 'ORIGINAL · sin reconvertir');
+    expect(resumenDescarga(base.copiar(soloAudio: true, formatoAudio: 'mp3')), 'MP3 · 192 kb/s');
     expect(resumenDescarga(base.copiar(soloAudio: true, formatoAudio: 'flac')),
         'FLAC · sin perdida');
     expect(resumenDescarga(base.copiar(calidad: 0)), 'MP4 · la mejor calidad');
@@ -3468,7 +3474,7 @@ void main() {
         .where((MethodCall c) => c.method == 'buscar')
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
-    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive'});
+    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo'});
   });
 
   /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
@@ -3592,9 +3598,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('sonara igual'), findsOneWidget);
 
-    await tester.tap(find.text('Usar MP3'));
+    // Lo que propone es el original tal cual, no reconvertirlo a MP3.
+    await tester.tap(find.text('Usar Original'));
     await tester.pumpAndSettle();
     expect(find.textContaining('sonara igual'), findsNothing);
+    expect(find.text('ORIGINAL · sin reconvertir'), findsOneWidget);
   });
 
   testWidgets('cambiar de fuente limpia lo encontrado en la anterior',
@@ -3619,6 +3627,13 @@ void main() {
     expect(Fuente.archive.daListas, isTrue);
     expect(Fuente.youtube.daListas, isFalse);
     expect(Fuente.soundcloud.daListas, isFalse);
+    expect(Fuente.jamendo.daListas, isFalse);
+  });
+
+  test('Jamendo se busca con las demas y entra en la mejor calidad', () {
+    // Espeja FUENTES del nucleo: si falta aqui, buscar en todas no la pregunta.
+    expect(Fuente.reales, contains(Fuente.jamendo));
+    expect(MejorCalidad.fuentes, contains(Fuente.jamendo));
   });
 
   testWidgets('tocar un concierto del Archive trae sus pistas',

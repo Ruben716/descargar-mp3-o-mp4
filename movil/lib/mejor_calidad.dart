@@ -22,14 +22,21 @@ class Alternativa {
 }
 
 /// Buscar la misma cancion en mejor calidad en las fuentes que ya maneja la
-/// app (Bandcamp, Audius, Archive, SoundCloud) y cambiarla sin perder nada.
+/// app (Bandcamp, Audius, Archive, Jamendo, SoundCloud) y cambiarla sin
+/// perder nada.
 ///
 /// La calidad que se compara es la del origen, la real: nunca se presenta como
 /// mejor algo que solo es mas grande.
 class MejorCalidad {
   MejorCalidad._();
 
-  static const List<Fuente> fuentes = <Fuente>[Fuente.bandcamp, Fuente.audius, Fuente.archive, Fuente.soundcloud];
+  static const List<Fuente> fuentes = <Fuente>[
+    Fuente.bandcamp,
+    Fuente.audius,
+    Fuente.archive,
+    Fuente.jamendo,
+    Fuente.soundcloud,
+  ];
 
   /// Cuanto vale una calidad, para ordenar. Sin perdida va siempre por encima;
   /// entre las comprimidas, Opus y AAC rinden mas por kb/s que el MP3.

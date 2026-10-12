@@ -672,9 +672,14 @@ class MainActivity : AudioServiceActivity() {
      * FLAC, un WAV o un M4A eso es falso, y Android, al ver que la extension no
      * casa con el tipo, puede cambiarle el nombre al archivo al guardarlo.
      */
-    private fun tipoDe(archivo: File, esAudio: Boolean): String =
-        MimeTypeMap.getSingleton().getMimeTypeFromExtension(archivo.extension.lowercase())
+    private fun tipoDe(archivo: File, esAudio: Boolean): String {
+        val extension = archivo.extension.lowercase()
+        // El formato Original guarda Opus y M4A tal cual llegan, y no todas
+        // las versiones de Android conocen la extension .opus.
+        TIPOS_PROPIOS[extension]?.let { return it }
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?: if (esAudio) "audio/mpeg" else "video/mp4"
+    }
 
     /**
      * Copia el archivo a Musica/ o Peliculas/ mediante MediaStore y borra el
@@ -1094,6 +1099,9 @@ class MainActivity : AudioServiceActivity() {
     private companion object {
         /** Codigo de la peticion al selector de archivos de la copia. */
         const val PEDIR_COPIA = 4107
+
+        /** Tipos que MimeTypeMap no siempre sabe y el formato Original produce. */
+        val TIPOS_PROPIOS = mapOf("opus" to "audio/ogg", "m4a" to "audio/mp4")
 
         /**
          * Un unico vigilante para todo el proceso: la actividad se recrea y

@@ -531,8 +531,8 @@ class Avance {
 /// Lo que el usuario puede ajustar. Refleja DownloadOptions del dominio.
 /// De donde se puede buscar musica.
 ///
-/// Espeja FUENTES del nucleo. Bandcamp queda fuera porque su reproductor sirve
-/// 128 kb/s y el FLAC esta detras del pago; Tidal y companiia llevan DRM.
+/// Espeja FUENTES del nucleo. Tidal y companiia llevan DRM, y el original de
+/// SoundCloud solo lo da con sesion iniciada: no estan.
 enum Fuente {
   /// Todas a la vez. No existe en el nucleo: la app pregunta a cada una en
   /// paralelo y junta lo que va llegando.
@@ -541,7 +541,8 @@ enum Fuente {
   soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
   audius('audius', 'Audius', 'Artistas que suben a 320 y a veces el original sin perdida'),
   bandcamp('bandcamp', 'Bandcamp', 'Independientes; algunos regalan el FLAC'),
-  archive('archive', 'Archive', 'Conciertos sin perdida');
+  archive('archive', 'Archive', 'Conciertos, netlabels y discos de 78, sin perdida'),
+  jamendo('jamendo', 'Jamendo', 'Musica libre en FLAC, si el artista la deja bajar');
 
   const Fuente(this.clave, this.etiqueta, this.pista);
 
@@ -564,6 +565,7 @@ enum Fuente {
     Fuente.audius,
     Fuente.bandcamp,
     Fuente.archive,
+    Fuente.jamendo,
   ];
 }
 
@@ -579,7 +581,7 @@ class Ajustes {
     required this.url,
     this.soloAudio = false,
     this.calidad = 720,
-    this.formatoAudio = 'mp3',
+    this.formatoAudio = 'best',
     this.bitrate = '192',
     this.subtitulos = '',
     this.fragmento = '',
@@ -592,6 +594,10 @@ class Ajustes {
   final String url;
   final bool soloAudio;
   final int calidad;
+
+  /// En que se guarda el audio. «best» es el original tal como llega, sin
+  /// volver a comprimirlo: pasar un Opus de YouTube a MP3 pierde algo mas y
+  /// encima ocupa mas. Por eso es lo de fabrica.
   final String formatoAudio;
   final String bitrate;
   final String subtitulos;

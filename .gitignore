@@ -3,3 +3,6 @@ __pycache__/
 *.egg-info/
 descargas/
 .pytest_cache/
+
+# Clave de la API de Jamendo: de la app, pero no se publica. Ver README.
+descargador/clave_jamendo.txt
