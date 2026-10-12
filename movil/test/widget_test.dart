@@ -1239,6 +1239,14 @@ void main() {
     expect(mp3['normalizar'], isTrue);
   });
 
+  test('partir por capitulos solo viaja en audio y sin trozo elegido', () {
+    const Ajustes album = Ajustes(url: 'https://y/1', soloAudio: true, porCapitulos: true);
+    expect(album.aMapa()['porCapitulos'], isTrue);
+    expect(album.copiar(soloAudio: false).aMapa()['porCapitulos'], isFalse);
+    expect(album.copiar(fragmento: '0:10-0:20').aMapa()['porCapitulos'], isFalse);
+    expect(resumenDescarga(album), contains('una pista por capitulo'));
+  });
+
   test('igualar el volumen no viaja al bajar video', () {
     final Map<String, dynamic> mapa = const Ajustes(
       url: 'https://y/1',

@@ -176,7 +176,7 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
               fragmento: str = "", sin_patrocinios: bool = False,
               normalizar: bool = False, etiquetas_limpias: bool = True,
               cookies: str = "", nativo: bool = False,
-              portada_oficial: bool = True) -> str:
+              portada_oficial: bool = True, por_capitulos: bool = False) -> str:
     """Descarga de verdad. Devuelve las rutas obtenidas."""
     _AVANCE.clear()
     _AVANCE["status"] = "preparando"
@@ -194,6 +194,9 @@ def descargar(url: str, carpeta: str, solo_audio: bool, calidad: int,
             # cuando se baja audio; en video el dominio lo rechazaria.
             normalize=bool(normalizar) and bool(solo_audio),
             clean_tags=bool(etiquetas_limpias),
+            # Partir solo tiene sentido en audio y con el disco entero; con un
+            # fragmento el dominio lo rechazaria.
+            split_chapters=bool(por_capitulos) and bool(solo_audio) and not fragmento.strip(),
             # En el movil el contenedor importa: MKV o VP9 no se reproducen.
             prefer_mp4=True,
         )

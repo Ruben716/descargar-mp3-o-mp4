@@ -187,6 +187,14 @@ class _HojaAjustesState extends State<HojaAjustes> {
           contentPadding: EdgeInsets.zero,
           activeThumbColor: Tema.acento,
         ),
+        SwitchListTile(
+          value: _a.porCapitulos,
+          onChanged: (bool v) => setState(() => _a = _a.copiar(porCapitulos: v)),
+          title: const Text('Una pista por capitulo'),
+          subtitle: const Text('Un album o un mix entero sale cancion a cancion, si trae capitulos'),
+          contentPadding: EdgeInsets.zero,
+          activeThumbColor: Tema.acento,
+        ),
       ];
 
   /// Igualar el volumen obliga a reconvertir, y hay formatos que se copian

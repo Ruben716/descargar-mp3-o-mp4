@@ -21,6 +21,8 @@ from descargador.application import (
 from descargador.cli import (
     _alternar_normalizar,
     acciones_ajustes,
+    construir_opciones,
+    crear_parser,
     describir_ajustes,
     formato_tamano,
     formato_tiempo,
@@ -47,11 +49,13 @@ from descargador.domain import (
 from descargador.infrastructure import (
     ES_AUDIUS,
     INTENTOS_TRANSITORIOS,
+    PLANTILLA_CAPITULO,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
     _extraer,
     _portada_deezer,
     _portada_itunes,
+    argumentos_etiquetas,
     buscar_portada,
     cabecera_sin_perdida,
     calidad_audius,
@@ -1238,6 +1242,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("Subtítulos", video)
         self.assertNotIn("Subtítulos", audio)
         self.assertIn("Formato", audio)
+        self.assertIn("Capítulos", audio)
+        self.assertNotIn("Capítulos", video)
         resumen = " ".join(describir_ajustes(DownloadOptions(quality=720), Path("descargas"), audio=False))
         self.assertIn("hasta 720p", resumen)
 
@@ -1489,6 +1495,115 @@ class JamendoTests(unittest.TestCase):
 
     def test_la_fuente_se_acepta(self):
         self.assertEqual(SearchQuery("algo", source="jamendo").source, "jamendo")
+
+
+class CapitulosTests(unittest.TestCase):
+    """Partir un álbum o un mix en una pista por capítulo."""
+
+    def test_solo_en_audio_y_sin_fragmento(self):
+        self.assertTrue(DownloadOptions(audio_only=True, split_chapters=True).split_chapters)
+        with self.assertRaises(DownloadError):
+            DownloadOptions(split_chapters=True)
+        with self.assertRaises(DownloadError):
+            DownloadOptions(audio_only=True, split_chapters=True, section=(0.0, 30.0))
+
+    def test_se_parte_lo_ultimo_para_heredar_la_caratula(self):
+        pps = YtDlpDownloader._postprocesadores(
+            DownloadOptions(audio_only=True, split_chapters=True), caratula=True)
+        claves = [pp["key"] for pp in pps]
+        self.assertEqual(claves[-1], "FFmpegSplitChapters")
+        self.assertLess(claves.index("EmbedThumbnail"), claves.index("FFmpegSplitChapters"))
+        sin = YtDlpDownloader._postprocesadores(DownloadOptions(audio_only=True))
+        self.assertNotIn("FFmpegSplitChapters", [pp["key"] for pp in sin])
+
+    def test_cada_pista_se_llama_artista_tema(self):
+        self.assertIn("%(section_title)s", PLANTILLA_CAPITULO)
+        self.assertIn("%(section_number)02d", PLANTILLA_CAPITULO)
+        self.assertTrue(PLANTILLA_CAPITULO.startswith("%(artist,uploader|Varios)s - "))
+
+    def _album(self, carpeta: Path) -> tuple[Path, list[dict]]:
+        entero = carpeta / "Disco [x].opus"
+        entero.write_bytes(b"entero")
+        capitulos = []
+        for n, titulo in enumerate(("Uno", "Dos"), start=1):
+            ruta = carpeta / f"Grupo - {titulo} [x-0{n}].opus"
+            ruta.write_bytes(b"trozo")
+            capitulos.append({"filepath": str(ruta), "title": titulo})
+        return entero, capitulos
+
+    def test_el_entero_se_cambia_por_sus_pistas_con_su_nombre(self):
+        etiquetadas = []
+
+        def etiquetar(origen, destino, **datos):
+            etiquetadas.append(datos)
+            shutil.copy(origen, destino)
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            entero, capitulos = self._album(Path(carpeta))
+            info = {"artist": "Grupo", "title": "Disco"}
+            with patch("descargador.infrastructure.escribir_etiquetas", side_effect=etiquetar):
+                # yt-dlp avisa dos veces: no por eso salen pistas repetidas.
+                pistas = YtDlpDownloader._quedarse_con_capitulos(
+                    (entero.resolve(),), capitulos + capitulos, info)
+            self.assertEqual([p.name for p in pistas], ["Grupo - Uno [x-01].opus", "Grupo - Dos [x-02].opus"])
+            self.assertFalse(entero.exists(), msg="el entero sobra una vez partido")
+            self.assertEqual([e["titulo"] for e in etiquetadas], ["Uno", "Dos"])
+            self.assertEqual([e["pista"] for e in etiquetadas], [1, 2])
+            self.assertTrue(all(e["album"] == "Disco" and e["artista"] == "Grupo" for e in etiquetadas))
+            self.assertTrue(all(e["sin_capitulos"] for e in etiquetadas))
+
+    def test_sin_capitulos_queda_el_entero(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            entero, capitulos = self._album(Path(carpeta))
+            pistas = YtDlpDownloader._quedarse_con_capitulos((entero,), capitulos[:1], {})
+            self.assertEqual(pistas, (entero,))
+            self.assertTrue(entero.exists())
+
+    def test_un_fallo_al_etiquetar_no_pierde_la_pista(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            entero, capitulos = self._album(Path(carpeta))
+            with patch("descargador.infrastructure.escribir_etiquetas",
+                       side_effect=DownloadError("ffmpeg")):
+                pistas = YtDlpDownloader._quedarse_con_capitulos((entero,), capitulos, {})
+            self.assertEqual(len(pistas), 2)
+            self.assertTrue(all(p.exists() for p in pistas))
+
+    def test_la_consola_lo_ofrece_con_una_bandera(self):
+        args = crear_parser().parse_args(["https://example.com/v", "-a", "--capitulos"])
+        self.assertTrue(construir_opciones(args).split_chapters)
+
+    def test_el_puente_del_movil_lo_pide_solo_en_audio_y_sin_trozo(self):
+        import importlib.util
+
+        ruta = Path("movil/android/app/src/main/python/puente.py")
+        spec = importlib.util.spec_from_file_location("puente_prueba", ruta)
+        assert spec and spec.loader
+        puente = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(puente)
+        pedidas = []
+
+        class Caso:
+            def __init__(self, _motor):
+                pass
+
+            def execute(self, _url, _carpeta, opciones):
+                pedidas.append(opciones)
+                return DownloadResult(())
+
+        with patch.object(puente, "DownloadVideo", Caso):
+            puente.descargar("https://y/1", "/tmp", True, 0, "best", por_capitulos=True)
+            puente.descargar("https://y/1", "/tmp", False, 0, "best", por_capitulos=True)
+            puente.descargar("https://y/1", "/tmp", True, 0, "best", fragmento="0:10-0:20",
+                             por_capitulos=True)
+        self.assertEqual([o.split_chapters for o in pedidas], [True, False, False])
+
+    def test_las_etiquetas_van_tambien_en_la_pista_de_audio(self):
+        """En Opus y OGG el título vive en la pista: solo en la cabecera no cambiaba."""
+        argumentos = argumentos_etiquetas(titulo="Tema", artista="Grupo", album="Disco", pista=3)
+        self.assertIn("-metadata:s:a:0", argumentos)
+        for valor in ("title=Tema", "artist=Grupo", "album=Disco", "track=3"):
+            self.assertEqual(argumentos.count(valor), 2, msg=valor)
+        self.assertNotIn("album=", " ".join(argumentos_etiquetas(titulo="T", artista="A")))
 
 
 class CabeceraTests(unittest.TestCase):

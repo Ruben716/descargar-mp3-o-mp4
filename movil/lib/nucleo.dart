@@ -589,6 +589,7 @@ class Ajustes {
     this.normalizar = false,
     this.etiquetasLimpias = true,
     this.portadaOficial = true,
+    this.porCapitulos = false,
   });
 
   final String url;
@@ -613,6 +614,10 @@ class Ajustes {
   /// Cambia el fotograma del video por la caratula oficial del tema.
   final bool portadaOficial;
 
+  /// Parte un album o un mix entero en una pista por capitulo. Como el
+  /// fragmento, vale para un video concreto y no se recuerda.
+  final bool porCapitulos;
+
   Ajustes copiar({
     String? url,
     bool? soloAudio,
@@ -625,6 +630,7 @@ class Ajustes {
     bool? normalizar,
     bool? etiquetasLimpias,
     bool? portadaOficial,
+    bool? porCapitulos,
   }) =>
       Ajustes(
         url: url ?? this.url,
@@ -638,6 +644,7 @@ class Ajustes {
         normalizar: normalizar ?? this.normalizar,
         etiquetasLimpias: etiquetasLimpias ?? this.etiquetasLimpias,
         portadaOficial: portadaOficial ?? this.portadaOficial,
+        porCapitulos: porCapitulos ?? this.porCapitulos,
       );
 
   Map<String, dynamic> aMapa() => <String, dynamic>{
@@ -657,5 +664,7 @@ class Ajustes {
         'etiquetasLimpias': etiquetasLimpias,
         // Solo tiene sentido en audio: un video no lleva caratula dentro.
         'portadaOficial': soloAudio && portadaOficial,
+        // Con un trozo elegido no hay album que partir: el nucleo lo rechazaria.
+        'porCapitulos': soloAudio && porCapitulos && fragmento.isEmpty,
       };
 }

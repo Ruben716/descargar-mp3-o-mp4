@@ -137,6 +137,7 @@ class MainActivity : AudioServiceActivity() {
                             normalizar = llamada.argument<Boolean>("normalizar") ?: false,
                             etiquetasLimpias = llamada.argument<Boolean>("etiquetasLimpias") ?: true,
                             portadaOficial = llamada.argument<Boolean>("portadaOficial") ?: true,
+                            porCapitulos = llamada.argument<Boolean>("porCapitulos") ?: false,
                             avisar = llamada.argument<Boolean>("avisar") ?: true,
                         )
                         enHilo(respuesta) { puente -> descargar(puente, ajustes) }
@@ -300,6 +301,8 @@ class MainActivity : AudioServiceActivity() {
         val normalizar: Boolean,
         val etiquetasLimpias: Boolean,
         val portadaOficial: Boolean,
+        /** Parte un album o un mix en una pista por capitulo. */
+        val porCapitulos: Boolean,
         /** En un lote solo avisa la ultima, o saldrian cientos de avisos. */
         val avisar: Boolean,
     )
@@ -1001,6 +1004,7 @@ class MainActivity : AudioServiceActivity() {
             cookies,
             nativo,
             ajustes.portadaOficial,
+            ajustes.porCapitulos,
         ).toString()
 
     /** Si el fallo huele a que la web sirvio un muro en vez de la pagina. */

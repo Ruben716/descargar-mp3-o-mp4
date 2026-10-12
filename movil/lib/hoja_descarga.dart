@@ -22,6 +22,7 @@ String resumenDescarga(Ajustes a) {
     if (a.subtitulos.isNotEmpty) partes.add('subtitulos ${a.subtitulos}');
   }
   if (a.fragmento.isNotEmpty) partes.add('solo un trozo');
+  if (a.soloAudio && a.porCapitulos && a.fragmento.isEmpty) partes.add('una pista por capitulo');
   return partes.join(' · ');
 }
 

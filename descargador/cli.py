@@ -102,6 +102,8 @@ def describir_ajustes(opciones: DownloadOptions, destino: Path, audio: bool) -> 
     if audio:
         lineas.append(f"  Formato:      {opciones.audio_format} a {opciones.audio_bitrate} kb/s")
         lineas.append(f"  Volumen:      {'se iguala' if opciones.normalize else 'tal cual'}")
+        capitulos = "una pista por capítulo" if opciones.split_chapters else "todo junto"
+        lineas.append(f"  Capítulos:    {capitulos}")
     else:
         calidad = f"hasta {opciones.quality}p" if opciones.quality else "la mejor disponible"
         subtitulos = ",".join(opciones.subtitles) if opciones.subtitles else "no"
@@ -185,6 +187,14 @@ def _alternar_normalizar(opciones: DownloadOptions, destino: Path):
     return replace(opciones, normalize=not opciones.normalize), destino
 
 
+def _alternar_capitulos(opciones: DownloadOptions, destino: Path):
+    try:
+        return replace(opciones, split_chapters=not opciones.split_chapters), destino
+    except DownloadError as exc:
+        print(f"  {exc}")
+        return opciones, destino
+
+
 def _alternar_etiquetas(opciones: DownloadOptions, destino: Path):
     return replace(opciones, clean_tags=not opciones.clean_tags), destino
 
@@ -198,7 +208,7 @@ def acciones_ajustes(audio: bool) -> list[tuple[str, Ajuste]]:
     comunes: list[tuple[str, Ajuste]]
     if audio:
         comunes = [("Formato", _cambiar_formato_audio), ("Calidad", _cambiar_bitrate),
-                   ("Volumen", _alternar_normalizar)]
+                   ("Volumen", _alternar_normalizar), ("Capítulos", _alternar_capitulos)]
     else:
         comunes = [("Calidad", _cambiar_calidad), ("Subtítulos", _cambiar_subtitulos),
                    ("Patrocinios", _alternar_patrocinios)]
@@ -253,6 +263,7 @@ def construir_opciones(args) -> DownloadOptions:
         skip_sponsors=args.sin_patrocinios,
         normalize=args.normalizar,
         clean_tags=args.etiquetas_limpias,
+        split_chapters=args.capitulos,
         use_archive=args.registro,
     )
 
@@ -277,6 +288,8 @@ def crear_parser() -> argparse.ArgumentParser:
                         help="separa artista y tema del título y le quita las coletillas")
     parser.add_argument("--normalizar", action="store_true",
                         help="iguala el volumen del audio descargado (exige reconvertir)")
+    parser.add_argument("--capitulos", action="store_true",
+                        help="con --audio, parte un álbum o un mix en una pista por capítulo")
     parser.add_argument("--sin-patrocinios", action="store_true",
                         help="Eliminar segmentos patrocinados con SponsorBlock")
     parser.add_argument("--registro", action="store_true",
