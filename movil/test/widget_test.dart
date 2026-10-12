@@ -8,6 +8,8 @@ import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
 import 'package:descargador_movil/radio_mundial.dart';
+import 'package:descargador_movil/traducir_letra.dart';
+import 'package:descargador_movil/panel_letras.dart';
 import 'package:descargador_movil/pantalla_radio.dart';
 import 'package:descargador_movil/mini_reproductor.dart';
 import 'package:descargador_movil/pantalla_lista.dart';
@@ -1292,6 +1294,59 @@ void main() {
       expect(find.text('Disco Entero'), findsOneWidget);
       expect(find.byTooltip('Oir el disco entero'), findsOneWidget);
       expect(tester.getTopLeft(find.text('Uno')).dy, lessThan(tester.getTopLeft(find.text('Dos')).dy));
+    });
+  });
+
+  group('letra traducida con la IA del telefono', () {
+    const String lrc = '[00:01.00] I just called to say I love you\n'
+        '[00:05.00] I just called to say how much I care\n'
+        '[00:09.00]\n'
+        '[00:12.00] I just called to say I love you, and I mean it';
+
+    test('solo se ofrece cuando la letra parece en ingles', () {
+      expect(TraducirLetra.pareceIngles(lrc), isTrue);
+      expect(TraducirLetra.pareceIngles('Yo te quiero a ti, y tu me quieres a mi, que bonito es el amor contigo'), isFalse);
+      expect(TraducirLetra.pareceIngles('oh yeah'), isFalse, reason: 'con tan poco no se sabe');
+    });
+
+    test('vuelve una traduccion por linea, en su orden', () async {
+      Traduccion.motor = (String t) async => t.split('\n').map((String l) => l.isEmpty ? '' : 'ES:$l').join('\n');
+      final Letra letra = Letra(lineas: Letras.analizarLrc(lrc), texto: '');
+      final List<String>? t = await TraducirLetra.traducir(letra);
+      expect(t, hasLength(letra.lineas.length));
+      expect(t!.first, 'ES:I just called to say I love you');
+      expect(t[2], '', reason: 'la linea vacia sigue vacia');
+    });
+
+    test('si el traductor descoloca las lineas, no se usa', () async {
+      Traduccion.motor = (String t) async => 'Te llamo para decirte que te quiero';
+      final Letra letra = Letra(lineas: Letras.analizarLrc(lrc), texto: '');
+      expect(await TraducirLetra.traducir(letra), isNull);
+    });
+
+    testWidgets('el boton pone la traduccion debajo de cada verso', (WidgetTester tester) async {
+      Traduccion.motor = (String t) async => t.split('\n').map((String l) => l.isEmpty ? '' : 'ES:$l').join('\n');
+      const Elemento cancion = Elemento(
+        nombre: 'Stevie Wonder - I Just Called [s1].opus',
+        uri: 'content://audio/stevie',
+        duracion: 200,
+        tamano: 1,
+        audio: true,
+      );
+      await tester.runAsync(() => Catalogo.instancia.guardarLetra(cancion.uri, lrc: lrc, texto: ''));
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: const Scaffold(body: PanelLetras(elemento: cancion)),
+      ));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pumpAndSettle();
+      expect(find.text('Traducir'), findsOneWidget);
+
+      await tester.tap(find.text('Traducir'));
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pumpAndSettle();
+      expect(find.text('ES:I just called to say I love you'), findsOneWidget);
+      expect(find.text('Ver solo original'), findsOneWidget);
     });
   });
 

@@ -52,6 +52,7 @@ class Traduccion {
       targetLanguage: TranslateLanguage.spanish,
     );
     // Por parrafos: el traductor del telefono rinde mejor con trozos cortos.
+    // Y asi una letra vuelve con sus mismas lineas, en su mismo orden.
     final List<String> parrafos = texto.split('\n');
     final List<String> salida = <String>[];
     for (final String parrafo in parrafos) {
