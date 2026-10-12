@@ -17,25 +17,24 @@ jobs:
           JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
         run: |
           python - <<'PY'
-          import json, os
-          from urllib.request import Request, urlopen
-          from urllib.error import HTTPError
-          from urllib.parse import urlencode
-          clave = os.environ["JAMENDO_CLIENT_ID"]
-          def ver(url):
-              try:
-                  r = urlopen(Request(url, headers={"User-Agent": "Mozilla/5.0"}))
-                  print("   ->", r.status, r.geturl()[:110], r.headers.get("Content-Type"), r.headers.get("Content-Length"), r.read(8))
-              except HTTPError as e:
-                  print("   -> HTTP", e.code, url[:110])
-          for extra in ({"audiodlformat": "flac"}, {"audioformat": "flac"}, {"audiodlformat": "flac", "audioformat": "flac"}):
-              d = json.load(urlopen("https://api.jamendo.com/v3.0/tracks/?" + urlencode({
-                  "client_id": clave, "format": "json", "search": "lofi", "limit": 2, **extra})))
-              print(extra, "status", d["headers"].get("status"), d["headers"].get("error_message"), "n", len(d["results"]))
-              for t in d["results"]:
-                  print("  ", t["id"], t["audiodownload_allowed"], "DL:", t["audiodownload"], "AUDIO:", t["audio"][:90])
-                  if t["audiodownload"]: ver(t["audiodownload"])
-                  ver(t["audio"])
-          for fmt in ("flac", "mp32", "ogg"):
-              ver(f"https://prod-1.storage.jamendo.com/download/track/2277995/{fmt}/")
+          from pathlib import Path
+          from descargador.domain import SearchQuery, DownloadOptions, DownloadRequest
+          from descargador.infrastructure import YtDlpDownloader, cabecera_sin_perdida
+          motor = YtDlpDownloader()
+          for texto in ("lofi", "jazz", "rock", "piano"):
+              r = motor.search(SearchQuery(texto, limit=5, source="jamendo"))
+              print(f"JAMENDO '{texto}': {len(r)} resultados")
+          primero = motor.search(SearchQuery("lofi", limit=3, source="jamendo"))[0]
+          print("PISTA:", primero.uploader, "-", primero.title, primero.url)
+          print("CALIDAD COMPROBADA:", motor.quality(DownloadRequest(primero.url, Path("x"))))
+          for fmt in ("flac", "best"):
+              res = motor.download(DownloadRequest(primero.url, Path("salida-" + fmt),
+                                   DownloadOptions(audio_only=True, audio_format=fmt, clean_tags=True)))
+              for f in res.files:
+                  print(fmt.upper(), "BAJADO:", f.name, f.stat().st_size // 1024, "KB", "cabecera:", cabecera_sin_perdida(f), "primeros bytes:", f.read_bytes()[:4])
+              print(fmt.upper(), "ORIGEN:", res.quality)
+          a = motor.search(SearchQuery("jazz", limit=10, source="archive"))
+          print(f"ARCHIVE 'jazz': {len(a)} resultados")
+          for x in a[:6]:
+              print("   ", x.uploader, "-", x.title, "|", x.url)
           PY
