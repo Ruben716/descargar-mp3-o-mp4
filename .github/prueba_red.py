@@ -16,7 +16,7 @@ def sondear(nombre, url, mostrar):
         estado, tipo, cuerpo = pedir(url)
         print("estado", estado, tipo, len(cuerpo), "bytes")
         mostrar(cuerpo)
-    except Exception as exc:  # noqa: BLE001 - es un sondeo
+    except Exception as exc:
         print("FALLO", type(exc).__name__, exc)
 
 
@@ -48,8 +48,9 @@ def hearthis(c):
     datos = json.loads(c)
     print("   tipo", type(datos).__name__, (list(datos)[:20] if isinstance(datos, dict) else ""))
     for t in (datos if isinstance(datos, list) else [])[:5]:
-        print("  ", t.get("title"), "|", (t.get("user") or {}).get("username"), "| dl:", t.get("download_url"),
-              t.get("download_filename"), "| permalink", t.get("permalink_url"), "| dur", t.get("duration"))
+        autor = (t.get("user") or {}).get("username")
+        print("  ", t.get("title"), "|", autor, "| dl:", t.get("download_url"), t.get("download_filename"),
+              "| permalink", t.get("permalink_url"), "| dur", t.get("duration"))
 
 
 sondear("HEARTHIS search", "https://api-v2.hearthis.at/search/?" + urlencode(
@@ -82,5 +83,5 @@ try:
     print("tipo", info.get("_type"), "titulo", info.get("title"), "entradas", len(info.get("entries") or []))
     for e in (info.get("entries") or [])[:3]:
         print("  ", e.get("title"), "|", e.get("url"), "|", e.get("duration"))
-except Exception as exc:  # noqa: BLE001
+except Exception as exc:
     print("FALLO", type(exc).__name__, exc)
