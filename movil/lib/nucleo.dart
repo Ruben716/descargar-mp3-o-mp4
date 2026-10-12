@@ -212,6 +212,11 @@ class Nucleo {
   static Future<void> eliminar(String uri) =>
       _pedir('eliminar', <String, dynamic>{'uri': uri});
 
+  /// Pone la cancion como tono de llamada. La primera vez Android pide
+  /// permiso y esto falla explicando que hacer; despues, ya funciona.
+  static Future<void> ponerTono(String uri) =>
+      _pedir('ponerTono', <String, dynamic>{'uri': uri});
+
   /// Cierto mientras la app va encogida en una ventana flotante.
   static final ValueNotifier<bool> enVentanaFlotante = ValueNotifier<bool>(false);
 

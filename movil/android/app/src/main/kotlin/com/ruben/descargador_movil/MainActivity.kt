@@ -12,11 +12,13 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.media.AudioManager
+import android.media.RingtoneManager
 import android.net.ConnectivityManager
 import android.os.Environment
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Base64
 import android.util.Rational
 import android.util.Size
@@ -249,6 +251,10 @@ class MainActivity : AudioServiceActivity() {
                     "eliminar" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHiloSuelto(respuesta) { eliminar(uri) }
+                    }
+                    "ponerTono" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        respuesta.success(ponerTono(uri))
                     }
                     "caratula" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
@@ -617,6 +623,34 @@ class MainActivity : AudioServiceActivity() {
             CARPETAS_VIDEO, false, salida,
         )
         return JSONObject().put("ok", true).put("elementos", salida).toString()
+    }
+
+    /**
+     * Pone una cancion de la biblioteca como tono de llamada.
+     *
+     * Cambiar el tono es un ajuste del sistema: Android solo lo deja si el
+     * usuario lo permite a mano. La primera vez se abre esa pantalla y se
+     * explica; al volver, el mismo boton ya funciona.
+     */
+    private fun ponerTono(uri: String): String {
+        if (uri.isEmpty()) return fallo("No hay cancion que poner.")
+        if (!Settings.System.canWrite(this)) {
+            return try {
+                startActivity(
+                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:$packageName"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                fallo("Activa «Modificar ajustes del sistema» para Tumbao y vuelve a intentarlo.")
+            } catch (error: Exception) {
+                fallo("No se pudo pedir permiso para cambiar el tono: ${error.message}")
+            }
+        }
+        return try {
+            RingtoneManager.setActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE, Uri.parse(uri))
+            JSONObject().put("ok", true).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo poner como tono: ${error.message}")
+        }
     }
 
     /**

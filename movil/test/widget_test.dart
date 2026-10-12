@@ -3630,6 +3630,36 @@ void main() {
     expect(find.text('Editar etiquetas'), findsNothing);
   });
 
+  testWidgets('una cancion se pone como tono, y si falta permiso se explica',
+      (WidgetTester tester) async {
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Soda Stereo - Persiana Americana [c1].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/1"}]}';
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Poner como tono'));
+    await tester.pumpAndSettle();
+
+    final MethodCall tono = llamadas.lastWhere((MethodCall c) => c.method == 'ponerTono');
+    expect(tono.arguments['uri'], 'content://audio/1');
+    expect(find.textContaining('suena ahora al llamarte'), findsOneWidget);
+  });
+
+  testWidgets('la radio sale del menu de la cancion', (WidgetTester tester) async {
+    biblioteca = '{"ok":true,"elementos":['
+        '{"nombre":"Soda Stereo - Persiana Americana [c1].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/1"},'
+        '{"nombre":"Soda Stereo - Musica Ligera [c2].mp3","tamano":100,"duracion":100,'
+        '"audio":true,"uri":"content://audio/2"}]}';
+    await abrirBiblioteca(tester);
+
+    await tester.tap(find.byIcon(Icons.more_vert_rounded).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Radio de esta cancion'), findsOneWidget);
+  });
+
   // --- El detalle del motor -----------------------------------------------
 
   testWidgets('sin detalle no se ofrece nada', (WidgetTester tester) async {
