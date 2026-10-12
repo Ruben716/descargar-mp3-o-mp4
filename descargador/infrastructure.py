@@ -1,5 +1,6 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import functools
+import hashlib
 import json
 import os
 import re
@@ -490,6 +491,10 @@ def _extraer_episodio(engine, programa: str, episodio: str, **opciones):
     entrada = next((e for e in lista.get("entries") or [] if e and e.get("url") == episodio), None)
     if entrada is None:
         raise DownloadError("Ese episodio ya no está en el programa.")
+    # El motor le pone de identificador la dirección entera, y el archivo se
+    # llamaba «Tema [https：⧸⧸www.ivoox.com⧸16758032].mp3». Uno corto, fijo
+    # para cada episodio, sirve igual para no bajarlo dos veces.
+    entrada = {**entrada, "id": "ep-" + hashlib.sha1(episodio.encode()).hexdigest()[:10]}
     if not opciones.get("process", True):
         return entrada
     return engine.process_ie_result(entrada, download=opciones.get("download", True))

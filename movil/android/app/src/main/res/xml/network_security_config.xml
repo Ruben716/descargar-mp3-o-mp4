@@ -4,9 +4,13 @@
   un proxy local en 127.0.0.1 y le sirve el audio desde ahi. Ese salto es HTTP
   plano, y Android lo bloquea por defecto, asi que no sonaba nada.
 
-  Se permite solo el bucle local. El trafico a internet sigue exigiendo HTTPS.
+  Ademas, la radio en directo: la mayoria de emisoras solo emiten por HTTP
+  plano (las de Peru, FluxFM...). Lo unico que pasa por aqui es lo que
+  reproduce la app; las descargas y busquedas van por Python, al que esta
+  configuracion no afecta.
 -->
 <network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>

@@ -13,6 +13,7 @@ import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
 import 'posiciones.dart';
+import 'radio_mundial.dart';
 import 'volumen_parejo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
@@ -21,11 +22,15 @@ class Pista {
     required this.titulo,
     required this.fuente,
     this.elemento,
+    this.enVivo,
   });
 
   final String titulo;
   final String fuente;
   final Elemento? elemento;
+
+  /// La emisora, si lo que suena es una radio en directo.
+  final EstacionRadio? enVivo;
 }
 
 /// Reproduccion de audio compartida por toda la app.
@@ -963,6 +968,47 @@ class EstadoReproductor extends ChangeNotifier {
     ));
   }
 
+  /// Pone a sonar una radio en directo.
+  ///
+  /// Va sin cola: una emisora no tiene siguiente ni anterior, y lo que sonaba
+  /// de la biblioteca se deja como estaba guardado para retomarlo luego.
+  Future<void> reproducirEmisora(EstacionRadio emisora) async {
+    if (_actual?.enVivo?.url == emisora.url) {
+      await alternar();
+      return;
+    }
+    final int ordenes = ++_ordenes;
+    _quitarTramo();
+    _cargasEnCurso++;
+    _cola = <Elemento>[];
+    _actual = Pista(titulo: emisora.nombre, fuente: emisora.url, enVivo: emisora);
+    _error = null;
+    notifyListeners();
+    try {
+      try {
+        final Uri? logo = Uri.tryParse(emisora.logo);
+        await _cargarEnMotor(
+          () => motor.setAudioSource(AudioSource.uri(
+            Uri.parse(emisora.url),
+            tag: MediaItem(
+              id: emisora.url,
+              title: emisora.nombre,
+              artist: 'Radio en vivo · ${emisora.sello}',
+              album: 'Tumbao',
+              artUri: logo != null && logo.isScheme('https') ? logo : null,
+            ),
+          )),
+          ordenes,
+        );
+      } finally {
+        _cargasEnCurso--;
+      }
+      await motor.play();
+    } catch (error) {
+      _fallo(error, ordenes);
+    }
+  }
+
   Future<void> _poner(Pista pista) async {
     final int ordenes = ++_ordenes;
     _quitarTramo();
@@ -1040,7 +1086,8 @@ class EstadoReproductor extends ChangeNotifier {
     _ordenes++;
     _cola = <Elemento>[];
     cancelarSuenio();
-    unawaited(_olvidarSesion());
+    // Apagar la radio no borra lo que se estaba oyendo de la biblioteca.
+    if (_actual?.enVivo == null) unawaited(_olvidarSesion());
     try {
       await motor.stop();
     } catch (_) {

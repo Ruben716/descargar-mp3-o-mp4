@@ -9,6 +9,7 @@ import 'listas.dart';
 import 'nucleo.dart';
 import 'pantalla_ajustes.dart';
 import 'pantalla_lista.dart';
+import 'pantalla_radio.dart';
 import 'portadas.dart';
 import 'reproductor.dart';
 import 'tema.dart';
@@ -133,10 +134,12 @@ class PantallaInicioState extends State<PantallaInicio> {
         padding: const EdgeInsets.only(bottom: 24),
         children: <Widget>[
           _cabecera(context, canciones, listas.length),
-          if (_elementos.isEmpty)
-            _primerosPasos(context)
-          else ...<Widget>[
+          if (_elementos.isEmpty) ...<Widget>[
+            _primerosPasos(context),
+            _radioEnVivo(context),
+          ] else ...<Widget>[
             if (_continuar != null) _continuarEscuchando(context, _continuar!),
+            _radioEnVivo(context),
             if (_masOidas.length >= 3) _carruselMasOidas(context),
             _carruselPistas(context),
             if (listas.isNotEmpty) _carruselListas(context, listas),
@@ -289,6 +292,46 @@ class PantallaInicioState extends State<PantallaInicio> {
                     ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Entrada a la radio en directo: miles de emisoras, algunas sin perdida.
+  Widget _radioEnVivo(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 26),
+      child: Material(
+        color: Tema.superficie,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const PantallaRadio()),
+          ),
+          child: const Padding(
+            padding: EdgeInsets.all(14),
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.radio_rounded, color: Tema.acento, size: 30),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text('Radio en vivo', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+                      SizedBox(height: 3),
+                      Text(
+                        'Emisoras de todo el mundo, las de Peru y algunas en FLAC',
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: Colors.white24),
               ],
             ),
           ),

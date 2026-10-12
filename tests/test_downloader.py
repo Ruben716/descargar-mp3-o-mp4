@@ -1692,7 +1692,10 @@ class HearthisPodcastsTests(unittest.TestCase):
         motor.extract_info.return_value = {"entries": [entrada]}
         crudo = _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False,
                          process=False)
-        self.assertIs(crudo, entrada)
+        self.assertEqual(crudo["title"], "Wolfgang Amadeus Mozart")
+        # Un identificador corto y fijo, no la dirección entera en el nombre.
+        self.assertRegex(crudo["id"], r"^ep-[0-9a-f]{10}$")
+        self.assertEqual(crudo["id"], info["id"])
 
     def test_un_episodio_retirado_se_dice(self):
         motor = Mock()

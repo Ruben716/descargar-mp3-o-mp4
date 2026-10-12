@@ -16,7 +16,7 @@ def bajar(url: str, carpeta: str) -> None:
         print("   BAJADO:", f.name, f.stat().st_size // 1024, "KB, empieza por", f.read_bytes()[:4])
 
 
-print("===== PODCASTS")
+print("===== PODCASTS (con id corto)")
 programas = motor.search(SearchQuery("historia", limit=5, source="podcasts"))
 for p in programas:
     print("  ", p.uploader, "-", p.title, "|", p.url)
