@@ -17,24 +17,18 @@ jobs:
           JAMENDO_CLIENT_ID: ${{ secrets.JAMENDO_CLIENT_ID }}
         run: |
           python - <<'PY'
-          from pathlib import Path
-          from descargador.domain import SearchQuery, DownloadOptions, DownloadRequest
-          from descargador.infrastructure import YtDlpDownloader, cabecera_sin_perdida
-          motor = YtDlpDownloader()
-          for texto in ("lofi", "jazz", "rock"):
-              r = motor.search(SearchQuery(texto, limit=5, source="jamendo"))
-              print(f"JAMENDO '{texto}': {len(r)} resultados")
-              for x in r[:3]:
-                  print("   ", x.uploader, "-", x.title, "|", x.url, "|", x.quality)
-          primero = motor.search(SearchQuery("lofi", limit=3, source="jamendo"))[0]
-          print("CALIDAD COMPROBADA:", motor.quality(DownloadRequest(primero.url, Path("x"))))
-          res = motor.download(DownloadRequest(primero.url, Path("salida"),
-                               DownloadOptions(audio_only=True, audio_format="flac")))
-          for f in res.files:
-              print("BAJADO:", f.name, f.stat().st_size // 1024, "KB", "cabecera:", cabecera_sin_perdida(f))
-          print("ORIGEN:", res.quality)
-          a = motor.search(SearchQuery("jazz", limit=5, source="archive"))
-          print(f"ARCHIVE 'jazz': {len(a)} resultados")
-          for x in a[:5]:
-              print("   ", x.uploader, "-", x.title, "|", x.url)
+          import json, os
+          from urllib.request import Request, urlopen
+          from urllib.parse import urlencode
+          clave = os.environ["JAMENDO_CLIENT_ID"]
+          for fmt in ("flac", "mp32"):
+              d = json.load(urlopen(f"https://api.jamendo.com/v3.0/tracks/?" + urlencode({
+                  "client_id": clave, "format": "json", "search": "lofi", "limit": 3,
+                  "audiodlformat": fmt, "audioformat": "mp32"})))
+              for t in d["results"]:
+                  print(fmt, t["id"], t["audiodownload_allowed"], "DL:", t["audiodownload"], "AUDIO:", t["audio"])
+                  if t["audiodownload"]:
+                      r = urlopen(Request(t["audiodownload"], headers={"User-Agent": "Mozilla/5.0"}))
+                      cab = r.read(16)
+                      print("   ->", r.status, r.geturl()[:120], r.headers.get("Content-Type"), r.headers.get("Content-Length"), cab[:8])
           PY
