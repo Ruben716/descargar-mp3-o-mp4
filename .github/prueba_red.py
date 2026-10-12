@@ -23,7 +23,7 @@ for p in programas:
 lista = motor.playlist(programas[0].url)
 print("episodios de", lista.title, ":", len(lista.items))
 corto = min(lista.items, key=lambda e: e.duration or 10**9)
-print("el mas corto:", corto.title, corto.duration, "s |", corto.url[:120])
+print("el mas corto:", corto.title, corto.duration, "s |", corto.url[:160])
 bajar(corto.url, "podcast")
 
 print("\n===== HEARTHIS")

@@ -9,7 +9,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .domain import (
@@ -121,6 +121,26 @@ BUSCADOR_HEARTHIS = "https://api-v2.hearthis.at/search/"
 
 #: El directorio de podcasts de Apple. Sin clave: da el RSS de cada programa.
 BUSCADOR_PODCASTS = "https://itunes.apple.com/search"
+
+#: Marca con la que un episodio recuerda de qué programa (RSS) salió.
+#:
+#: Bajado suelto, un episodio pierde su título: el motor solo ve un MP3 y lo
+#: llama por el nombre del archivo («micro1elizabeth...-ivoox16758032»). Bajado
+#: desde su programa, el título del RSS viaja con él.
+MARCA_EPISODIO = "#tumbao-episodio="
+
+
+def enlace_de_episodio(programa: str, episodio: str) -> str:
+    """La dirección con la que se baja un episodio sin perder su título."""
+    return f"{programa}{MARCA_EPISODIO}{quote(episodio, safe='')}"
+
+
+def partir_episodio(url: str) -> tuple[str, str] | None:
+    """El programa y el episodio de una dirección de [enlace_de_episodio]."""
+    if MARCA_EPISODIO not in url:
+        return None
+    programa, _, episodio = url.partition(MARCA_EPISODIO)
+    return programa, unquote(episodio)
 
 #: Las direcciones de una pista de Jamendo: «jamendo.com/track/123».
 ES_JAMENDO = re.compile(r"https?://(?:www\.)?jamendo\.com/track/(\d+)")
@@ -464,6 +484,17 @@ def trozos(total: int, tamano: int = TROZO_PARALELO) -> list[dict]:
             for inicio in range(0, total, tamano)]
 
 
+def _extraer_episodio(engine, programa: str, episodio: str, **opciones):
+    """Un episodio sacado de su programa, con el título y la fecha del RSS."""
+    lista = engine.extract_info(programa, download=False, process=False) or {}
+    entrada = next((e for e in lista.get("entries") or [] if e and e.get("url") == episodio), None)
+    if entrada is None:
+        raise DownloadError("Ese episodio ya no está en el programa.")
+    if not opciones.get("process", True):
+        return entrada
+    return engine.process_ie_result(entrada, download=opciones.get("download", True))
+
+
 @functools.cache
 def _extractor_jamendo():
     """El extractor de Jamendo del motor, pero bajando de la descarga oficial.
@@ -489,6 +520,8 @@ def _extractor_jamendo():
 
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
+    if (partes := partir_episodio(url)) is not None:
+        return _extraer_episodio(engine, *partes, **opciones)
     for patron, fabrica in ((ES_AUDIUS, _extractor_audius), (ES_JAMENDO, _extractor_jamendo)):
         if patron.match(url):
             clase = fabrica()
@@ -959,9 +992,17 @@ class YtDlpDownloader:
             entradas = (info or {}).get("entries")
             if entradas is None:
                 raise DownloadError("Ese enlace no es una lista de reproducción.")
+            # Lo que el motor solo entiende como una lista suelta de archivos
+            # (el RSS de un podcast) se baja desde la lista, para no perder
+            # el título de cada episodio.
+            desde_lista = (info or {}).get("extractor_key") == "Generic"
             return Playlist(
                 title=(info or {}).get("title") or "Lista importada",
-                items=tuple(self._resultado(e) for e in entradas if e),
+                items=tuple(
+                    replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
+                    if desde_lista and e.get("url") else self._resultado(e)
+                    for e in entradas if e
+                ),
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo leer la lista: {exc}") from exc

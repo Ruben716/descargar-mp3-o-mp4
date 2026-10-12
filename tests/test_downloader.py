@@ -63,6 +63,7 @@ from descargador.infrastructure import (
     calidad_jamendo,
     clave_jamendo,
     codec_legible,
+    enlace_de_episodio,
     escribir_etiquetas,
     formatos_jamendo,
     incrusta_caratula,
@@ -72,6 +73,7 @@ from descargador.infrastructure import (
     nombre_con_etiquetas,
     original_sin_perdida,
     partes_del_nombre,
+    partir_episodio,
     trozos,
 )
 
@@ -1664,6 +1666,48 @@ class HearthisPodcastsTests(unittest.TestCase):
         self.assertEqual(r[0].thumbnail, "https://img/600.jpg")
         self.assertIn("media=podcast", red.call_args.args[0].full_url)
         self.assertIn("podcasts", FUENTES_DE_LISTAS)
+
+    PROGRAMA = "https://feeds.ivoox.com/feed_fg_f1140169_filtro_1.xml"
+    EPISODIO = "https://www.ivoox.com/mozart_mf_175346932_feed_1.mp3#__youtubedl_smuggle=%7B%22a%22%7D"
+
+    def test_el_episodio_recuerda_su_programa(self):
+        enlace = enlace_de_episodio(self.PROGRAMA, self.EPISODIO)
+        self.assertTrue(enlace.startswith(self.PROGRAMA))
+        self.assertEqual(partir_episodio(enlace), (self.PROGRAMA, self.EPISODIO))
+        self.assertIsNone(partir_episodio("https://www.youtube.com/watch?v=x"))
+        # Sigue siendo una dirección que el dominio acepta.
+        self.assertEqual(DownloadRequest(enlace, Path(".")).url, enlace)
+
+    def test_se_baja_desde_el_programa_y_conserva_el_titulo(self):
+        """Suelto, el motor lo llamaba «micro1elizabeth...-ivoox16758032»."""
+        entrada = {"_type": "url_transparent", "url": self.EPISODIO, "title": "Wolfgang Amadeus Mozart"}
+        motor = Mock()
+        motor.extract_info.return_value = {"_type": "playlist", "entries": iter([
+            {"_type": "url_transparent", "url": "https://otro/episodio.mp3", "title": "Otro"}, entrada])}
+        motor.process_ie_result.side_effect = lambda e, download: {**e, "_type": "video"}
+        info = _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False)
+        self.assertEqual(motor.extract_info.call_args.args[0], self.PROGRAMA)
+        self.assertEqual(info["title"], "Wolfgang Amadeus Mozart")
+        # Sin procesar se devuelve la entrada, que procesa luego la descarga.
+        motor.extract_info.return_value = {"entries": [entrada]}
+        crudo = _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False,
+                         process=False)
+        self.assertIs(crudo, entrada)
+
+    def test_un_episodio_retirado_se_dice(self):
+        motor = Mock()
+        motor.extract_info.return_value = {"entries": []}
+        with self.assertRaises(DownloadError):
+            _extraer(motor, enlace_de_episodio(self.PROGRAMA, self.EPISODIO), download=False)
+
+    def test_la_lista_de_un_rss_da_enlaces_que_conservan_el_titulo(self):
+        info = {"_type": "playlist", "title": "Historia", "extractor_key": "Generic", "entries": [
+            {"_type": "url_transparent", "url": self.EPISODIO, "title": "Mozart", "duration": 2166}]}
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.return_value = info
+            lista = YtDlpDownloader().playlist(self.PROGRAMA)
+        self.assertEqual(lista.items[0].title, "Mozart")
+        self.assertEqual(partir_episodio(lista.items[0].url), (self.PROGRAMA, self.EPISODIO))
 
     def test_las_dos_fuentes_se_aceptan(self):
         for fuente in ("hearthis", "podcasts"):

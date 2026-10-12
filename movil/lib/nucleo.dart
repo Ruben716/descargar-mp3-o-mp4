@@ -580,7 +580,9 @@ enum Fuente {
   audius('audius', 'Audius', 'Artistas que suben a 320 y a veces el original sin perdida'),
   bandcamp('bandcamp', 'Bandcamp', 'Independientes; algunos regalan el FLAC'),
   archive('archive', 'Archive', 'Conciertos, netlabels y discos de 78, sin perdida'),
-  jamendo('jamendo', 'Jamendo', 'Musica libre en FLAC, si el artista la deja bajar');
+  jamendo('jamendo', 'Jamendo', 'Musica libre en FLAC, si el artista la deja bajar'),
+  hearthis('hearthis', 'hearthis', 'Sesiones de DJ y mezclas, a veces con el original'),
+  podcasts('podcasts', 'Podcasts', 'Programas enteros: toca uno y elige episodios');
 
   const Fuente(this.clave, this.etiqueta, this.pista);
 
@@ -592,9 +594,10 @@ enum Fuente {
 
   /// Si sus resultados son grabaciones completas y no canciones sueltas.
   ///
-  /// El Archive guarda conciertos enteros: cada resultado es una lista de
-  /// pistas, asi que se abre como tal en vez de bajarse de una pieza.
-  bool get daListas => this == Fuente.archive;
+  /// El Archive guarda conciertos enteros y un podcast es un programa con sus
+  /// episodios: cada resultado es una lista, asi que se abre como tal en vez
+  /// de bajarse de una pieza. Espeja FUENTES_DE_LISTAS del nucleo.
+  bool get daListas => this == Fuente.archive || this == Fuente.podcasts;
 
   /// Las que existen de verdad en el nucleo, en el orden en que se ensenian.
   static const List<Fuente> reales = <Fuente>[
@@ -604,7 +607,13 @@ enum Fuente {
     Fuente.bandcamp,
     Fuente.archive,
     Fuente.jamendo,
+    Fuente.hearthis,
+    Fuente.podcasts,
   ];
+
+  /// Donde se busca con «Todas»: las de musica. Un podcast se busca a
+  /// proposito; mezclado con canciones solo estorbaria.
+  static List<Fuente> get deMusica => reales.where((Fuente f) => f != Fuente.podcasts).toList();
 }
 
 /// Formatos de audio en los que no se puede igualar el volumen.

@@ -3776,7 +3776,8 @@ void main() {
         .where((MethodCall c) => c.method == 'buscar')
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
-    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo'});
+    // Los podcasts no: se buscan a proposito, no mezclados con canciones.
+    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo', 'hearthis'});
   });
 
   /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
@@ -3923,13 +3924,16 @@ void main() {
     expect(find.text('Cancion uno'), findsNothing);
   });
 
-  test('solo el Archive devuelve grabaciones enteras', () {
+  test('solo el Archive y los podcasts devuelven grabaciones enteras', () {
     // Sus resultados son conciertos: se abren como lista, no se bajan de una
     // pieza. Espeja FUENTES_DE_LISTAS del nucleo.
     expect(Fuente.archive.daListas, isTrue);
     expect(Fuente.youtube.daListas, isFalse);
     expect(Fuente.soundcloud.daListas, isFalse);
     expect(Fuente.jamendo.daListas, isFalse);
+    // Un podcast es el programa: sus episodios se eligen al abrirlo.
+    expect(Fuente.podcasts.daListas, isTrue);
+    expect(Fuente.hearthis.daListas, isFalse);
   });
 
   test('Jamendo se busca con las demas y entra en la mejor calidad', () {
