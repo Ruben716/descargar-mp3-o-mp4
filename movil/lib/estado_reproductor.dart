@@ -12,6 +12,7 @@ import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
+import 'posiciones.dart';
 import 'volumen_parejo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
@@ -50,6 +51,7 @@ class EstadoReproductor extends ChangeNotifier {
       if (actual.uri != _anotada) _anotada = null;
       _actual = Pista(titulo: actual.nombre, fuente: actual.uri, elemento: actual);
       unawaited(_guardarSesion());
+      unawaited(_retomarSiEsLarga(actual));
       notifyListeners();
     });
     // Un fallo mientras suena no llega por el await de setUrl: viaja por este
@@ -152,6 +154,49 @@ class EstadoReproductor extends ChangeNotifier {
     if (ahora.difference(_ultimoGuardado) < const Duration(seconds: 5)) return;
     _ultimoGuardado = ahora;
     unawaited(_guardarSesion());
+    _guardarSiEsLarga();
+  }
+
+  // --- Audios largos: cada uno recuerda por donde iba ------------------------
+
+  /// Desde cuanto un audio es largo: un mix, un concierto, un podcast.
+  ///
+  /// Una cancion se vuelve a oir desde el principio, que es lo que se espera;
+  /// una sesion de una hora que se corto a los cuarenta minutos, no.
+  static const Duration largo = Duration(minutes: 20);
+
+  @visibleForTesting
+  static bool esLarga(Elemento e) => e.duracion >= largo.inSeconds;
+
+  /// La ultima vez que se retomo, para decirlo en pantalla una sola vez.
+  Duration? _retomada;
+
+  /// Devuelve donde se retomo lo que suena, una sola vez, como [consumirError].
+  Duration? consumirRetomada() {
+    final Duration? donde = _retomada;
+    _retomada = null;
+    return donde;
+  }
+
+  void _guardarSiEsLarga() {
+    final Elemento? e = _actual?.elemento;
+    final Duration? total = motor.duration;
+    if (e == null || total == null || !esLarga(e)) return;
+    unawaited(Posiciones.audio.guardar(e.uri, motor.position, total));
+  }
+
+  /// Si [e] es largo y se dejo a medias, salta a donde se dejo.
+  ///
+  /// Solo si la pista esta empezando: si ya va por otro sitio (porque se
+  /// retomo la sesion entera, o el usuario la movio) no se le quita.
+  Future<void> _retomarSiEsLarga(Elemento e) async {
+    if (!esLarga(e)) return;
+    final Duration? donde = await Posiciones.audio.de(e.uri);
+    if (donde == null || !esActual(e.uri)) return;
+    if (motor.position > const Duration(seconds: 5)) return;
+    await motor.seek(donde);
+    _retomada = donde;
+    notifyListeners();
   }
 
   /// Vuelve a dejar la cola como estaba, parada y en el mismo punto.
@@ -407,6 +452,8 @@ class EstadoReproductor extends ChangeNotifier {
       } finally {
         _cargasEnCurso--;
       }
+      // El aviso de la primera pista se lo salto el oyente mientras cargaba.
+      await _retomarSiEsLarga(elementos[desde]);
       await motor.play();
       unawaited(_guardarSesion());
     } catch (error) {
@@ -889,6 +936,7 @@ class EstadoReproductor extends ChangeNotifier {
       } finally {
         _cargasEnCurso--;
       }
+      if (pista.elemento case final Elemento e) await _retomarSiEsLarga(e);
       await motor.play();
     } catch (error) {
       _fallo(error, ordenes);
@@ -899,6 +947,7 @@ class EstadoReproductor extends ChangeNotifier {
     if (motor.playing) {
       await motor.pause();
       unawaited(_guardarSesion());
+      _guardarSiEsLarga();
     } else {
       await motor.play();
     }

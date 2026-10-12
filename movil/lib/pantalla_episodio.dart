@@ -7,6 +7,7 @@ import 'control_descarga.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'portadas.dart';
+import 'posiciones.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -56,7 +57,7 @@ class _PantallaEpisodioState extends State<PantallaEpisodio> {
         await motor.dispose();
         return;
       }
-      final Duration? antes = await PosicionesVideo.de(widget.episodio.url);
+      final Duration? antes = await Posiciones.video.de(widget.episodio.url);
       if (antes != null && antes < motor.value.duration) await motor.seekTo(antes);
       motor.addListener(_alAvanzar);
       setState(() => _motor = motor);
@@ -98,7 +99,7 @@ class _PantallaEpisodioState extends State<PantallaEpisodio> {
   void dispose() {
     final VideoPlayerController? motor = _motor;
     if (motor != null) {
-      unawaited(PosicionesVideo.guardar(widget.episodio.url, motor.value.position, motor.value.duration));
+      unawaited(Posiciones.video.guardar(widget.episodio.url, motor.value.position, motor.value.duration));
       motor.removeListener(_alAvanzar);
       unawaited(motor.dispose());
     }

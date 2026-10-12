@@ -21,6 +21,7 @@ import 'panel_letras.dart';
 import 'portadas.dart';
 import 'hoja_fundido.dart';
 import 'hoja_mejor_calidad.dart';
+import 'posiciones.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -533,7 +534,7 @@ class _VideoState extends State<_Video> {
     _motor.initialize().then((_) async {
       if (!mounted) return;
       // Si se dejo a medias, se retoma ahi y se ofrece empezar de cero.
-      final Duration? antes = await PosicionesVideo.de(widget.elemento.uri);
+      final Duration? antes = await Posiciones.video.de(widget.elemento.uri);
       if (antes != null && antes < _motor.value.duration) await _motor.seekTo(antes);
       if (!mounted) return;
       setState(() => _listo = true);
@@ -561,7 +562,7 @@ class _VideoState extends State<_Video> {
   void dispose() {
     // Donde se quedo, para la proxima vez.
     if (_listo) {
-      unawaited(PosicionesVideo.guardar(
+      unawaited(Posiciones.video.guardar(
         widget.elemento.uri,
         _motor.value.position,
         _motor.value.duration,

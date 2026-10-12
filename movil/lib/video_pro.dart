@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
 import 'animaciones.dart';
@@ -531,48 +529,4 @@ class _PantallaCompletaState extends State<_PantallaCompleta> {
           pantallaCompleta: true,
         ),
       );
-}
-
-/// Donde se dejo cada video, para retomarlo.
-///
-/// Solo se guarda si se vio algo (mas de 10 segundos) y no se termino (le
-/// quedaban mas de 15): un video acabado vuelve a empezar desde el principio.
-class PosicionesVideo {
-  PosicionesVideo._();
-
-  static const String _clave = 'posiciones_video_v1';
-  static const int _maximo = 60;
-
-  static Future<Duration?> de(String uri) async {
-    try {
-      final SharedPreferences memoria = await SharedPreferences.getInstance();
-      final Map<String, dynamic> todas =
-          jsonDecode(memoria.getString(_clave) ?? '{}') as Map<String, dynamic>;
-      final int? ms = (todas[uri] as num?)?.toInt();
-      return ms == null ? null : Duration(milliseconds: ms);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static Future<void> guardar(String uri, Duration posicion, Duration total) async {
-    try {
-      final SharedPreferences memoria = await SharedPreferences.getInstance();
-      final Map<String, dynamic> todas =
-          jsonDecode(memoria.getString(_clave) ?? '{}') as Map<String, dynamic>;
-      todas.remove(uri);
-      if (merece(posicion, total)) todas[uri] = posicion.inMilliseconds;
-      // Las mas antiguas se olvidan: no hace falta recordar cien videos.
-      while (todas.length > _maximo) {
-        todas.remove(todas.keys.first);
-      }
-      await memoria.setString(_clave, jsonEncode(todas));
-    } catch (_) {
-      // Sin poder guardar, la proxima vez empieza desde el principio.
-    }
-  }
-
-  @visibleForTesting
-  static bool merece(Duration posicion, Duration total) =>
-      posicion.inSeconds > 10 && (total - posicion).inSeconds > 15;
 }

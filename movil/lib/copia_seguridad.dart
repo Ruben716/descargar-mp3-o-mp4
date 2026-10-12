@@ -74,6 +74,7 @@ class CopiaSeguridad {
     'saltar_silencios',
     'suscripciones_v1',
     'posiciones_video_v1',
+    'posiciones_audio_v1',
   ];
 
   /// Arma la copia como texto.

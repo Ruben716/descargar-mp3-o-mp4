@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
 import 'package:descargador_movil/mejor_calidad.dart';
@@ -1239,6 +1240,40 @@ void main() {
     expect(mp3['normalizar'], isTrue);
   });
 
+  group('audios largos', () {
+    Elemento de(double segundos) => Elemento(
+          nombre: 'Mix [x].opus',
+          uri: 'content://audio/mix',
+          duracion: segundos,
+          tamano: 10,
+          audio: true,
+        );
+
+    test('solo un mix, un concierto o un podcast es largo', () {
+      expect(EstadoReproductor.esLarga(de(3 * 60)), isFalse);
+      expect(EstadoReproductor.esLarga(de(20 * 60)), isTrue);
+      expect(EstadoReproductor.esLarga(de(90 * 60)), isTrue);
+    });
+
+    test('recuerdan por donde iban sin pisar a los videos', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      const Duration total = Duration(hours: 1);
+      await Posiciones.audio.guardar('content://audio/mix', const Duration(minutes: 40), total);
+      expect(await Posiciones.audio.de('content://audio/mix'), const Duration(minutes: 40));
+      expect(await Posiciones.video.de('content://audio/mix'), isNull);
+
+      // Acabado no se recuerda: la proxima vez empieza desde el principio.
+      await Posiciones.audio.guardar('content://audio/mix', total - const Duration(seconds: 5), total);
+      expect(await Posiciones.audio.de('content://audio/mix'), isNull);
+    });
+
+    test('la copia de seguridad se lleva tambien donde iban', () {
+      for (final String clave in Posiciones.claves) {
+        expect(CopiaSeguridad.preferencias, contains(clave));
+      }
+    });
+  });
+
   test('partir por capitulos solo viaja en audio y sin trozo elegido', () {
     const Ajustes album = Ajustes(url: 'https://y/1', soloAudio: true, porCapitulos: true);
     expect(album.aMapa()['porCapitulos'], isTrue);
@@ -1871,6 +1906,34 @@ void main() {
     }, (Object _, StackTrace _) {});
 
     expect(estado.error, isNull, reason: 'la abandono el usuario, no fallo');
+  });
+
+  test('un mix largo sigue sonando donde se dejo, y se dice', () async {
+    final Elemento mix = Elemento(
+      nombre: 'Mix entero [m1].opus',
+      uri: 'content://audio/mix',
+      duracion: 3600,
+      tamano: 100,
+      audio: true,
+    );
+    biblioteca = '{"ok":true,"elementos":[{"nombre":"Mix entero [m1].opus","tamano":100,'
+        '"duracion":3600,"audio":true,"uri":"content://audio/mix"}]}';
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'posiciones_audio_v1': '{"content://audio/mix":${const Duration(minutes: 40).inMilliseconds}}',
+    });
+    final EstadoReproductor estado = EstadoReproductor.instancia;
+
+    await runZonedGuarded(() async {
+      unawaited(estado.reproducirLista(<Elemento>[mix], 0));
+      for (int i = 0; i < 20 && motorFalso.saltos.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      await estado.cerrar();
+    }, (Object _, StackTrace _) {});
+
+    expect(motorFalso.saltos, contains(const Duration(minutes: 40)));
+    expect(estado.consumirRetomada(), const Duration(minutes: 40));
+    expect(estado.consumirRetomada(), isNull, reason: 'se avisa una sola vez');
   });
 
   group('el ecualizador de Android que a veces no esta', () {
