@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
 import 'dialogo_etiquetas.dart';
+import 'emisora.dart';
 import 'estado_reproductor.dart';
 import 'dialogos.dart';
 import 'favoritas.dart';
@@ -305,6 +306,12 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
             : Icons.favorite_border_rounded,
         texto: Favoritas.instancia.contiene(elemento.uri) ? 'Quitar de Me gusta' : 'Me gusta',
         alElegir: () => Favoritas.instancia.alternar(elemento.uri),
+      ),
+    if (elemento.audio)
+      AccionPista(
+        icono: Icons.radio_rounded,
+        texto: 'Radio de esta cancion',
+        alElegir: () => Emisora.poner(elemento, _elementos),
       ),
     AccionPista(
       icono: Icons.playlist_add_rounded,

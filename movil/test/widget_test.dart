@@ -6,6 +6,7 @@ import 'dart:math';
 import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
+import 'package:descargador_movil/emisora.dart';
 import 'package:descargador_movil/pantalla_lista.dart';
 import 'package:descargador_movil/videoclip.dart';
 import 'package:descargador_movil/suscripciones.dart';
@@ -1242,6 +1243,51 @@ void main() {
       formatoAudio: 'mp3',
     ).aMapa();
     expect(mp3['normalizar'], isTrue);
+  });
+
+  group('radio de una cancion', () {
+    Elemento cancion(String nombre, {bool audio = true}) => Elemento(
+          nombre: '$nombre [${nombre.hashCode}].opus',
+          uri: 'content://audio/${nombre.hashCode}',
+          duracion: 200,
+          tamano: 1,
+          audio: audio,
+        );
+    final Elemento semilla = cancion('Bad Bunny - Titi Me Pregunto');
+    final List<Elemento> biblioteca = <Elemento>[
+      semilla,
+      for (int i = 0; i < 40; i++) cancion('Otro $i - Tema $i'),
+      cancion('Bad Bunny - Monaco'),
+      cancion('bad bunny - Un Preview'),
+      cancion('Bad Bunny - El videoclip', audio: false),
+    ];
+
+    test('empieza por la elegida y no pasa del largo', () {
+      final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca, azar: Random(1));
+      expect(radio.first, semilla);
+      expect(radio.length, Emisora.largo);
+      expect(radio.where((Elemento e) => e.uri == semilla.uri).length, 1);
+      expect(radio.any((Elemento e) => !e.audio), isFalse, reason: 'una radio es solo audio');
+    });
+
+    test('lo del mismo artista va delante, se escriba como se escriba', () {
+      for (int vuelta = 0; vuelta < 20; vuelta++) {
+        final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca, azar: Random(vuelta));
+        expect(radio.skip(1).take(2).map((Elemento e) => e.partes.artista.toLowerCase()),
+            everyElement('bad bunny'));
+      }
+    });
+
+    test('lo que gusta y lo que mas suena sube, y el azar cambia el orden', () {
+      final Elemento querida = biblioteca[10];
+      final Elemento oida = biblioteca[20];
+      final List<Elemento> radio = Emisora.mezcla(semilla, biblioteca,
+          favoritas: <String>{querida.uri}, escuchas: <String, int>{oida.uri: 50}, azar: Random(3));
+      expect(radio.indexOf(querida), lessThan(12));
+      expect(radio.indexOf(oida), lessThan(12));
+      final List<Elemento> otra = Emisora.mezcla(semilla, biblioteca, azar: Random(4));
+      expect(otra.skip(3).map((Elemento e) => e.uri), isNot(orderedEquals(radio.skip(3).map((Elemento e) => e.uri))));
+    });
   });
 
   group('repetir un tramo', () {
