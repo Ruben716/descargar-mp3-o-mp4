@@ -368,26 +368,31 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
       onPopInvokedWithResult: (bool salio, _) {
         if (!salio) _salirDeSeleccion();
       },
-      child: Column(
-      children: <Widget>[
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: _seleccionando
-              ? KeyedSubtree(key: const ValueKey<String>('seleccion'), child: _barraSeleccion())
-              : KeyedSubtree(key: const ValueKey<String>('busqueda'), child: _barraBusqueda()),
+      // La cabecera de la biblioteca no se desplaza, asi que el destello se
+      // queda fijo detras de la busqueda y las fichas.
+      child: Resplandor(
+        alto: 260,
+        hijo: Column(
+          children: <Widget>[
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _seleccionando
+                  ? KeyedSubtree(key: const ValueKey<String>('seleccion'), child: _barraSeleccion())
+                  : KeyedSubtree(key: const ValueKey<String>('busqueda'), child: _barraBusqueda()),
+            ),
+            _fichas(),
+            const SizedBox(height: 4),
+            Expanded(
+              child: switch (_seccion) {
+                Seccion.canciones =>
+                  _pistas(_canciones, 'Aqui apareceran las canciones que descargues.', conBotones: true),
+                Seccion.artistas => _seccionArtistas(),
+                Seccion.videos => _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
+                Seccion.listas => _seccionListas(),
+              },
+            ),
+          ],
         ),
-        _fichas(),
-        const SizedBox(height: 4),
-        Expanded(
-          child: switch (_seccion) {
-            Seccion.canciones =>
-              _pistas(_canciones, 'Aqui apareceran las canciones que descargues.', conBotones: true),
-            Seccion.artistas => _seccionArtistas(),
-            Seccion.videos => _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
-            Seccion.listas => _seccionListas(),
-          },
-        ),
-      ],
       ),
     );
   }

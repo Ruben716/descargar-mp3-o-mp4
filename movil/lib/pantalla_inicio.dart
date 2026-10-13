@@ -133,7 +133,9 @@ class PantallaInicioState extends State<PantallaInicio> {
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: <Widget>[
-          _cabecera(context, canciones, listas.length),
+          // El destello va con la cabecera y no fijo detras de la lista: asi
+          // sube con ella al desplazar y se funde, como en YouTube Music.
+          Resplandor(hijo: _cabecera(context, canciones, listas.length)),
           if (_elementos.isEmpty) ...<Widget>[
             _primerosPasos(context),
             _radioEnVivo(context),
@@ -251,12 +253,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                     children: <Widget>[
                       Text(
                         sonando ? 'SONANDO AHORA' : 'CONTINUAR ESCUCHANDO',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          letterSpacing: 1.1,
-                          fontWeight: FontWeight.w800,
-                          color: Tema.acento,
-                        ),
+                        style: Tema.antetitulo,
                       ),
                       const SizedBox(height: 6),
                       Text(
