@@ -7,18 +7,28 @@ reproducible: si cambia el color de la app, se vuelve a ejecutar y ya.
 
 El dibujo de partida (`icono_origen.jpeg`) es trazo blanco sobre fondo negro.
 De ahi se saca la silueta: lo claro es la figura y lo oscuro se descarta. Luego
-se repinta en tinta sobre el degradado de la marca, igual que los botones
+se repinta en tinta sobre el degradado azul de la marca, igual que los botones
 principales, porque asi se lee mucho mejor en la parrilla de aplicaciones que
-un trazo fino y blanco perdido entre iconos oscuros.
+un trazo fino y blanco perdido entre iconos oscuros. Por eso tampoco se usa la
+version en neon (la figura azul sobre negro): a 48 px, sobre un fondo de
+pantalla oscuro, se perdia.
 """
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 #: Los mismos colores que tema.dart, para que el icono no vaya por libre.
-ACENTO = (182, 156, 255)
-ACENTO_CALIDO = (255, 143, 177)
-TINTA = (14, 12, 24)
+ACENTO_HIELO = (69, 200, 255)  # #45C8FF, Tema.acentoHielo
+AZUL_PROFUNDO = (58, 123, 255)  # #3A7BFF, Tema.azulProfundo
+AZUL_NOCHE = (37, 99, 255)  # #2563FF, solo aqui y en el widget
+PARADAS = (ACENTO_HIELO, AZUL_PROFUNDO, AZUL_NOCHE)
+"""El degradado del icono, de arriba a la izquierda a abajo a la derecha.
+
+Lleva una parada mas que el de los botones: el azul noche de la esquina le da
+peso al icono entre los demas de la parrilla. Ahi no va texto, solo la figura,
+y la tinta sigue dando mas de 4:1 incluso en esa esquina.
+"""
+TINTA = (4, 8, 20)  # #040814, Tema.tinta
 
 LADO = 1024
 AIRE = 1.34
@@ -30,17 +40,24 @@ SALIDA = BASE.parent / "assets"
 
 
 def degradado(lado: int) -> Image.Image:
-    """Degradado en diagonal, de violeta a rosa."""
+    """Degradado en diagonal, de cian hielo a azul electrico."""
     # El color solo depende de x+y, asi que la rampa se calcula una vez y luego
     # cada pixel la consulta: pintarla punto a punto tarda un mundo.
     pasos = 2 * (lado - 1)
-    rampa = [
-        tuple(
-            round(inicio + (fin - inicio) * diagonal / pasos)
-            for inicio, fin in zip(ACENTO, ACENTO_CALIDO, strict=True)
+    tramos = len(PARADAS) - 1
+    rampa: list[tuple[int, ...]] = []
+    for diagonal in range(pasos + 1):
+        # Por tramos: se ve en que par de paradas cae la diagonal y cuanto
+        # avanza dentro de el.
+        t = diagonal / pasos * tramos
+        i = min(int(t), tramos - 1)
+        f = t - i
+        rampa.append(
+            tuple(
+                round(inicio + (fin - inicio) * f)
+                for inicio, fin in zip(PARADAS[i], PARADAS[i + 1], strict=True)
+            )
         )
-        for diagonal in range(pasos + 1)
-    ]
 
     base = Image.new("RGB", (lado, lado))
     base.putdata([rampa[x + y] for y in range(lado) for x in range(lado)])
