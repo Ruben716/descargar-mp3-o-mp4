@@ -132,6 +132,8 @@ class _InicioState extends State<Inicio>
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     Nucleo.recogerCompartido();
     Navegacion.pestanaPedida.addListener(_alPedirPestana);
+    // Una busqueda pedida desde Explorar tambien lleva a Descargar.
+    Navegacion.busquedaPedida.addListener(_alPedirBusqueda);
     unawaited(_atenderAtajo());
     // Lo de fondo, cuando la app ya esta abierta y no le roba tiempo al arranque.
     if (tareasDeFondo) {
@@ -155,6 +157,10 @@ class _InicioState extends State<Inicio>
     if (pestana != null && mounted) _irA(pestana);
   }
 
+  void _alPedirBusqueda() {
+    if (Navegacion.busquedaPedida.value != null && mounted) _irA(Navegacion.descargar);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Con la app ya abierta, lo compartido llega al volver a primer plano.
@@ -175,6 +181,7 @@ class _InicioState extends State<Inicio>
     WidgetsBinding.instance.removeObserver(this);
     Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
     Navegacion.pestanaPedida.removeListener(_alPedirPestana);
+    Navegacion.busquedaPedida.removeListener(_alPedirBusqueda);
     _cambio.dispose();
     super.dispose();
   }
