@@ -142,6 +142,11 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **El fundido al compás recorta con `ClippingAudioSource`**: la posición y la duración del motor pasan a ser las
   del tramo, así que solo se usa el corte en las fuentes que se cargaron recortadas (`_recortadas`). «Saltar
   silencios» se apaga en ese modo: quita trozos y descuadra los pulsos.
+- **El ecualizador va por salida** (`salida_audio.dart`): Kotlin avisa con `salidaCambio` al conectar o quitar
+  un aparato (`AudioDeviceCallback`) y cada salida (altavoz, cable, cada Bluetooth por su nombre) guarda su
+  ajuste en `ecualizador_salidas`. No hay mediciones públicas de altavoces de teléfono: `Ajuste.altavoz` es
+  una curva general, no la de cada modelo. Unos audífonos nuevos se corrigen solos con AutoEQ solo si el
+  nombre casa sin dudas (`modeloParaAparato`) y con wifi.
 - **«Pídele a Tumbao» son reglas, no IA** (`pidele.dart`): sin red y probado con funciones puras. Relajar una
   petición nunca deja sin filtros lo pedido: si solo se pidió un género o un ritmo que no hay, sale vacío y se
   ofrece buscar en internet, en vez de devolver la biblioteca entera.

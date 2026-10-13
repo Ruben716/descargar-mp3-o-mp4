@@ -12,6 +12,7 @@ import 'package:descargador_movil/pantalla_mix.dart';
 import 'package:descargador_movil/pantalla_pidele.dart';
 import 'package:descargador_movil/secciones_inicio.dart';
 import 'package:descargador_movil/ritmos.dart';
+import 'package:descargador_movil/salida_audio.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
@@ -1212,8 +1213,8 @@ void main() {
   });
 
   test('hay quince ajustes y cada uno con su nombre', () {
-    expect(Ajuste.todos, hasLength(15));
-    expect(Ajuste.todos.map((Ajuste a) => a.nombre).toSet(), hasLength(15));
+    expect(Ajuste.todos, hasLength(16));
+    expect(Ajuste.todos.map((Ajuste a) => a.nombre).toSet(), hasLength(16));
     expect(Ajuste.porNombre('Reggaeton'), Ajuste.reggaeton);
     expect(Ajuste.porNombre('No existe'), isNull);
   });
@@ -3049,6 +3050,50 @@ void main() {
       await tester.pumpAndSettle();
       expect(EstadoReproductor.instancia.alCompas, isTrue);
     });
+  });
+
+  testWidgets('cada salida de audio guarda su ecualizador y cambia sola', (WidgetTester tester) async {
+    final Ecualizador eq = Ecualizador.instancia;
+    addTearDown(() => tester.runAsync(eq.reiniciar));
+    const SalidaAudio altavoz = SalidaAudio(TipoSalida.altavoz, modelo: 'Moto G');
+    const SalidaAudio buds = SalidaAudio(TipoSalida.bluetooth, nombre: 'Galaxy Buds2');
+    List<double> bandas(AndroidEqualizerParameters p) => <double>[for (final AndroidEqualizerBand b in p.bands) b.gain];
+    await tester.runAsync(() async {
+      await eq.reiniciar();
+      await EstadoReproductor.instancia.reproducirLista(_biblioteca3.take(1).toList(), 0);
+      final AndroidEqualizerParameters p = await eq.parametros;
+
+      // La primera vez que se sabe la salida, lo que habia se queda para ella.
+      await eq.aplicar(Ajuste.graves);
+      await eq.cambiarSalida(altavoz);
+      expect(eq.ajuste, Ajuste.graves);
+
+      // Unos audifonos nuevos empiezan planos.
+      await eq.cambiarSalida(buds);
+      expect(eq.ajuste, Ajuste.plano);
+      expect(bandas(p), everyElement(0));
+      await eq.aplicar(Ajuste.voz);
+
+      // Al quitarlos vuelve lo del altavoz, y al ponerlos otra vez lo suyo.
+      await eq.cambiarSalida(altavoz);
+      expect(eq.ajuste, Ajuste.graves);
+      expect(bandas(p), Ecualizador.ganancias(p, ajuste: Ajuste.graves));
+      await eq.cambiarSalida(buds);
+      expect(eq.ajuste, Ajuste.voz);
+      expect(bandas(p), Ecualizador.ganancias(p, ajuste: Ajuste.voz));
+
+      // Un cable nuevo tambien empieza plano, y el altavoz nuevo con el suyo.
+      await eq.cambiarSalida(const SalidaAudio(TipoSalida.cable));
+      expect(eq.ajuste, Ajuste.plano);
+      expect(eq.salidasConAjuste, <String>{'altavoz', 'bluetooth:galaxy buds2', 'cable'});
+      await EstadoReproductor.instancia.motor.pause();
+    });
+  });
+
+  test('un altavoz que suena por primera vez lleva el ajuste para altavoces', () {
+    final Map<String, dynamic> estado = Ecualizador.deFabrica(SalidaAudio.altavoz);
+    expect(estado['ajuste'], Ajuste.altavoz.nombre);
+    expect(estado['correccion'], isNull);
   });
 
   group('pidele en pantalla', () {

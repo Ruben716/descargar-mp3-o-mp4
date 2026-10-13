@@ -1,9 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'autoeq.dart';
+import 'navegacion.dart';
+import 'nucleo.dart';
+import 'salida_audio.dart';
 
 /// Ganancia en una frecuencia cualquiera a partir de unos puntos conocidos.
 ///
@@ -58,6 +64,16 @@ class Ajuste {
   static const Ajuste jazz = Ajuste('Jazz', <double>[3, 2, 1, 2, -1, -1, 0, 1, 2, 3]);
   static const Ajuste noche = Ajuste('Noche (suave)', <double>[-2, -1, 0, 1, 1, 0, -2, -3, -4, -5]);
 
+  /// Para el altavoz del propio telefono, que es pequeno y no da graves.
+  ///
+  /// No hay mediciones publicas de altavoces de telefono como las de AutoEQ
+  /// para audifonos, asi que es una curva general, no la de cada modelo: quita
+  /// lo que esta por debajo de unos 100 Hz (el altavoz no lo da y subirlo solo
+  /// gasta potencia y distorsiona), sube los medios bajos donde si suena el
+  /// cuerpo de la musica, suaviza el chillido de 2-4 kHz y aclara un poco arriba.
+  static const Ajuste altavoz =
+      Ajuste('Altavoz del telefono', <double>[-8, -6, -2, 2, 3, 0, -1, -2, 1, 2]);
+
   static const List<Ajuste> todos = <Ajuste>[
     plano,
     graves,
@@ -74,6 +90,7 @@ class Ajuste {
     clasica,
     jazz,
     noche,
+    altavoz,
   ];
 
   static Ajuste? porNombre(String? nombre) {
@@ -159,6 +176,9 @@ class Ecualizador {
   static final Ecualizador instancia = Ecualizador._();
 
   static const String _clave = 'ecualizador';
+
+  /// El ajuste de cada salida (altavoz, cable, cada audifono Bluetooth).
+  static const String _claveSalidas = 'ecualizador_salidas';
 
   final AndroidEqualizer motor = AndroidEqualizer();
   final AndroidLoudnessEnhancer realce = AndroidLoudnessEnhancer();
@@ -275,45 +295,164 @@ class Ecualizador {
     await _guardar();
   }
 
-  /// Vuelca lo puesto a disco para recuperarlo al abrir la app.
-  Future<void> _guardar() async {
+  /// Lo puesto ahora, tal como se guarda.
+  Map<String, dynamic> _estado() {
     final AndroidEqualizerParameters? p = _cache;
-    final SharedPreferences memoria = await SharedPreferences.getInstance();
-    await memoria.setString(
-      _clave,
-      jsonEncode(<String, dynamic>{
-        'activo': motor.enabled,
-        'refuerzo': _refuerzo,
-        'ajuste': _ajuste?.nombre,
-        'correccion': _correccion?.aJson(),
-        // Sin bandas todavia no se inventa nada: se guarda lo que si se sabe.
-        if (p != null) 'bandas': p.bands.map((AndroidEqualizerBand b) => b.gain).toList(),
-      }),
-    );
+    return <String, dynamic>{
+      'activo': motor.enabled,
+      'refuerzo': _refuerzo,
+      'ajuste': _ajuste?.nombre,
+      'correccion': _correccion?.aJson(),
+      'salida': _salida,
+      // Sin bandas todavia no se inventa nada: se guarda lo que si se sabe.
+      if (p != null) 'bandas': p.bands.map((AndroidEqualizerBand b) => b.gain).toList(),
+    };
   }
 
-  /// Recupera lo guardado. Se llama cuando el reproductor ya tiene una pista,
-  /// que es cuando el aparato responde con sus bandas.
-  Future<void> recuperar() async {
+  /// Vuelca lo puesto a disco para recuperarlo al abrir la app, y lo apunta
+  /// como el ajuste de la salida por la que suena.
+  Future<void> _guardar() async {
+    final Map<String, dynamic> estado = _estado();
     final SharedPreferences memoria = await SharedPreferences.getInstance();
-    final String? crudo = memoria.getString(_clave);
-    if (crudo == null) return;
+    await memoria.setString(_clave, jsonEncode(estado));
+    final String? salida = _salida;
+    if (salida != null) {
+      _perfiles[salida] = estado;
+      await memoria.setString(_claveSalidas, jsonEncode(_perfiles));
+    }
+  }
+
+  // --- Un ajuste por salida ---------------------------------------------------
+
+  final Map<String, Map<String, dynamic>> _perfiles = <String, Map<String, dynamic>>{};
+  bool _perfilesCargados = false;
+  String? _salida;
+  SalidaAudio? _aparato;
+
+  /// Por donde suena ahora, si ya se sabe.
+  SalidaAudio? get aparato => _aparato;
+
+  /// Las salidas que ya tienen su ajuste guardado.
+  Set<String> get salidasConAjuste => _perfiles.keys.toSet();
+
+  Future<void> _cargarPerfiles() async {
+    if (_perfilesCargados) return;
+    _perfilesCargados = true;
     try {
-      final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
-      _ajuste = Ajuste.porNombre(datos['ajuste']?.toString());
-      final dynamic c = datos['correccion'];
-      _correccion = c is Map<String, dynamic> ? Correccion.desdeJson(c) : null;
-      final AndroidEqualizerParameters p = await parametros;
-      final List<dynamic> bandas = (datos['bandas'] as List<dynamic>?) ?? <dynamic>[];
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      final Object? datos = jsonDecode(memoria.getString(_claveSalidas) ?? '{}');
+      if (datos is Map<String, dynamic>) {
+        for (final MapEntry<String, dynamic> e in datos.entries) {
+          if (e.value is Map<String, dynamic>) _perfiles[e.key] = e.value as Map<String, dynamic>;
+        }
+      }
+    } catch (_) {
+      // Sin ajustes por salida se empieza de cero: no impide escuchar.
+    }
+  }
+
+  /// Lo que se pone la primera vez que se suena por [salida]: en el altavoz,
+  /// el ajuste para altavoces pequenos; en unos audifonos, plano (y despues su
+  /// correccion de AutoEQ si se encuentra).
+  static Map<String, dynamic> deFabrica(SalidaAudio salida) => <String, dynamic>{
+        'activo': true,
+        'refuerzo': 0,
+        'ajuste': salida.esAudifono ? Ajuste.plano.nombre : Ajuste.altavoz.nombre,
+        'correccion': null,
+        'salida': salida.clave,
+      };
+
+  /// Cambia al ajuste de la salida nueva. La primera vez que se sabe por donde
+  /// suena, lo que ya estaba puesto se queda para esa salida: nadie pierde el
+  /// ajuste que tenia.
+  Future<void> cambiarSalida(SalidaAudio nueva) async {
+    await _cargarPerfiles();
+    if (nueva.clave == _salida) return;
+    final bool primera = _salida == null;
+    _salida = nueva.clave;
+    _aparato = nueva;
+    final Map<String, dynamic>? guardado = _perfiles[nueva.clave];
+    if (guardado != null) {
+      await _aplicarEstado(guardado, nueva.clave);
+      return;
+    }
+    if (primera) {
+      if (_cache != null) await _guardar();
+      return;
+    }
+    await _aplicarEstado(deFabrica(nueva), nueva.clave);
+    if (nueva.esAudifono && nueva.nombre.isNotEmpty) unawaited(_corregirConAutoEq(nueva));
+  }
+
+  /// Unos audifonos que se conectan por primera vez: si AutoEQ los conoce sin
+  /// dudas, se corrigen solos. Solo con wifi, que el indice pesa casi un mega.
+  Future<void> _corregirConAutoEq(SalidaAudio aparato) async {
+    try {
+      if (!await Nucleo.redSinLimite()) return;
+      final ModeloAudifonos? modelo = modeloParaAparato(await AutoEq.indice(), aparato.nombre);
+      if (modelo == null || _salida != aparato.clave || _correccion != null) return;
+      final Correccion correccion = await AutoEq.correccion(modelo);
+      if (_salida != aparato.clave) return;
+      await corregir(correccion);
+      Navegacion.avisar('Sonido corregido para ${modelo.nombre} (AutoEQ)');
+    } catch (_) {
+      // Sin red o sin ese modelo se queda plano; se puede elegir a mano.
+    }
+  }
+
+  /// Pone un estado guardado. Espera a que el aparato diga sus bandas, y si
+  /// mientras tanto cambio otra vez la salida, ya no lo pone.
+  Future<void> _aplicarEstado(Map<String, dynamic> datos, String? salida) async {
+    _ajuste = Ajuste.porNombre(datos['ajuste']?.toString());
+    final dynamic c = datos['correccion'];
+    _correccion = c is Map<String, dynamic> ? Correccion.desdeJson(c) : null;
+    _refuerzo = ((datos['refuerzo'] as num?) ?? 0).toDouble();
+    final AndroidEqualizerParameters p = await parametros;
+    if (salida != null && _salida != salida) return;
+    final List<dynamic>? bandas = datos['bandas'] as List<dynamic>?;
+    if (bandas == null) {
+      // Sin bandas guardadas (un ajuste de fabrica) salen del ajuste y la correccion.
+      final List<double> g = ganancias(p, ajuste: _ajuste, correccion: _correccion);
+      for (int i = 0; i < p.bands.length; i++) {
+        await p.bands[i].setGain(g[i]);
+      }
+    } else {
       // Si el aparato cambio de numero de bandas, se aplica lo que encaje y el
       // resto se queda como esta: mejor eso que descartar todo el ajuste.
       for (int i = 0; i < p.bands.length && i < bandas.length; i++) {
         final double valor = (bandas[i] as num).toDouble();
         await p.bands[i].setGain(valor.clamp(p.minDecibels, p.maxDecibels));
       }
-      _refuerzo = ((datos['refuerzo'] as num?) ?? 0).toDouble();
-      await _ponerRealce();
-      await motor.setEnabled(datos['activo'] == true);
+    }
+    await _ponerRealce();
+    await motor.setEnabled(datos['activo'] == true);
+    await _guardar();
+  }
+
+  /// Recupera lo guardado. Se llama cuando el reproductor ya tiene una pista,
+  /// que es cuando el aparato responde con sus bandas.
+  ///
+  /// Si ya se sabe por donde suena, va el ajuste de esa salida; lo ultimo que
+  /// se uso solo si era de esa misma salida (o de antes de haber una por salida).
+  Future<void> recuperar() async {
+    await _cargarPerfiles();
+    final SharedPreferences memoria = await SharedPreferences.getInstance();
+    final String? crudo = memoria.getString(_clave);
+    try {
+      final String? salida = _salida;
+      Map<String, dynamic>? datos = salida == null ? null : _perfiles[salida];
+      if (datos == null && crudo != null) {
+        final Map<String, dynamic> ultimo = jsonDecode(crudo) as Map<String, dynamic>;
+        final Object? deQuien = ultimo['salida'];
+        final SalidaAudio? aparato = _aparato;
+        datos = deQuien == null || deQuien == salida || aparato == null ? ultimo : deFabrica(aparato);
+      }
+      if (datos == null) return;
+      // Lo de antes no traia bandas cuando no se habian llegado a mover.
+      if (crudo != null && datos['bandas'] == null && datos['ajuste'] == null && datos['correccion'] == null) {
+        datos = <String, dynamic>{...datos, 'bandas': <dynamic>[]};
+      }
+      await _aplicarEstado(datos, salida);
     } catch (_) {
       // Un ajuste guardado que ya no se entiende no debe impedir escuchar.
     }
@@ -326,7 +465,12 @@ class Ecualizador {
     _correccion = null;
     _refuerzo = 0;
     _extra = 0;
+    _perfiles.clear();
+    _perfilesCargados = false;
+    _salida = null;
+    _aparato = null;
     final SharedPreferences memoria = await SharedPreferences.getInstance();
     await memoria.remove(_clave);
+    await memoria.remove(_claveSalidas);
   }
 }

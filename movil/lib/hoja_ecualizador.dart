@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 
 import 'autoeq.dart';
 import 'ecualizador.dart';
+import 'salida_audio.dart';
 import 'tema.dart';
 
 /// Ecualizador y refuerzo de volumen.
@@ -86,6 +87,43 @@ class _Esperando extends StatelessWidget {
   );
 }
 
+/// Para que salida es lo que se ajusta: cada una guarda el suyo.
+class _ParaQueSalida extends StatelessWidget {
+  const _ParaQueSalida();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: SalidasDeAudio.instancia,
+      builder: (BuildContext context, _) {
+        final SalidaAudio? salida = SalidasDeAudio.instancia.actual;
+        if (salida == null) return const SizedBox.shrink();
+        final IconData icono = switch (salida.tipo) {
+          TipoSalida.altavoz => Icons.speaker_phone_rounded,
+          TipoSalida.bluetooth => Icons.bluetooth_audio_rounded,
+          TipoSalida.cable => Icons.headphones_rounded,
+          TipoSalida.usb => Icons.usb_rounded,
+        };
+        return Padding(
+          padding: const EdgeInsets.only(top: 2, bottom: 4),
+          child: Row(
+            children: <Widget>[
+              Icon(icono, size: 18, color: Tema.acentoHielo),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Ajuste para ${salida.titulo}. Cambia solo al conectar o quitar audifonos.',
+                  style: const TextStyle(color: Tema.textoTenue, fontSize: 12, height: 1.3),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _Controles extends StatelessWidget {
   const _Controles({
     required this.parametros,
@@ -121,6 +159,7 @@ class _Controles extends StatelessWidget {
               ),
             ],
           ),
+          const _ParaQueSalida(),
           const SizedBox(height: 10),
           Wrap(
             spacing: 8,
