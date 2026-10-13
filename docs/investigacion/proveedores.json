@@ -1,0 +1,517 @@
+{
+ "candidatos": [
+  {
+   "nombre": "Wikimedia Commons (audio libre)",
+   "que_es": "Repositorio de medios libres de Wikimedia. Tiene unos 1,8 M de archivos de audio, casi todos pronunciaciones de una palabra; quedan unos 190.000 de más de 300 KB y unos 38.000 útiles tras filtrar. Incluye grabaciones de Musopen (Category:Musopen, 476 archivos, OGG y WAV), clásica de dominio público, folk y discos de 78.",
+   "calidad_max": "El original tal cual se subió: FLAC o WAV (16-24 bits) cuando existe; si no, Ogg Vorbis u Opus. Hay además transcodificaciones OGG y MP3.",
+   "requiere": "nada (pero exige un User-Agent descriptivo, sin fingir navegador)",
+   "veredicto": "anadir",
+   "motivo": "Es legal: la licencia viene declarada en cada archivo. No pide clave ni tiene cuota, y la búsqueda funciona. Da el original sin pérdida cuando existe y aporta un catálogo de clásica y dominio público que no tiene ninguna fuente actual. Lo midió orbitape (2-oct-2026): responde 206 a Range y manda CORS *. Hay que tener en cuenta dos trampas, en 'descarga'.",
+   "busqueda_api": "GET https://commons.wikimedia.org/w/api.php?action=query&format=json&formatversion=2&generator=search&gsrnamespace=6&gsrlimit=50&gsrsearch=<texto> filetype:audio filesize:300,600000&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiextmetadatafilter=LicenseShortName|LicenseUrl|Artist|ObjectName|Categories . Solo sin pérdida: gsrsearch='<texto> filemime:audio/x-flac' (en la práctica se usa x-flac). filesize va en KB. imageinfo con 'size' trae 'duration'. Hay que descartar lo de menos de 30 s y los nombres o categorías que casen con /pronunciation|pronounc|lingua[ _]libre|\\bLL-Q\\d/i. Se aceptan las LicenseShortName que sean CC0, Public domain, PD-*, CC BY-* y CC BY-SA-*; GFDL, fair use y las desconocidas se descartan.",
+   "descarga": "Extractor 'wikimedia.org' de yt-dlp (WikimediaIE) sobre https://commons.wikimedia.org/wiki/File:<nombre>. TRAMPA 1, comprobada en el código local: el formato 'source', que es el FLAC original, sale sin vcodec, mientras que las derivadas Ogg sí llevan vcodec='none' (_parse_ext_and_codecs('audio/ogg; codecs=\"vorbis\"') devuelve {'ext':'ogg','vcodec':'none','acodec':'vorbis'}). Por eso la regla 'ba/b' de YtDlpDownloader._seleccion_formato se queda con el OGG con pérdida y no con el FLAC. Hay que subclasear WikimediaIE como en _extractor_jamendo, poner vcodec='none' y acodec según el mime en 'source', y enrutarlo en _extraer. TRAMPA 2: el extractor avisa de que 'Faking a browser user-agent leads to being blocked with a 403', y _consultar manda 'Mozilla/5.0 (descargador)'. Para Commons hay que usar algo como 'Tumbao/1.0 (https://github.com/Ruben716/descargar-mp3-o-mp4)'.",
+   "extractor_ytdlp": "wikimedia.org (yt_dlp/extractor/wikimedia.py, WikimediaIE); pide prop=videoinfo&viprop=timestamp|user|url|size|derivatives|timedtext|extmetadata",
+   "legal": "Cada archivo trae su licencia libre en extmetadata.LicenseShortName/LicenseUrl (CC0, PD, CC BY, BY-SA). Musopen pide la atribución como cortesía.",
+   "evidencia": [
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/hasat_commons.py",
+    "https://github.com/konard/audio-decomposer/blob/main/examples/public_domain_corpus.rs",
+    "https://github.com/CharlesPikachu/musicdl/blob/master/musicdl/modules/sources/wikimediacommons.py",
+    "https://download.osmand.net/wiki/Category:Musopen",
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/wikimedia.py"
+   ]
+  },
+  {
+   "nombre": "Internet Archive: ampliar la búsqueda (todo lo que tenga licencia, con aviso de 24 bits)",
+   "que_es": "Mejora de _buscar_en_archive en descargador/infrastructure.py. Hoy solo mira COLECCIONES_ARCHIVE = (etree, netlabels, georgeblood). La propuesta añade cualquier ítem de audio con licencia CC o de dominio público declarada en licenseurl, que cubre Musopen, Open Goldberg y netlabels de fuera de 'netlabels', y marca los que tienen FLAC de 24 bits.",
+   "calidad_max": "FLAC 24 bits ('24bit Flac'), FLAC, WAVE, Apple Lossless y Shorten (etree)",
+   "requiere": "nada",
+   "veredicto": "anadir",
+   "motivo": "Multiplica el catálogo legal sin pérdida. Según el recuento de orbitape (2-oct-2026), hay 2.029.095 ítems de audio con licencia, de los que 1.025.045 son CC sin ND, 427.085 de dominio público y 138.449 CC0. Además el Archive dice ANTES de bajar si el ítem es de 24 bits, porque el nombre de formato '24bit Flac' es oficial (aparece en internetarchive/iiif). Eso contradice la frase del CLAUDE.md según la cual 'ninguna web los dice al buscar'.",
+   "busqueda_api": "https://archive.org/advancedsearch.php?q=mediatype:audio AND (format:FLAC OR format:\"24bit Flac\" OR format:WAVE) AND (collection:(etree OR netlabels OR georgeblood) OR licenseurl:*creativecommons* OR licenseurl:*publicdomain*) AND (title:(<q>) OR creator:(<q>))&fl[]=identifier&fl[]=title&fl[]=creator&fl[]=format&fl[]=licenseurl&rows=<n>&output=json . Si 'format' contiene '24bit Flac', se marca AudioQuality('flac', bits=24). Los comodines de licenseurl no pueden llevar '/' (orbitape midió que la consulta falla). Para un modo 'solo hi-res' basta con format:\"24bit Flac\".",
+   "descarga": "Extractor 'archive.org' de yt-dlp, el que ya se usa. Prefiere el original por source_preference. Sus formatos no declaran vcodec, así que acaban en la rama 'b' y el FLAC original gana.",
+   "extractor_ytdlp": "archive.org (yt_dlp/extractor/archiveorg.py)",
+   "legal": "Se filtra por la licencia declarada en licenseurl (CC/PD), lo que deja fuera colecciones con copyright dudoso como hiphopmixtapes. Sobre georgeblood: la demanda UMG contra el Internet Archive por el Great 78 se cerró con un acuerdo confidencial en septiembre de 2025, y las obras en litigio parecen retiradas.",
+   "evidencia": [
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "https://github.com/internetarchive/iiif/blob/main/iiify/resolver.py",
+    "https://github.com/DroppedNeedle/DroppedNeedle/blob/HEAD/backend/services/native/acquisition/quality.py",
+    "https://github.com/nik129linux/linked-beats/blob/HEAD/src/archive.ts",
+    "https://github.com/ianfhunter/Enigma/blob/HEAD/scripts/find-all-classical.mjs",
+    "https://www.musicbusinessworldwide.com/labels-settle-copyright-lawsuit-against-internet-archive-over-streaming-of-vintage-vinyl-records",
+    "https://archive.org/details/The_Open_Goldberg_Variations-11823"
+   ]
+  },
+  {
+   "nombre": "ccMixter",
+   "que_es": "Comunidad Creative Commons (motor ccHost) de remixes, a cappellas, instrumentales y stems.",
+   "calidad_max": "La pista principal es MP3 CBR de 192 a 320 kb/s a 44,1 o 48 kHz. Algunas subidas añaden FLAC ('audio-flac-flac', 48k) o ZIP de stems con FLAC dentro, pero esos suelen ser samples, no la mezcla.",
+   "requiere": "nada",
+   "veredicto": "anadir",
+   "motivo": "Tiene valor único: a cappellas e instrumentales CC que no hay en otra parte. La API es abierta y sin clave, y la calidad es igual o mejor que YouTube. Hay que salvar cinco trampas, comprobadas en el código de Openverse y en registros de producción de 2026: (1) La cabecera X-JSON repite el cuerpo, 100-160 KB con limit=25, y supera http.client._MAXLINE=65536, lo que lanza http.client.LineTooLong. Esa excepción hereda de HTTPException, no de OSError (verificado en local), así que el except (OSError, ValueError) de _consultar la dejaría escapar y rompería la invariante de DownloadError. Hay que capturar HTTPException y usar limit<=10. (2) El JSON es inválido a veces: lleva números con ceros a la izquierda (bpm) y caracteres de control, y hace falta un regex de limpieza más json.loads(strict=False). (3) Con limit>25 responde 200 con el cuerpo vacío. (4) Hotlink: da 403 con un Referer ajeno y 206 con 'https://ccmixter.org/'. (5) Una consulta que acaba en ' devuelve un error 'Illegal'.",
+   "busqueda_api": "GET https://ccmixter.org/api/query?f=json&datasource=uploads&search=<q>&search_type=any&sort=rank&limit=10[&lic=by,sa,s,splus,pd,zero][&tags=acappella]. El detalle de una subida es ?f=json&ids=<upload_id>. Campos: upload_id, upload_name, user_name, license_url, license_name, file_page_url y files[] con download_url, file_rawsize, file_format_info{media-type, format-name, default-ext, mime_type, sr:'44k', ch, ps:'3:16', br:'CBR'} y file_extra.type ('samples', 'pella'). Los kb/s se estiman como file_rawsize*8/segundos(ps)/1000.",
+   "descarga": "No hay extractor en yt-dlp. Hay dos caminos: el genérico sobre la URL directa https://ccmixter.org/content/<usuario>/<archivo>.mp3 (pierde título y artista), o mejor un extractor propio para ccmixter.org/files/<usuario>/<id>. Ese extractor tomaría de files los que tengan media-type 'audio' (MP3 y FLAC) con http_headers={'Referer':'https://ccmixter.org/'} y vcodec='none'.",
+   "extractor_ytdlp": "no hay",
+   "legal": "Cada subida lleva su licencia CC en license_url (BY, BY-NC, BY-SA, Sampling+, CC0/PD); Openverse la indexa por esa razón.",
+   "evidencia": [
+    "https://github.com/WordPress/openverse/blob/main/catalog/dags/providers/provider_api_scripts/cc_mixter.py",
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md",
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "https://github.com/DanielKinsner/yes-master/blob/HEAD/scripts/research/mastering-quality-20260915/pages/imaginal-downloads.json",
+    "https://github.com/CharlesPikachu/musicdl/blob/master/musicdl/modules/sources/ccmixter.py",
+    "https://github.com/ArtisTechMedia/dig.ccMixter/blob/HEAD/js/router.js"
+   ]
+  },
+  {
+   "nombre": "YouTube Music: búsqueda solo de canciones (mejora de YouTube)",
+   "que_es": "Buscar en music.youtube.com dentro de la sección 'songs', que devuelve las pistas oficiales ('Topic'/Art Track) con artista, álbum y pista, en lugar de vídeos con el título lleno de ruido.",
+   "calidad_max": "La de YouTube: Opus ~130 kb/s o AAC ~128. El AAC 256 de Premium requiere cuenta, así que no entra.",
+   "requiere": "nada",
+   "veredicto": "anadir",
+   "motivo": "No sube la calidad, pero cuesta poco y mejora lo que pidió el usuario: etiquetas limpias y la carátula oficial cuadrada. Reduce los fallos de buscar_portada y de RUIDO_TITULO. necesita_portada_oficial() ya cubre ese dominio, porque music.youtube.com acaba en youtube.com.",
+   "busqueda_api": "Extracción plana (extract_flat) de https://music.youtube.com/search?q=<q>#songs (la sección 'songs' equivale a sp=EgWKAQIIAWoKEAoQAxAEEAkQBQ%3D%3D). Bastaría otra entrada junto a PREFIJOS_BUSQUEDA que arme esa URL en vez de 'ytsearchN:'.",
+   "descarga": "Extractor youtube de yt-dlp, el mismo de siempre, sobre la URL watch?v= de cada resultado",
+   "extractor_ytdlp": "youtube:music:search_url (yt_dlp/extractor/youtube/_search.py, YoutubeMusicSearchURLIE)",
+   "legal": "Lo mismo que la fuente YouTube ya integrada",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/youtube/_search.py"
+   ]
+  },
+  {
+   "nombre": "Europeana",
+   "que_es": "Agregador europeo de archivos culturales. Su sonido viene de Europeana Sounds, la British Library, archivos nacionales y otros.",
+   "calidad_max": "Variable. Con el filtro SOUND_HQ:true solo devuelve archivos de 16 bits o más, o en formato sin pérdida.",
+   "requiere": "clave de app gratuita (wskey, se pide en https://pro.europeana.eu/pages/get-api; 'api2demo' sirve solo para pruebas)",
+   "veredicto": "quizas",
+   "motivo": "Es legal y tiene un filtro de alta calidad, pero mucho de TYPE:SOUND es historia oral o etnografía, no música. Los derechos van por registro y la URL del medio apunta al servidor de cada proveedor, con disponibilidad irregular. Necesita una clave de app, como Jamendo. ccmusicsearch-v2 la tiene 'a prueba' y sin verificar con clave real.",
+   "busqueda_api": "GET https://api.europeana.eu/record/v2/search.json?wskey=<clave>&query=<q>&qf=TYPE:SOUND&qf=SOUND_HQ:true&reusability=open&media=true&rows=20 . Campos: title, dcCreator, edmIsShownBy (URL directa del archivo), edmPreview (miniatura), rights y guid. rows vale como mucho 100.",
+   "descarga": "No hay extractor. La URL de edmIsShownBy la baja el extractor genérico de yt-dlp como enlace directo.",
+   "extractor_ytdlp": "no hay (genérico)",
+   "legal": "reusability=open limita a PDM, CC0, CC BY y CC BY-SA. Hay que comprobar 'rights' en cada registro.",
+   "evidencia": [
+    "https://pro.europeana.eu/post/new-media-search-methods-in-the-europeana-api",
+    "https://github.com/europeana/api2/blob/HEAD/api2-war/src/main/java/eu/europeana/api2/v2/web/controller/SearchController.java",
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  },
+  {
+   "nombre": "Incompetech (Kevin MacLeod)",
+   "que_es": "Música libre de derechos de un solo autor, con más de 1.000 piezas en CC BY 4.0, muy usada en vídeos.",
+   "calidad_max": "MP3 320 kb/s (el WAV es de pago)",
+   "requiere": "nada",
+   "veredicto": "quizas",
+   "motivo": "Es legal, sin cuenta, el catálogo es un JSON estático y la calidad es mayor que la de YouTube. Pero es un único artista de música de fondo y no tiene carátulas. Prioridad baja.",
+   "busqueda_api": "No tiene API de búsqueda. Se baja el catálogo entero de https://incompetech.com/music/royalty-free/pieces.json (campos title, filename, bpm, feel, instruments, length, description, uploaded) y se filtra en local; hay también genre.json y collections.json. robots.txt permite /music.",
+   "descarga": "URL directa https://incompetech.com/music/royalty-free/mp3-royaltyfree/<filename> (genérico de yt-dlp)",
+   "extractor_ytdlp": "no hay (genérico)",
+   "legal": "CC BY 4.0 con atribución a 'Kevin MacLeod (incompetech.com)'",
+   "evidencia": [
+    "https://github.com/theodoreyong9/Aiwa_store/blob/main/music-research/src/incompetech.js",
+    "https://github.com/bnbong/Overlock/blob/HEAD/docs/promo/video/music/LICENSE-music.md",
+    "https://commons.wikipedia.com/wiki/File:Chee_Zee_Jungle_(ISRC_USUAN1100684).mp3"
+   ]
+  },
+  {
+   "nombre": "Newgrounds Audio Portal",
+   "que_es": "Cientos de miles de temas, mucha electrónica y música de videojuegos, con descarga ofrecida por el autor.",
+   "calidad_max": "MP3 tal como se subió (habitual de 128 a 320 kb/s, sin verificar)",
+   "requiere": "nada",
+   "veredicto": "quizas",
+   "motivo": "Tiene extractor y la búsqueda se puede hacer en HTML, pero la licencia varía por tema (de CC a 'no usar'), no hay una API JSON documentada y la calidad no está garantizada.",
+   "busqueda_api": "No hay API oficial. El extractor de listas acepta https://www.newgrounds.com/audio/search/title/<q> (patrón de NewgroundsPlaylistIE), pero esa forma de URL puede estar desfasada.",
+   "descarga": "Extractor 'Newgrounds' sobre https://www.newgrounds.com/audio/listen/<id>. Toma el 'source' del embedController y pone vcodec='none' cuando la descripción es 'Audio File'.",
+   "extractor_ytdlp": "Newgrounds, Newgrounds:playlist",
+   "legal": "La licencia la elige el autor en cada tema; habría que leerla en cada página",
+   "evidencia": [
+    "https://newgrounds.wiki.gg/wiki/Audio_Portal",
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/newgrounds.py"
+   ]
+  },
+  {
+   "nombre": "OpenGameArt (música)",
+   "que_es": "Recursos libres para videojuegos, entre ellos bandas sonoras CC0/CC-BY en FLAC, OGG y WAV.",
+   "calidad_max": "FLAC/WAV en muchos packs",
+   "requiere": "nada",
+   "veredicto": "quizas",
+   "motivo": "Es sin pérdida y legal, pero no tiene API: habría que leer el HTML. Muchas descargas son ZIP de varias pistas y la licencia cambia por recurso.",
+   "busqueda_api": "No hay API oficial; solo la búsqueda HTML del sitio (la librería PyPI 'oga' la envuelve)",
+   "descarga": "Enlaces directos a archivos adjuntos, a menudo ZIP; no encaja con el modelo de pista suelta",
+   "extractor_ytdlp": "no hay",
+   "legal": "CC0/CC-BY/CC-BY-SA, según cada recurso",
+   "evidencia": [
+    "https://opengameart.org/content/cc0-music-1",
+    "https://www.pypi.org/project/oga/"
+   ]
+  },
+  {
+   "nombre": "Bandcamp (mejoras)",
+   "que_es": "Señalar en los resultados qué temas regalan la descarga (FLAC) sin pedir email.",
+   "calidad_max": "FLAC/WAV/ALAC/MP3 320 cuando freeDownloadPage no es null; si no, MP3 128",
+   "requiere": "nada",
+   "veredicto": "quizas",
+   "motivo": "yt-dlp ya baja el FLAC regalado: bandcamp.py lee tralbum['freeDownloadPage'] y data-blob.download_formats. Ponerle la etiqueta de antemano costaría una petición por resultado, y CheckQuality ya lo mide cuando se pide. Las descargas 'gratis' que exigen email quedan fuera, igual que en el plan de free-bandcamp-downloader.",
+   "busqueda_api": "La actual: POST https://bandcamp.com/api/bcsearch_public_api/1/autocomplete_elastic. Para la etiqueta habría que leer data-tralbum de cada item_url_path y mirar si 'freeDownloadPage' no es null.",
+   "descarga": "Extractor 'Bandcamp' de yt-dlp, que ya se usa",
+   "extractor_ytdlp": "Bandcamp, Bandcamp:album",
+   "legal": "Solo lo que el artista regala",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/bandcamp.py",
+    "https://github.com/Magonitte/reverb/blob/HEAD/plano/fases/F14-provedores-extras.md"
+   ]
+  },
+  {
+   "nombre": "Openverse",
+   "que_es": "Buscador de WordPress que agrega audio de Jamendo, Freesound, ccMixter y Wikimedia Commons.",
+   "calidad_max": "La de cada origen: Jamendo como MP3 (no FLAC), Freesound en previas MP3",
+   "requiere": "nada (anónimo), o una clave OAuth2 de app gratuita para subir los límites",
+   "veredicto": "descartar",
+   "motivo": "En anónimo son 20 peticiones por minuto y 200 al día (medido con x-ratelimit). Su contenido son sobre todo previas de Freesound, y lo único que aportaría (wikimedia_audio) sale mejor de Commons directamente, con el original.",
+   "busqueda_api": "GET https://api.openverse.org/v1/audio/?q=<q>&license=cc0,pdm,by&category=music&page_size=20 (campos: url, filetype, bit_rate, sample_rate, duration, alt_files, source, license)",
+   "descarga": "URL 'url' del resultado",
+   "extractor_ytdlp": "no hay",
+   "legal": "Licencias CC indicadas en cada resultado",
+   "evidencia": [
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "https://github.com/WordPress/openverse/blob/main/api/api/serializers/audio_serializers.py",
+    "https://github.com/audiojs/audio/blob/HEAD/playground/sources.js"
+   ]
+  },
+  {
+   "nombre": "Free Music Archive",
+   "que_es": "Archivo CC histórico, de Tribe of Noise desde 2019.",
+   "calidad_max": "MP3",
+   "requiere": "nada para escuchar",
+   "veredicto": "descartar",
+   "motivo": "API muerta: /api/get/tracks.json devuelve 404. Sus términos prohíben el hotlinking y reenviar búsquedas o raspar resultados sin permiso, y solo da MP3. Parte de su catálogo está en el Archive (p. ej. The_Open_Goldberg_Variations-11823) y en Commons.",
+   "busqueda_api": "no hay (la API cerró; solo queda raspar https://freemusicarchive.org/search/?quicksearch=, cosa que prohíben sus términos)",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "El contenido es CC, pero los términos del sitio prohíben el scraping",
+   "evidencia": [
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md",
+    "https://github.com/CharlesPikachu/musicdl/blob/master/musicdl/modules/sources/fma.py"
+   ]
+  },
+  {
+   "nombre": "Nina Protocol",
+   "que_es": "Plataforma web3 (Solana/Arweave) de lanzamientos independientes.",
+   "calidad_max": "MP3",
+   "requiere": "no aplica",
+   "veredicto": "descartar",
+   "motivo": "Cerró: anunció el cierre por fases en mayo de 2026, apagó el sitio el 15-22 de julio de 2026 y SoundCloud compró sus activos. Antes ya había retirado unos 6.500 lanzamientos. El extractor NinaProtocol de yt-dlp (api.ninaprotocol.com/v1/releases/{id}) se queda sin servicio.",
+   "busqueda_api": "no hay (antes era POST https://api.ninaprotocol.com/v1/search {query})",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "NinaProtocol (obsoleto)",
+   "legal": "no aplica",
+   "evidencia": [
+    "https://www.digitalmusicnews.com/2026/07/22/soundcloud-acquires-web3-platform-nina-protocol/",
+    "https://waxy.org/2026/07/not-your-keys-not-your-songs/",
+    "https://github.com/nina-protocol/js-sdk/blob/HEAD/src/resources/search.js"
+   ]
+  },
+  {
+   "nombre": "Mirlo",
+   "que_es": "Alternativa cooperativa y de código abierto a Bandcamp (mirlo.space).",
+   "calidad_max": "Streaming HLS; la descarga sin pérdida es de pago",
+   "requiere": "pago, o dar un email",
+   "veredicto": "descartar",
+   "motivo": "Incluso con minPrice=0, la descarga gratis se manda por email y te apunta a la lista del artista (routers/v1/trackGroups/{id}/emailDownload.ts). Tiene escuchas gratis limitadas y la licencia CC es opcional.",
+   "busqueda_api": "Tiene API REST abierta (Express; Swagger en /docs del servidor), pero sin descargas libres",
+   "descarga": "no aplica sin email",
+   "extractor_ytdlp": "no hay",
+   "legal": "Plataforma de pago; CC opcional por lanzamiento",
+   "evidencia": [
+    "https://github.com/funmusicplace/mirlo/blob/HEAD/src/routers/v1/trackGroups/%7Bid%7D/emailDownload.ts",
+    "https://github.com/funmusicplace/mirlo/blob/HEAD/src/jobs/upload-audio.ts",
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  },
+  {
+   "nombre": "Funkwhale (pods públicos)",
+   "que_es": "Servidores federados de música.",
+   "calidad_max": "El original subido (puede ser FLAC)",
+   "requiere": "cuenta en casi todos los pods",
+   "veredicto": "descartar",
+   "motivo": "API_AUTHENTICATION_REQUIRED vale True por defecto, y en open.audio /api/v1/tracks/ devuelve 404 en anónimo. Las bibliotecas son de usuarios, con legalidad incierta.",
+   "busqueda_api": "/api/v1/search?query= o /api/v1/tracks/?q= (requiere autenticación por defecto)",
+   "descarga": "/api/v1/listen/<uuid>/",
+   "extractor_ytdlp": "no hay",
+   "legal": "Dudoso: bibliotecas subidas por usuarios",
+   "evidencia": [
+    "https://github.com/drupalio/funkwhale/blob/HEAD/api/config/settings/common.py",
+    "https://docs.funkwhale.audio/glossary.html",
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  },
+  {
+   "nombre": "Musopen (directo)",
+   "que_es": "Biblioteca sin ánimo de lucro de clásica de dominio público.",
+   "calidad_max": "FLAC",
+   "requiere": "cuenta (Lite: 5 descargas al día)",
+   "veredicto": "descartar",
+   "motivo": "Pide cuenta y /api/v1/music/ responde 403 con un muro de Cloudflare a clientes que no son navegador. Su contenido llega igual por Commons (Category:Musopen) y por el Archive (licenseurl).",
+   "busqueda_api": "no viable sin navegador",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "Grabaciones de dominio público, pero el servicio exige cuenta",
+   "evidencia": [
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md",
+    "https://wikipedia.com/wiki/Musopen"
+   ]
+  },
+  {
+   "nombre": "Mixcloud",
+   "que_es": "Sesiones de DJ y radio.",
+   "calidad_max": "AAC+ 64 kb/s gratis (Opus 160 solo para Pro)",
+   "requiere": "nada para escuchar",
+   "veredicto": "descartar",
+   "motivo": "La calidad sin pago es muy inferior a la de YouTube (lo dice el blog oficial de Mixcloud) y la descarga no está ofrecida.",
+   "busqueda_api": "no evaluada (no merece la pena)",
+   "descarga": "extractor 'mixcloud'",
+   "extractor_ytdlp": "mixcloud, mixcloud:playlist, mixcloud:user",
+   "legal": "Mixcloud licencia el streaming, no la descarga",
+   "evidencia": [
+    "https://www.mixcloud.com/blog/2022/11/22/5-reasons-to-go-pro-on-mixcloud/"
+   ]
+  },
+  {
+   "nombre": "NTS Radio",
+   "que_es": "Radio online con archivo de programas.",
+   "calidad_max": "La de SoundCloud o Mixcloud, donde aloja el audio",
+   "requiere": "nada",
+   "veredicto": "descartar",
+   "motivo": "El extractor nts.live solo redirige a audio_sources de SoundCloud o Mixcloud: no aporta calidad, y el contenido son mezclas con copyright.",
+   "busqueda_api": "no evaluada",
+   "descarga": "extractor 'nts.live' (url_transparent)",
+   "extractor_ytdlp": "nts.live",
+   "legal": "Contenido con copyright",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/nts.py"
+   ]
+  },
+  {
+   "nombre": "Monstercat",
+   "que_es": "Sello comercial de electrónica.",
+   "calidad_max": "MP3 de streaming",
+   "requiere": "pago (Monstercat Gold) para descargar",
+   "veredicto": "descartar",
+   "motivo": "Es catálogo comercial. El extractor baja el stream del reproductor web (/api/release/{id}/track-stream/{track}), cosa que no está ofrecida como descarga.",
+   "busqueda_api": "no evaluada",
+   "descarga": "extractor 'Monstercat'",
+   "extractor_ytdlp": "Monstercat",
+   "legal": "Dudoso: copyright de sello sin descarga ofrecida",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/monstercat.py"
+   ]
+  },
+  {
+   "nombre": "Audiomack",
+   "que_es": "Plataforma de streaming de hip-hop y afrobeats.",
+   "calidad_max": "Unos 128 kb/s gratis; más calidad en Premium",
+   "requiere": "clave OAuth 1.0 de consumidor con autorización del usuario",
+   "veredicto": "descartar",
+   "motivo": "La API exige OAuth con autorización de usuario, la calidad gratis es menor que la de YouTube, y el extractor usa un endpoint antiguo (http://www.audiomack.com/api/music/url/song/...) con pruebas marcadas como retiradas.",
+   "busqueda_api": "Data API con OAuth (https://www.audiomack.com/data-api/docs)",
+   "descarga": "extractor 'audiomack'",
+   "extractor_ytdlp": "audiomack, audiomack:album",
+   "legal": "Streaming con licencia; la descarga es de Premium",
+   "evidencia": [
+    "https://www.audiomack.com/data-api/docs",
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/audiomack.py"
+   ]
+  },
+  {
+   "nombre": "Clyp",
+   "que_es": "Sitio para compartir clips y maquetas de audio.",
+   "calidad_max": "WAV (wavStreamUrl) si existe; si no, OGG o MP3",
+   "requiere": "nada",
+   "veredicto": "descartar",
+   "motivo": "No es un catálogo musical, no tiene API de búsqueda pública conocida, la licencia del contenido no está clara y su estado actual no se pudo confirmar.",
+   "busqueda_api": "no hay",
+   "descarga": "extractor 'Clyp' (api.clyp.it/{id})",
+   "extractor_ytdlp": "Clyp",
+   "legal": "Sin licencia declarada",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/clyp.py"
+   ]
+  },
+  {
+   "nombre": "Vimeo",
+   "que_es": "Plataforma de vídeo.",
+   "calidad_max": "AAC de DASH/HLS",
+   "requiere": "a menudo cuenta",
+   "veredicto": "descartar",
+   "motivo": "No es fuente de música ni tiene búsqueda musical útil. Pegar un enlace ya funciona con el extractor de yt-dlp.",
+   "busqueda_api": "no aplica",
+   "descarga": "extractor 'vimeo'",
+   "extractor_ytdlp": "vimeo y variantes",
+   "legal": "Depende del vídeo",
+   "evidencia": [
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/vimeo.py"
+   ]
+  },
+  {
+   "nombre": "Library of Congress (National Jukebox / loc.gov audio)",
+   "que_es": "Grabaciones históricas de 1900-1925 y colecciones de folklore.",
+   "calidad_max": "MP3 de streaming",
+   "requiere": "nada",
+   "veredicto": "descartar",
+   "motivo": "Desde septiembre de 2026, www.loc.gov responde a los clientes que no son navegador con un desafío de Cloudflare (403, cf-mitigated: challenge), incluso con User-Agent de navegador. Además, el National Jukebox es solo streaming por la licencia de Sony.",
+   "busqueda_api": "https://www.loc.gov/audio/?q=<q>&fo=json&fa=online-format:audio (bloqueado)",
+   "descarga": "extractor 'loc' (loc.gov/item/...), bloqueado por Cloudflare",
+   "extractor_ytdlp": "loc",
+   "legal": "Jukebox: 'streamed audio only. Downloading is not permitted'",
+   "evidencia": [
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md",
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "https://www.npr.org/sections/therecord/2011/05/11/136185857/library-of-congress-launches-national-jukebox"
+   ]
+  },
+  {
+   "nombre": "Open Goldberg Variations / Kimiko Ishizaka",
+   "que_es": "Bach para piano en CC0 (Variaciones Goldberg, 2012).",
+   "calidad_max": "FLAC de máster de estudio, WAV, AIF",
+   "requiere": "nada",
+   "veredicto": "descartar",
+   "motivo": "No merece una fuente propia para un par de discos: ya se alcanza por Bandcamp ('pay what you choose') y por el Archive (ítem The_Open_Goldberg_Variations-11823, CC0), que entra en la búsqueda ampliada por licenseurl.",
+   "busqueda_api": "no aplica (cubierto por Bandcamp y Archive)",
+   "descarga": "Bandcamp o archive.org",
+   "extractor_ytdlp": "Bandcamp / archive.org",
+   "legal": "CC0",
+   "evidencia": [
+    "https://opengoldbergvariations.org/",
+    "https://archive.org/details/The_Open_Goldberg_Variations-11823"
+   ]
+  },
+  {
+   "nombre": "2L Test Bench",
+   "que_es": "Muestras gratuitas en alta resolución del sello noruego 2L.",
+   "calidad_max": "FLAC 24/192 y 24/352,8, DXD, DSD",
+   "requiere": "en 2014 pedía un login genérico",
+   "veredicto": "descartar",
+   "motivo": "Es un catálogo fijo y pequeño de muestras, sin búsqueda ni API, y no pude confirmar que siga activo. Valdría a lo sumo como lista curada de prueba hi-res.",
+   "busqueda_api": "no hay (http://www.2l.no/hires/)",
+   "descarga": "enlaces directos",
+   "extractor_ytdlp": "no hay",
+   "legal": "Muestras que el sello ofrece gratis",
+   "evidencia": [
+    "https://www.runeaudio.com/forum/2l-no-many-free-files-an-formats-t149.html",
+    "https://stereophile.com/content/2ls-final-frontier-vinyl"
+   ]
+  },
+  {
+   "nombre": "IMSLP",
+   "que_es": "Biblioteca de partituras; tiene una sección de grabaciones.",
+   "calidad_max": "Casi todo MP3",
+   "requiere": "espera forzada para quien no es suscriptor",
+   "veredicto": "descartar",
+   "motivo": "Es sobre todo partituras; las grabaciones son pocas, en MP3 y con descarga lenta para no suscriptores. Lo libre de Musopen ya está en Commons.",
+   "busqueda_api": "MediaWiki (imslp.org/api.php), no orientada a audio",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "Mixta por archivo",
+   "evidencia": [
+    "https://cn.imslp.org/wiki/User:OpenGoldberg"
+   ]
+  },
+  {
+   "nombre": "Kunst der Fuge",
+   "que_es": "Archivo de MIDI de clásica.",
+   "calidad_max": "MIDI (no es audio)",
+   "requiere": "cuenta de pago para más de unas pocas descargas al día",
+   "veredicto": "descartar",
+   "motivo": "No es audio grabado y limita las descargas sin pagar.",
+   "busqueda_api": "no hay",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "no aplica",
+   "evidencia": []
+  },
+  {
+   "nombre": "Freesound",
+   "que_es": "Efectos y samples CC.",
+   "calidad_max": "Previa MP3 HQ unos 128 kb/s; el original WAV/FLAC requiere OAuth2 de usuario",
+   "requiere": "clave de app; el original exige iniciar sesión",
+   "veredicto": "descartar",
+   "motivo": "No es música, el original exige login, tiene cuota de 60 por minuto y 2.000 al día, y el §4f de sus términos prohíbe crear bases de datos similares.",
+   "busqueda_api": "https://freesound.org/apiv2/search/text/?query=&token=<clave>",
+   "descarga": "El extractor 'Freesound' cambia '-lq.mp3' por '-hq.mp3' (solo la previa)",
+   "extractor_ytdlp": "Freesound",
+   "legal": "CC por sonido, pero los términos de la API son restrictivos",
+   "evidencia": [
+    "https://github.com/playjoymusic/orbitape/blob/main/araclar/KAYNAKLAR.md",
+    "/usr/local/lib/python3.13/dist-packages/yt_dlp/extractor/freesound.py"
+   ]
+  },
+  {
+   "nombre": "Pixabay Music",
+   "que_es": "Música libre de derechos, con licencia propia de Pixabay.",
+   "calidad_max": "MP3",
+   "requiere": "clave",
+   "veredicto": "descartar",
+   "motivo": "Su API solo cubre imágenes y vídeo, no música. La web está tras Cloudflare y la licencia no es CC (dejó CC0 en 2019).",
+   "busqueda_api": "no hay para música",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "Licencia Pixabay, no CC",
+   "evidencia": [
+    "https://github.com/itsPremkumar/Automated-Video-Generator/blob/HEAD/src/music-system/providers/ccmixter.ts",
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  },
+  {
+   "nombre": "YouTube Audio Library",
+   "que_es": "Biblioteca de música libre de derechos para creadores.",
+   "calidad_max": "MP3",
+   "requiere": "cuenta (YouTube Studio)",
+   "veredicto": "descartar",
+   "motivo": "Solo se accede con sesión iniciada en YouTube Studio, lo que choca con la regla de no usar inicio de sesión.",
+   "busqueda_api": "no hay",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "no aplica",
+   "evidencia": []
+  },
+  {
+   "nombre": "Dogmazic",
+   "que_es": "Archivo francés de música libre: 61.618 pistas, todas con licencia libre.",
+   "calidad_max": "Variable",
+   "requiere": "cuenta (Ampache: handshake o clave emitida por un administrador)",
+   "veredicto": "descartar",
+   "motivo": "Es el catálogo que mejor encajaba, pero Ampache y Subsonic autentican cada petición con una cuenta.",
+   "busqueda_api": "Ampache API (requiere action=handshake)",
+   "descarga": "no aplica sin cuenta",
+   "extractor_ytdlp": "no hay",
+   "legal": "Licencias libres (incluida la Free Art License)",
+   "evidencia": [
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  },
+  {
+   "nombre": "Smithsonian Open Access / DPLA",
+   "que_es": "Agregadores de bibliotecas y museos.",
+   "calidad_max": "Variable",
+   "requiere": "clave (api.data.gov / DPLA)",
+   "veredicto": "descartar",
+   "motivo": "La música del Smithsonian (Folkways) se licencia pagando. En DPLA los derechos son texto libre o URIs de RightsStatements, no URLs CC, así que no se pueden filtrar con fiabilidad.",
+   "busqueda_api": "api.si.edu / api.dp.la (con clave)",
+   "descarga": "no aplica",
+   "extractor_ytdlp": "no hay",
+   "legal": "Mixto o de pago",
+   "evidencia": [
+    "https://github.com/antodippo/ccmusicsearch-v2/blob/HEAD/docs/cc-music-sources.md"
+   ]
+  }
+ ],
+ "notas": "Fase de investigación; no se ha modificado ningún archivo. Desde el contenedor no hay red: curl a archive.org, ccmixter, api.ninaprotocol.com y commons devuelve 403 del proxy, y WebFetch solo resuelve GitHub. Por eso todo se comprobó con tres apoyos: (a) el código local de yt-dlp 2026.08.19 en /usr/local/lib/python3.13/dist-packages/yt_dlp/extractor; (b) clientes de código abierto que llaman a esas APIs, entre ellos dos inventarios medidos contra la red en 2026 (antodippo/ccmusicsearch-v2 docs/cc-music-sources.md, julio-septiembre de 2026, y playjoymusic/orbitape araclar/KAYNAKLAR.md, 2 de octubre de 2026); (c) WebSearch. Antes de dar por buena cualquier fuente nueva hay que pasarla por .github/prueba_red.py, como pide el CLAUDE.md.\n\nPRIORIDAD (añadir):\n1) Wikimedia Commons como fuente nueva 'commons'. Requiere añadirla a FUENTES en descargador/domain.py, al enum Fuente de movil/lib/nucleo.dart (línea ~574, con su pista y en 'reales'), a YtDlpDownloader.search con un _buscar_en_commons, y a _extraer con un extractor propio.\n2) Ampliar _buscar_en_archive con licenseurl y 'fl[]=format' para saber al buscar si es FLAC de 24 bits.\n3) ccMixter como fuente 'ccmixter'.\n4) Búsqueda 'songs' de YouTube Music, que da metadatos y carátula oficiales.\n\nTRAMPAS COMPROBADAS EN LOCAL:\n- Commons: con 'ba/b', yt-dlp elige la derivada Ogg y no el FLAC original, porque al 'source' le falta vcodec='none'. Además, fingir un navegador en el User-Agent da 403. Hay que usar un UA propio.\n- ccMixter: la cabecera X-JSON (100-160 KB) supera http.client._MAXLINE=65536. http.client.LineTooLong hereda de HTTPException y no de OSError, así que _consultar (except OSError, ValueError) la dejaría escapar y rompería la invariante 'toda excepción es DownloadError'. Hay que capturar http.client.HTTPException y usar limit<=10. Su JSON trae números con ceros a la izquierda y caracteres de control (json.loads(strict=False)), y hay protección de hotlink (enviar Referer: https://ccmixter.org/).\n- Archive: los comodines de licenseurl no pueden llevar '/'.\n\nDESCARTADOS POR HECHOS NUEVOS DE 2026:\n- Nina Protocol cerró en julio de 2026 (SoundCloud compró los activos).\n- loc.gov pone un desafío de Cloudflare a clientes que no son navegador desde septiembre de 2026.\n- La API de FMA está muerta (404).\n- Musopen está tras Cloudflare.\n- Funkwhale (open.audio) da 404 en anónimo.\n- Mirlo solo regala la descarga a cambio de un email.\n\nPORTADAS (para el agente de diseño):\n- _portada_itunes dice que '1200 px' es lo máximo, pero Apple sirve 3000x3000 cambiando '100x100bb' por '3000x3000bb' (beets lo usa para high_resolution).\n- En Deezer, cover_xl (1000x1000) sube a 1900 cambiando '/1000x1000-' por '/1900x1900-' en cdn-images.dzcdn.net (patrón muy usado).\n- En Cover Art Archive, 'front' sin sufijo es la imagen original; hoy se pide 'front-1200'.\n- El valor por defecto lado=1200 de buscar_portada limita las tres.\n\nFuentes ya cubiertas que no conviene duplicar: Openverse (es un agregador y su único catálogo extra es wikimedia_audio) y Relisten/phish.in (sacan el MP3 del mismo Archive).",
+ "ya_cubiertos": [
+  "YouTube (ytsearch)",
+  "SoundCloud (scsearch)",
+  "Audius (API propia + extractor _extractor_audius, MP3 320 y original WAV/FLAC)",
+  "Bandcamp (autocomplete_elastic; FLAC regalado vía freeDownloadPage de yt-dlp)",
+  "Internet Archive (etree, netlabels, georgeblood con format:FLAC)",
+  "Jamendo (API v3 con clave de app, FLAC vía prod-1.storage.jamendo.com/download/track)",
+  "hearthis.at (api-v2.hearthis.at/search)",
+  "Podcasts (itunes.apple.com/search, RSS)",
+  "Radio en vivo (Radio Browser)"
+ ]
+}

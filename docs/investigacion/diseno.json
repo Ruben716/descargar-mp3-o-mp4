@@ -1,0 +1,624 @@
+{
+ "referencias": [
+  {
+   "app_o_fuente": "Shazam (degradado del icono, lectura de terceros)",
+   "url": "https://www.brandcolorcode.com/shazam-blue-gradient",
+   "que_tomar": "Un degradado diagonal que va de un azul claro tirando a cian (#00AAFF) a un azul profundo (#2255FF), con la figura en un solo color encima. Es el modelo del nuevo logo y del degradado de los botones: #45C8FF → #3A7BFF. El sitio aclara que los valores son una estimación suya, no la guía oficial."
+  },
+  {
+   "app_o_fuente": "Tidal (negro con cian; etiqueta de Hi-Res en amarillo)",
+   "url": "https://brandkit.pro/color/00FFFF",
+   "que_tomar": "Fondo negro con un único acento frío (#00FFFF, «Tidal Cyan»). Un foro (https://www.stereonet.com/forums/topic/338344-tidal-discussion-thread/page/87/) cuenta que la entrada Hi-Res sale en amarillo. De ahí sale conservar el oro #FFC857 solo para HI-RES y SIN PÉRDIDA: es el complementario del azul y se reconoce como sello premium."
+  },
+  {
+   "app_o_fuente": "Spotify (alzado de superficies, reconstrucción de terceros)",
+   "url": "https://blakecrosley.com/guides/design/spotify",
+   "que_tomar": "Lienzo #121212, tarjetas #181818 y elementos realzados #282828: cuanto más alta la superficie, más clara (no se usan sombras). Texto secundario #B3B3B3. El corazón va en el color de la marca. Se aplica igual: fondo #05070D, luego #0C1322, #152036 y #1F2C48, todo con tinte azul, y «Me gusta» en el cian de la marca."
+  },
+  {
+   "app_o_fuente": "YouTube Music",
+   "url": "https://9to5google.com/2022/05/05/youtube-music-color-background/",
+   "que_tomar": "Base casi negra (#030303 según https://www.oppadu.com/tools/design-systems-site/brand/youtube-music.html) y un destello de color difuminado tras la cabecera de Inicio que se funde a negro al desplazar. De ahí sale Tema.resplandor, un RadialGradient con 0x244D94FF que pasa a transparente, para la cabecera de Inicio y Biblioteca."
+  },
+  {
+   "app_o_fuente": "Apple Music en iOS 26.4 (tinte de la carátula y quejas de quien usa modo oscuro)",
+   "url": "https://9to5mac.com/2026/03/31/the-new-adaptive-apple-music-design-draws-complaints-from-dark-mode-users/",
+   "que_tomar": "Teñir con la portada gusta, pero si el fondo se aclara demasiado la gente se queja. Confirma lo que ya hace paleta.dart con copyWith(surface: Tema.fondo): el reproductor se tiñe pero el fondo sigue casi negro. No hay que tocarlo."
+  },
+  {
+   "app_o_fuente": "Material Design, tema oscuro y codelab",
+   "url": "https://codelabs.developers.google.com/codelabs/design-material-darktheme/",
+   "que_tomar": "Los colores muy saturados «vibran» sobre fondo oscuro: el acento tiene que ser un tono más claro. Por eso se usa #4D94FF y no #2563FF para texto e iconos. También recomienda superficies con un 8 % del primario encima y exige 4,5:1 en el texto. Guía: https://m2.material.io/design/color/dark-theme"
+  },
+  {
+   "app_o_fuente": "Material 3 Expressive",
+   "url": "https://www.androidauthority.com/google-clock-expressive-features-changes-availability-supported-devices-3556392/",
+   "que_tomar": "Animaciones con muelle, formas que se transforman, desenfoque de fondo para dar profundidad y tipografía con más peso. Se mantienen los radios de 22 a 28, los títulos en w800 y la transición FadeForwards; se añaden el brillo azul en el botón principal y filetes de 1 px. En Flutter: https://pub.dev/packages/material_expressive"
+  },
+  {
+   "app_o_fuente": "Midnight Echo Music Player (superdesign.dev)",
+   "url": "https://superdesign.dev/library/midnight-echo-music-player",
+   "que_tomar": "Azul marino profundo (#0A0E27) con acento azul eléctrico (#0066FF) y un brillo que «respira» en la tarjeta principal. Se toma la sombra de color del acento (alpha 0,45, desenfoque 28) en el botón de reproducir y en BotonDegradado."
+  },
+  {
+   "app_o_fuente": "Nothing (NDot / NType 82 Mono)",
+   "url": "https://www.fontsinuse.com/uses/59510/nothing-phone",
+   "que_tomar": "Estética técnica en monocromo. Solo se toman las cifras tabulares (FontFeature.tabularFigures()) en contadores de tiempo y en los sellos «24 bit · 96 kHz», para que no bailen."
+  },
+  {
+   "app_o_fuente": "Paleta de Tailwind (referencia para calibrar)",
+   "url": "https://tailwindcss.com/docs/customizing-colors",
+   "que_tomar": "Referencia de azules ya probados: blue-500 #3B82F6, sky-400 #38BDF8, cyan-400 #22D3EE, slate-950 #020617. El acento (#4D94FF) y el cian (#45C8FF) quedan entre blue-400/500 y sky-400, un poco más saturados."
+  },
+  {
+   "app_o_fuente": "API de Flutter: DynamicSchemeVariant y fromImageProvider",
+   "url": "https://api.flutter.dev/flutter/material/DynamicSchemeVariant.html",
+   "que_tomar": "Las dos usan tonalSpot por defecto, que gira el tono del terciario. Medido aquí con Flutter: semilla #3D8BFF da tertiary #DDBCE0 (rosa lila); una portada azul #1E5BD8 da tertiary #E2BBDC. Por eso hay que fijar tertiary y cambiar el degradado del botón grande del reproductor."
+  }
+ ],
+ "paleta": [
+  {
+   "token": "fondo",
+   "hex": "#05070D",
+   "uso": "Fondo del Scaffold y del reproductor; negro con tinte azul (HSL 225°, 4 %). Antes era #08070C."
+  },
+  {
+   "token": "superficie",
+   "hex": "#0C1322",
+   "uso": "Tarjetas, hojas inferiores, campos de texto y NavigationBar; también surfaceContainer. Antes #141220."
+  },
+  {
+   "token": "superficieAlta",
+   "hex": "#152036",
+   "uso": "Diálogos, menús, mini reproductor y portadas de reserva; también surfaceContainerHigh. Antes #1E1B2E."
+  },
+  {
+   "token": "superficieMaxima (nuevo)",
+   "hex": "#1F2C48",
+   "uso": "surfaceContainerHighest: pista de los Switch apagados, estado pulsado y snackbar oscuro."
+  },
+  {
+   "token": "contorno (nuevo)",
+   "hex": "#2A3A5E",
+   "uso": "outlineVariant: filetes de 1 px en tarjetas y hojas, pista inactiva del slider (en lugar de white24) y divisores."
+  },
+  {
+   "token": "acento",
+   "hex": "#4D94FF",
+   "uso": "Azul eléctrico: primary, slider, «SONANDO AHORA», iconos activos, borde con foco e indicador de la barra (con alpha 0,20, sale #172D53 aprox.). Antes #B69CFF."
+  },
+  {
+   "token": "acentoHielo (sustituye a acentoCalido)",
+   "hex": "#45C8FF",
+   "uso": "Cian hielo: secondary y tertiary, inicio (arriba a la izquierda) del degradado de marca y color de «Me gusta». Antes acentoCalido #FF8FB1 (rosa)."
+  },
+  {
+   "token": "azulProfundo (nuevo)",
+   "hex": "#3A7BFF",
+   "uso": "Final (abajo a la derecha) del degradado de botones y del logo."
+  },
+  {
+   "token": "azulNoche (nuevo, solo icono)",
+   "hex": "#2563FF",
+   "uso": "Tercera parada del degradado del logo. No lleva texto encima. También el círculo del widget de la pantalla de inicio, porque ahí el glifo es blanco."
+  },
+  {
+   "token": "tinta (nuevo)",
+   "hex": "#040814",
+   "uso": "Texto e iconos sobre el acento, el degradado, el oro y el rojo: onPrimary, onSecondary, onTertiary y onError. Sustituye a Colors.black87/black38 sobre el degradado. Es también la TINTA del logo."
+  },
+  {
+   "token": "texto (onSurface)",
+   "hex": "#E8EDF8",
+   "uso": "Texto principal en ColorScheme.onSurface: blanco ligeramente azulado. Donde el código pone Colors.white puede quedarse así."
+  },
+  {
+   "token": "textoSecundario",
+   "hex": "#A9B6D0",
+   "uso": "onSurfaceVariant: subtítulos y artista. Sustituye a white70/white60 si se quiere un gris con tinte azul. También el color de ListaAuto.nuncaEscuchadas."
+  },
+  {
+   "token": "textoTenue",
+   "hex": "#8896B3",
+   "uso": "Texto terciario de 11 px. Sustituye a Colors.white38 en TEXTO, que da 3,5:1 y no llega a AA; textoTenue da 4,67:1 o más en todas las superficies."
+  },
+  {
+   "token": "exito",
+   "hex": "#57D9A3",
+   "uso": "Descarga correcta y nivel de calidad «alta». Se conserva el verde menta de ahora, centralizado como token."
+  },
+  {
+   "token": "peligro",
+   "hex": "#FF5D5D",
+   "uso": "error y peligro: borrar, avisos y fallos. Rojo coral de tono 0°, sustituye al rosa-rojo #FF6B81 (351°). Encima siempre va tinta."
+  },
+  {
+   "token": "peligroFondo",
+   "hex": "#4A1717",
+   "uso": "errorContainer y fondo del snackbar de fallo. Antes #5C1F2B, un vino de tono 348°."
+  },
+  {
+   "token": "oro",
+   "hex": "#FFC857",
+   "uso": "Sellos HI-RES y SIN PÉRDIDA, estrellas de puntuación, radio sin pérdida y ListaAuto.sinPerdida. Se mantiene: es el complementario del azul, como el amarillo de Hi-Res en Tidal."
+  },
+  {
+   "token": "meGusta",
+   "hex": "#45C8FF",
+   "uso": "Alias de acentoHielo: corazones de favoritas, ListaAuto.meGusta y el glifo del atajo de Android."
+  },
+  {
+   "token": "veloSuave",
+   "hex": "#CC05070D",
+   "uso": "Primera parada del velo sobre la portada difuminada (paleta.dart y pantalla_previa.dart). Antes 0xCC08070C."
+  },
+  {
+   "token": "veloDenso",
+   "hex": "#F205070D",
+   "uso": "Segunda parada del velo. Antes 0xF208070C."
+  },
+  {
+   "token": "resplandor (nuevo, RadialGradient)",
+   "hex": "#244D94FF",
+   "uso": "Destello azul arriba a la izquierda en la cabecera de Inicio y Biblioteca: center Alignment(-0.6,-1.1), radius 1.2, de 0x244D94FF a 0x004D94FF."
+  },
+  {
+   "token": "primaryContainer / onPrimaryContainer",
+   "hex": "#123A80 / #D6E4FF",
+   "uso": "Contenedores primarios de Material, con 8,44:1. Sin fijarlos, M3 deja #294677 / #D7E2FF."
+  },
+  {
+   "token": "secondaryContainer / onSecondaryContainer",
+   "hex": "#173463 / #D6E4FF",
+   "uso": "ChoiceChip y SegmentedButton seleccionados, FilledButton.tonal y pista de los LinearProgressIndicator, con 9,6:1."
+  },
+  {
+   "token": "tertiaryContainer / onTertiaryContainer",
+   "hex": "#0E3A52 / #CDEFFF",
+   "uso": "Hay que fijarlos: tonalSpot los da en violeta (#573E5B)."
+  },
+  {
+   "token": "surfaceContainerLowest / surfaceContainerLow",
+   "hex": "#020308 / #090E19",
+   "uso": "Card y hoja inferior por defecto de M3, entre fondo y superficie."
+  },
+  {
+   "token": "outline",
+   "hex": "#6B7A9A",
+   "uso": "Bordes de componentes como OutlinedButton y Checkbox: 3,77:1 o más en todas las superficies, así que cumple el 3:1 de los componentes."
+  },
+  {
+   "token": "inverseSurface / onInverseSurface / inversePrimary",
+   "hex": "#E3EAF8 / #0C1322 / #1F5FD6",
+   "uso": "Snackbar claro de serie (15,4:1; la acción 4,74:1), o el oscuro propuesto en componentes."
+  },
+  {
+   "token": "Android atajo_fondo (values/colors.xml)",
+   "hex": "#13213D",
+   "uso": "Fondo de los atajos del lanzador. Antes #2A2140, morado."
+  },
+  {
+   "token": "Android atajo_fondo_me_gusta",
+   "hex": "#0B2A3D",
+   "uso": "Fondo del atajo «Me gusta». Antes #3A1C28, vino."
+  },
+  {
+   "token": "Android widget_fondo / widget_boton_central",
+   "hex": "#F00C1322 / #FF2563FF",
+   "uso": "Widget de la pantalla de inicio. El glifo blanco pasa de 3,78:1 a 4,88:1."
+  }
+ ],
+ "degradado_marca": [
+  "#45C8FF: acentoHielo, parada inicial (Alignment.topLeft) del degradado de botones y del logo",
+  "#3A7BFF: azulProfundo, parada final (Alignment.bottomRight) de Tema.degradado (botones, portadas vacías, barras de carga, logo de radio)",
+  "#2563FF: azulNoche, tercera parada SOLO para el logo (degradado de 3 paradas #45C8FF → #3A7BFF → #2563FF); no lleva texto encima"
+ ],
+ "logo": "Recomendado: la figura negra sobre el degradado azul, que es la variante B. Se generaron cuatro variantes con el mismo recorte que hace generar_icono.py y se compararon a 144 y 48 px. Están en /tmp/claude-0/-home-user-descargar-mp3-o-mp4/ead0e5f3-786f-5f6e-ad00-81549ad85a2b/scratchpad/icono/ (comparacion.png, pequenos.png) y el script en .../scratchpad/icono/prueba_icono.py.\n\n- A: dos paradas.\n- B: tres paradas.\n- C: tres paradas con un brillo blanco del 18 % arriba a la izquierda.\n- D: «neón», figura con el degradado y resplandor sobre negro #05070D.\n\nA 48 px sobre un fondo de pantalla oscuro, la D se pierde, que es justo lo que el docstring quería evitar. La B se lee en fondos claros y oscuros y es azul con negro sin ambigüedad. La D sirve como arte grande dentro de la app (pantalla vacía o «Acerca de»), no como icono del lanzador.\n\nCambios en movil/herramientas/generar_icono.py:\n1) Líneas 18-21, sustituir por:\n   ACENTO_HIELO = (69, 200, 255)   # #45C8FF\n   AZUL_PROFUNDO = (58, 123, 255)  # #3A7BFF\n   AZUL_NOCHE = (37, 99, 255)      # #2563FF\n   PARADAS = (ACENTO_HIELO, AZUL_PROFUNDO, AZUL_NOCHE)\n   TINTA = (4, 8, 20)              # #040814, igual que Tema.tinta\n2) Función degradado (líneas 32-47), docstring «de cian hielo a azul electrico». La rampa pasa a ser por tramos:\n   pasos = 2 * (lado - 1); tramos = len(PARADAS) - 1; rampa = []\n   for diagonal in range(pasos + 1):\n       t = diagonal / pasos * tramos; i = min(int(t), tramos - 1); f = t - i\n       rampa.append(tuple(round(a + (b - a) * f) for a, b in zip(PARADAS[i], PARADAS[i + 1], strict=True)))\n   El resto queda igual: putdata con rampa[x + y].\n3) Opcional, variante C: después de degradado(), hacer alpha_composite de una elipse blanca con alpha 46, en la caja (-0,35L, -0,45L, 0,75L, 0,55L) y desenfoque gaussiano de 0,12L.\n\nFondo: el fondo adaptativo (icono_fondo.png) es el mismo degradado de tres paradas a sangre. El primer plano y el monocromo siguen siendo la silueta en TINTA con alpha.\n\nContraste de la figura (TINTA) sobre el fondo: 10,44:1 sobre #45C8FF, 5,20:1 sobre #3A7BFF y 4,10:1 en la esquina #2563FF. Todo supera el 3:1 que se pide a un gráfico.\n\nDespués: ejecutar python movil/herramientas/generar_icono.py y, desde movil/, dart run flutter_launcher_icons (configurado en pubspec.yaml, líneas 102-111). Cambiar también la docstring del módulo («repinta en tinta sobre el degradado azul de la marca»).",
+ "contraste": "Ratios WCAG 2.x calculados con la luminancia relativa sRGB, componiendo el alpha de Colors.whiteXX (white70=B3, white60=99, white54=8A, white38=61, white24=3D) sobre cada fondo.\n\nTexto sobre fondo #05070D / superficie #0C1322 / superficieAlta #152036 / superficieMaxima #1F2C48:\n- blanco: 20,14 / 18,55 / 16,26 / 13,89\n- onSurface #E8EDF8: 17,17 en fondo y 11,84 en superficieMaxima\n- white70: 9,82 / 9,44 / 8,62 / 7,61\n- white60: 7,33 / 7,16 / 6,65 / 6,02\n- white54: 6,07 / 6,03 / 5,69 / 5,17\n- white38: 3,46 / 3,57 / 3,51 / 3,32. No llega a AA para texto, y el tema violeta ya daba lo mismo (3,47 / 3,56 / 3,56). Por eso se propone textoTenue.\n- white24: 2,0 a 2,2 (solo decorativo)\n- textoSecundario #A9B6D0: 9,87 / 9,09 / 7,97 / 6,80\n- textoTenue #8896B3: 6,77 / 6,24 / 5,47 / 4,67\n\nAcentos sobre las cuatro superficies (mismo orden):\n- acento #4D94FF: 6,71 / 6,18 / 5,42 / 4,63. Es AA para texto en todas. El #3D8BFF se descartó porque se quedaba en 4,19 sobre superficieMaxima. El violeta actual daba 8,78 / 8,08 / 7,34.\n- acentoHielo #45C8FF: 10,51 / 9,68 / 8,48 / 7,25\n- oro #FFC857: 13,09 / 12,06 / 10,57 / 9,03\n- exito #57D9A3: 11,37 sobre fondo\n- peligro #FF5D5D: 6,69 / 6,16 / 5,40 / 4,61\n\nTinta #040814 sobre colores de marca (botones e iconos):\n- sobre acento 6,66; acentoHielo 10,44; azulProfundo 5,20; azulNoche 4,10 (solo en el logo); peligro 6,64; oro 13,00; exito 11,49.\n- Todo el degradado de botones (#45C8FF → #3A7BFF) queda en 5,20 o más con tinta y en 4,93 o más con Colors.black87, así que el texto de BotonDegradado (16 px, w800) cumple AA.\n\nLo que obliga a fijar valores:\n- El onPrimary que genera M3 a partir de la semilla (#0E2F60) da solo 3,97 sobre #4D94FF, por debajo de AA. Hay que fijar onPrimary = tinta, porque los FilledButton sin foregroundColor explícito lo usan (dialogo_etiquetas:117, hoja_listas:177, pantalla_biblioteca:154/458).\n- El blanco sobre el acento da 3,00 y sobre el rojo 3,01: nunca texto blanco sobre ellos.\n\nContenedores:\n- onPrimaryContainer sobre #123A80: 8,44\n- onSecondaryContainer sobre #173463: 9,60\n- onTertiaryContainer sobre #0E3A52: 9,96\n- onErrorContainer sobre #4A1717: 11,3; peligro sobre peligroFondo 4,89; blanco 14,73\n- acento sobre el indicador de navegación (#172D53): 4,55; blanco 13,67\n- outline #6B7A9A: 4,31 sobre superficie y 3,77 sobre superficieAlta (cumple 3:1 de componentes)\n- inverseSurface #E3EAF8 con onInverse: 15,36; inversePrimary 4,74\n\nAndroid:\n- glifo #4D94FF sobre atajo #13213D: 5,33 (el violeta de antes daba 6,61)\n- me gusta #45C8FF sobre #0B2A3D: 7,76\n- glifo blanco del widget sobre #2563FF: 4,88 (antes 3,78 sobre #8E6CF0)\n- texto blanco del widget sobre #F00C1322: 18,55",
+ "colores_sueltos_a_cambiar": [
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 11,
+   "actual": "fondo = Color(0xFF08070C)",
+   "propuesto": "Color(0xFF05070D)"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 12,
+   "actual": "superficie = Color(0xFF141220)",
+   "propuesto": "Color(0xFF0C1322)"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 13,
+   "actual": "superficieAlta = Color(0xFF1E1B2E)",
+   "propuesto": "Color(0xFF152036); añadir debajo superficieMaxima 0xFF1F2C48, contorno 0xFF2A3A5E, azulProfundo 0xFF3A7BFF, tinta 0xFF040814, textoSecundario 0xFFA9B6D0, textoTenue 0xFF8896B3, exito 0xFF57D9A3, peligro 0xFFFF5D5D, peligroFondo 0xFF4A1717, oro 0xFFFFC857, meGusta = acentoHielo, veloSuave 0xCC05070D, veloDenso 0xF205070D"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 14,
+   "actual": "acento = Color(0xFFB69CFF) (violeta)",
+   "propuesto": "Color(0xFF4D94FF)"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 15,
+   "actual": "acentoCalido = Color(0xFFFF8FB1) (rosa)",
+   "propuesto": "Renombrar a acentoHielo = Color(0xFF45C8FF) y actualizar sus 4 usos (dialogo_etiquetas:107, fila_pista:221, pantalla_radio:241 y tema.dart:19/33)"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 19,
+   "actual": "colors: <Color>[acento, acentoCalido]",
+   "propuesto": "colors: <Color>[acentoHielo, azulProfundo] (0xFF45C8FF → 0xFF3A7BFF), con begin topLeft y end bottomRight"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 28,
+   "actual": ".copyWith(surface, surfaceContainer, surfaceContainerHigh, primary, secondary: acentoCalido)",
+   "propuesto": "Usar un static final ColorScheme esquema con la lista completa del primer cambio de componentes, para que tertiary no quede en #DDBCE0 ni error en #FFB4AB, y que construir() lo use."
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 83,
+   "actual": "inactiveTrackColor: Colors.white24",
+   "propuesto": "contorno (0xFF2A3A5E)"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 121,
+   "actual": "Tema.acento.withValues(alpha: 0.35), blurRadius 24",
+   "propuesto": "Tema.acento.withValues(alpha: 0.45), blurRadius 28, offset (0, 10): brillo azul"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 138,
+   "actual": "Icon(icono, color: Colors.black87)",
+   "propuesto": "Tema.tinta"
+  },
+  {
+   "archivo": "movil/lib/tema.dart",
+   "linea": 149,
+   "actual": "color: Colors.black87",
+   "propuesto": "Tema.tinta"
+  },
+  {
+   "archivo": "movil/lib/paleta.dart",
+   "linea": 23,
+   "actual": "neutra = ColorScheme.fromSeed(seedColor: Tema.acento).copyWith(surface: Tema.fondo)",
+   "propuesto": "neutra = Tema.esquema. Sin portada, el reproductor queda en azul #4D94FF y cian, no en el pastel #ACC7FF ni con tertiary #DDBCE0. Las pruebas comparan contra Paleta.neutra, así que siguen pasando."
+  },
+  {
+   "archivo": "movil/lib/paleta.dart",
+   "linea": 136,
+   "actual": "const Color(0xCC08070C)",
+   "propuesto": "Tema.veloSuave (0xCC05070D)"
+  },
+  {
+   "archivo": "movil/lib/paleta.dart",
+   "linea": 137,
+   "actual": "const Color(0xF208070C)",
+   "propuesto": "Tema.veloDenso (0xF205070D)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_previa.dart",
+   "linea": 165,
+   "actual": "<Color>[Color(0xCC08070C), Color(0xF208070C), Tema.fondo]",
+   "propuesto": "<Color>[Tema.veloSuave, Tema.veloDenso, Tema.fondo]"
+  },
+  {
+   "archivo": "movil/lib/pantalla_previa.dart",
+   "linea": 317,
+   "actual": "CircularProgressIndicator(color: Colors.black54)",
+   "propuesto": "Color(0x99040814) (tinta al 60 %)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_previa.dart",
+   "linea": 322,
+   "actual": "color: Colors.black87",
+   "propuesto": "Tema.tinta"
+  },
+  {
+   "archivo": "movil/lib/pantalla_previa.dart",
+   "linea": 347,
+   "actual": "Color(0x33FF6B81)",
+   "propuesto": "Color(0x33FF5D5D)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_previa.dart",
+   "linea": 398,
+   "actual": "Color(0xFF57D9A3)",
+   "propuesto": "Tema.exito"
+  },
+  {
+   "archivo": "movil/lib/calidad.dart",
+   "linea": 194,
+   "actual": "_oro = Color(0xFFFFC857)",
+   "propuesto": "Tema.oro (el mismo hex; añadir import 'tema.dart')"
+  },
+  {
+   "archivo": "movil/lib/calidad.dart",
+   "linea": 195,
+   "actual": "_verde = Color(0xFF57D9A3)",
+   "propuesto": "Tema.exito (el mismo hex)"
+  },
+  {
+   "archivo": "movil/lib/dialogos.dart",
+   "linea": 22,
+   "actual": "Icon(Icons.warning_amber_rounded, color: Color(0xFFFF6B81))",
+   "propuesto": "Tema.peligro (0xFFFF5D5D)"
+  },
+  {
+   "archivo": "movil/lib/dialogos.dart",
+   "linea": 33,
+   "actual": "backgroundColor: peligro ? Color(0xFFFF6B81) : Tema.acento",
+   "propuesto": "peligro ? Tema.peligro : Tema.acento"
+  },
+  {
+   "archivo": "movil/lib/dialogos.dart",
+   "linea": 34,
+   "actual": "foregroundColor: peligro ? null : Colors.black",
+   "propuesto": "Tema.tinta en los dos casos (blanco sobre #FF5D5D da 3,01)"
+  },
+  {
+   "archivo": "movil/lib/favoritas.dart",
+   "linea": 67,
+   "actual": "meGusta(... Color(0xFFFF6B81))",
+   "propuesto": "Tema.meGusta (0xFF45C8FF); añadir import 'tema.dart'"
+  },
+  {
+   "archivo": "movil/lib/favoritas.dart",
+   "linea": 68,
+   "actual": "recientes(... Color(0xFF57D9A3))",
+   "propuesto": "Tema.exito"
+  },
+  {
+   "archivo": "movil/lib/favoritas.dart",
+   "linea": 69,
+   "actual": "masEscuchadas(... Color(0xFFFFC857))",
+   "propuesto": "Tema.acento (0xFF4D94FF), para no repetir el oro de sinPerdida"
+  },
+  {
+   "archivo": "movil/lib/favoritas.dart",
+   "linea": 70,
+   "actual": "nuncaEscuchadas(... Color(0xFF7FB3FF))",
+   "propuesto": "Tema.textoSecundario (0xFFA9B6D0), para no confundirse con el cian de meGusta"
+  },
+  {
+   "archivo": "movil/lib/favoritas.dart",
+   "linea": 71,
+   "actual": "sinPerdida(... Color(0xFFFFC857))",
+   "propuesto": "Tema.oro"
+  },
+  {
+   "archivo": "movil/lib/fila_pista.dart",
+   "linea": 115,
+   "actual": "Icon(Icons.favorite_rounded, color: Color(0xFFFF6B81))",
+   "propuesto": "Tema.meGusta"
+  },
+  {
+   "archivo": "movil/lib/fila_pista.dart",
+   "linea": 221,
+   "actual": "accion.destacada ? Tema.acentoCalido : null (es «Eliminar descarga»)",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/dialogo_etiquetas.dart",
+   "linea": 107,
+   "actual": "TextStyle(color: Tema.acentoCalido) (texto de error)",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/hoja_mejor_calidad.dart",
+   "linea": 127,
+   "actual": "const Color(0xFFFFC857)",
+   "propuesto": "Tema.oro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_anime.dart",
+   "linea": 131,
+   "actual": "Icon(Icons.star_rounded, color: Color(0xFFFFC857))",
+   "propuesto": "Tema.oro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_anime.dart",
+   "linea": 80,
+   "actual": "<Color>[Color(0x66000000), Color(0x00000000), Tema.fondo]",
+   "propuesto": "Opcional: <Color>[Color(0x66040814), Color(0x00040814), Tema.fondo], velo con tinte azul"
+  },
+  {
+   "archivo": "movil/lib/pantalla_ver.dart",
+   "linea": 314,
+   "actual": "Icon(Icons.star_rounded, color: Color(0xFFFFC857))",
+   "propuesto": "Tema.oro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_radio.dart",
+   "linea": 216,
+   "actual": "emisora.sinPerdida ? Color(0xFFFFC857) : Colors.white54",
+   "propuesto": "Tema.oro : Colors.white54"
+  },
+  {
+   "archivo": "movil/lib/pantalla_radio.dart",
+   "linea": 241,
+   "actual": "favorita ? Tema.acentoCalido : Colors.white38",
+   "propuesto": "Tema.meGusta : Colors.white38"
+  },
+  {
+   "archivo": "movil/lib/pantalla_radio.dart",
+   "linea": 263,
+   "actual": "Icon(Icons.radio_rounded, color: Colors.black45)",
+   "propuesto": "Color(0x73040814) (tinta al 45 %)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_biblioteca.dart",
+   "linea": 736,
+   "actual": "Icon(Icons.queue_music_rounded, color: Colors.black38)",
+   "propuesto": "Color(0x73040814)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_biblioteca.dart",
+   "linea": 771,
+   "actual": "Icon(Icons.delete_outline_rounded, color: Color(0xFFFF6B81))",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_biblioteca.dart",
+   "linea": 773,
+   "actual": "Text('Eliminar lista', style: TextStyle(color: Color(0xFFFF6B81)))",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 159,
+   "actual": "Color(0xFF57D9A3)",
+   "propuesto": "Tema.exito"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 215,
+   "actual": "backgroundColor: fallo ? Color(0xFF5C1F2B) : null",
+   "propuesto": "Tema.peligroFondo (0xFF4A1717)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 220,
+   "actual": "fallo ? Color(0xFFFF6B81) : Color(0xFF57D9A3)",
+   "propuesto": "fallo ? Tema.peligro : Tema.exito"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 961,
+   "actual": "Icon(Icons.block_rounded, color: Color(0xFFFF6B81))",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 966,
+   "actual": "TextStyle(color: Color(0xFFFF6B81))",
+   "propuesto": "Tema.peligro"
+  },
+  {
+   "archivo": "movil/lib/pantalla_descarga.dart",
+   "linea": 1193,
+   "actual": "fallo ? Color(0x33FF6B81) : Color(0x3357D9A3)",
+   "propuesto": "Color(0x33FF5D5D) : Color(0x3357D9A3)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_lista_auto.dart",
+   "linea": 167,
+   "actual": "marcada ? Color(0xFFFF6B81) : color",
+   "propuesto": "Tema.meGusta"
+  },
+  {
+   "archivo": "movil/lib/pantalla_inicio.dart",
+   "linea": 206,
+   "actual": "Icon(Icons.music_note_rounded, color: Colors.black38)",
+   "propuesto": "Color(0x73040814)"
+  },
+  {
+   "archivo": "movil/lib/pantalla_inicio.dart",
+   "linea": 291,
+   "actual": "color: Colors.black87 (icono sobre círculo con degradado)",
+   "propuesto": "Tema.tinta"
+  },
+  {
+   "archivo": "movil/lib/pantalla_inicio.dart",
+   "linea": 504,
+   "actual": "Icon(Icons.queue_music_rounded, color: Colors.black38)",
+   "propuesto": "Color(0x73040814)"
+  },
+  {
+   "archivo": "movil/lib/portadas.dart",
+   "linea": 29,
+   "actual": "Icon(icono, color: Colors.black38)",
+   "propuesto": "Color(0x73040814)"
+  },
+  {
+   "archivo": "movil/lib/reproductor.dart",
+   "linea": 489,
+   "actual": "colors: <Color>[colores.primary, colores.tertiary]",
+   "propuesto": "<Color>[colores.secondary, colores.primary]. tonalSpot gira el terciario hacia el rosa: una portada azul #1E5BD8 da tertiary #E2BBDC. secondary conserva el tono de la portada, y con la paleta neutra da justo el degradado de marca #45C8FF → #4D94FF."
+  },
+  {
+   "archivo": "movil/lib/pantalla_ajustes.dart",
+   "linea": 103,
+   "actual": "foregroundColor: Colors.black",
+   "propuesto": "Tema.tinta (y lo mismo en las líneas 304 y 396; pantalla_episodio.dart:276)"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/values/colors.xml",
+   "linea": 4,
+   "actual": "atajo_fondo #2A2140 (morado)",
+   "propuesto": "#13213D; añadir <color name=\"fondo\">#05070D</color>"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/values/colors.xml",
+   "linea": 5,
+   "actual": "atajo_fondo_me_gusta #3A1C28",
+   "propuesto": "#0B2A3D"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/glifo_continuar.xml",
+   "linea": 8,
+   "actual": "fillColor #B69CFF",
+   "propuesto": "#4D94FF"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/glifo_descargar.xml",
+   "linea": 8,
+   "actual": "fillColor #B69CFF",
+   "propuesto": "#4D94FF"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/glifo_aleatorio.xml",
+   "linea": 8,
+   "actual": "fillColor #B69CFF",
+   "propuesto": "#4D94FF"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/glifo_me_gusta.xml",
+   "linea": 8,
+   "actual": "fillColor #FF6B81",
+   "propuesto": "#45C8FF"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/widget_boton_central.xml",
+   "linea": 3,
+   "actual": "solid #FF8E6CF0 (violeta)",
+   "propuesto": "#FF2563FF"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable/widget_fondo.xml",
+   "linea": 3,
+   "actual": "solid #F01A1626",
+   "propuesto": "#F00C1322"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/drawable-v21/launch_background.xml",
+   "linea": 4,
+   "actual": "?android:colorBackground (blanco con el teléfono en modo claro)",
+   "propuesto": "@color/fondo, para que no haya destello blanco al abrir (minSdk 29, así que se usa este archivo y no drawable/)"
+  },
+  {
+   "archivo": "movil/android/app/src/main/res/values/styles.xml",
+   "linea": 16,
+   "actual": "windowBackground ?android:colorBackground",
+   "propuesto": "@color/fondo; lo mismo en values-night/styles.xml:16"
+  }
+ ],
+ "cambios_componentes": [
+  "1. tema.dart: un solo esquema completo, `static final ColorScheme esquema = ColorScheme.fromSeed(seedColor: acento, brightness: Brightness.dark).copyWith(...)` con: primary acento, onPrimary tinta, primaryContainer 0xFF123A80, onPrimaryContainer 0xFFD6E4FF, secondary acentoHielo, onSecondary tinta, secondaryContainer 0xFF173463, onSecondaryContainer 0xFFD6E4FF, tertiary acentoHielo, onTertiary tinta, tertiaryContainer 0xFF0E3A52, onTertiaryContainer 0xFFCDEFFF, error peligro, onError tinta, errorContainer peligroFondo, onErrorContainer 0xFFFFDCDC, surface fondo, onSurface 0xFFE8EDF8, onSurfaceVariant textoSecundario, surfaceContainerLowest 0xFF020308, surfaceContainerLow 0xFF090E19, surfaceContainer superficie, surfaceContainerHigh superficieAlta, surfaceContainerHighest superficieMaxima, outline 0xFF6B7A9A, outlineVariant contorno, inverseSurface 0xFFE3EAF8, onInverseSurface superficie, inversePrimary 0xFF1F5FD6, surfaceTint acento. Para no dejar nada violeta, añadir tertiaryFixed 0xFFCDEFFF, tertiaryFixedDim acentoHielo, onTertiaryFixed 0xFF001E2C, onTertiaryFixedVariant 0xFF0E3A52, surfaceBright 0xFF26324F y surfaceDim fondo. Comprobado con Flutter en el contenedor: sin esto, tertiaryFixed queda en #FAD8FD y tertiaryFixedDim en #DDBCE0, de tono 295°. La propuesta compila y todos los roles quedan entre 198° y 225°, salvo el rojo de error (0°).",
+  "2. BotonDegradado (tema.dart:96-163): degradado #45C8FF → #3A7BFF, icono y texto en Tema.tinta, brillo BoxShadow(acento al 0,45, desenfoque 28, desplazamiento (0, 10)). Opcional: filete interior de 1 px blanco al 12 % (0x1FFFFFFF) para dar aspecto de cristal.",
+  "3. NavigationBarThemeData: backgroundColor Color(0xF205070D) (fondo casi opaco) con filete superior de 1 px en contorno. Indicador acento al 0,20 (≈#172D53). iconTheme: seleccionado acento (4,55:1 sobre el indicador), sin seleccionar textoTenue. labelTextStyle: seleccionado onSurface w800, sin seleccionar textoTenue w600.",
+  "4. Nuevos temas de componentes en construir(). progressIndicatorTheme: color acento, linearTrackColor contorno. switchTheme: el de M3 con onPrimary tinta ya da pulgar oscuro sobre pista azul. chipTheme: selectedColor secondaryContainer, side BorderSide(color: contorno) cuando no está elegido. dialogTheme: backgroundColor superficieAlta, radio 28. bottomSheetTheme: backgroundColor superficie, showDragHandle, dragHandleColor contorno, radio superior 28. snackBarTheme (opcional, oscuro como Tidal): backgroundColor superficieMaxima, contentTextStyle blanco, actionTextColor acentoHielo, radio 16, flotante. cardTheme: color superficie, side BorderSide(color: Color(0x0FFFFFFF)).",
+  "5. paleta.dart: `Paleta.neutra = Tema.esquema`, para que sin carátula el reproductor salga con el azul exacto de la marca. VeloDePaleta usa Tema.veloSuave y Tema.veloDenso. El copyWith(surface: Tema.fondo) de las portadas se queda: así el tinte de la carátula sigue mandando sin aclarar el fondo, que es la queja con Apple Music.",
+  "6. reproductor.dart:489, _BotonGrande: cambiar [colores.primary, colores.tertiary] por [colores.secondary, colores.primary]. Con tonalSpot, el terciario de una portada azul sale rosa (#E2BBDC, medido). El secundario mantiene el tono de la carátula, y con la paleta neutra reproduce el degradado de marca cian → azul. El icono black87 o tinta sigue por encima de 4,5:1, porque secondary es tono 80.",
+  "7. Resplandor de marca: en Inicio y Biblioteca, detrás de la cabecera, un DecoratedBox(decoration: BoxDecoration(gradient: Tema.resplandor)) con RadialGradient(center: Alignment(-0.6, -1.1), radius: 1.2, colors: [Color(0x244D94FF), Color(0x004D94FF)]). Es el destello de YouTube Music y la «superficie de marca» del 8 % de Material; el texto encima sigue en 15:1 o más.",
+  "8. Centralizar los estados en Tema (peligro, peligroFondo, exito, oro, meGusta) y no repetir hex en 14 archivos; calidad.dart y favoritas.dart necesitan import 'tema.dart'. La semántica de SelloCalidad no cambia: HI-RES y SIN PÉRDIDA en oro, alta en verde. Los colores de ListaAuto quedan bien distintos: cian, verde, azul, plata y oro.",
+  "9. Accesibilidad del texto tenue: Colors.white38 en TEXTO da 3,5:1, ya fallaba antes. Sustituirlo por Tema.textoTenue (#8896B3, 4,67:1 o más) en subtítulos de 11 px. En iconos decorativos puede quedarse white38.",
+  "10. Android: atajos, glifos, widget y fondo de arranque con los hex de la lista. El windowBackground y el launch_background de v21 pasan a @color/fondo, para que no salga un fogonazo blanco antes del primer fotograma con el teléfono en modo claro.",
+  "11. Icono: aplicar la variante B de generar_icono.py (tres paradas y TINTA #040814), regenerar con dart run flutter_launcher_icons y usar la variante D (neón azul sobre negro) solo como ilustración grande dentro de la app, por ejemplo en la pantalla vacía de Inicio (pantalla_inicio.dart:197-207) en lugar del cuadrado con degradado."
+ ],
+ "tipografia_y_formas": "Tipografía: mantener la fuente del sistema (Roboto). La app es local y google_fonts descargaría las fuentes en tiempo de ejecución; si se quiere otra, habría que incluirla en assets con licencia OFL.\n\nEscala en la línea de Material 3 Expressive, con títulos de mucho peso y letras juntas:\n- displaySmall w800, -1 y headlineMedium w800, -0,6: ya están.\n- Añadir titleLarge w800 -0,4 para los encabezados de sección.\n- labelSmall w800 de 10 a 11 px, letterSpacing 1,1, en mayúsculas y color acento para antetítulos como «SONANDO AHORA» o «CONTINUAR ESCUCHANDO» (ya se hace a mano en pantalla_inicio.dart:254-259; conviene centralizarlo).\n- Cifras: FontFeature.tabularFigures() en tiempos de reproducción, duraciones y en SelloCalidad (kbps/kHz/bit), con aire técnico al estilo Nothing y sin que bailen.\n\nFormas:\n- Radios grandes: 22 en botones y tarjetas, 26 en campos, 28 en hojas y diálogos, 14 en chips, 16 en el snackbar.\n- Filete de 1 px (contorno #2A3A5E, o blanco al 6 % 0x0FFFFFFF) en tarjetas y hojas para el borde de cristal sobre el negro azulado.\n- Profundidad por superficies más claras (fondo #05070D, luego #0C1322, #152036, #1F2C48), como Spotify, en lugar de sombras grises.\n- La única sombra es el brillo azul del acento al 0,45 con desenfoque 28 en el botón principal y en el de reproducir.\n- Transiciones: seguir con FadeForwardsPageTransitionsBuilder y InkSparkle (ya en tema.dart). Las escalas con rebote (TweenSequence 0,4 → 1,25 → 1), como el corazón de pantalla_lista_auto.dart, encajan con las animaciones con muelle de M3 Expressive y se pueden extender al botón de reproducir."
+}

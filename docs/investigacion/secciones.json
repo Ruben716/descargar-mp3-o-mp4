@@ -1,0 +1,191 @@
+{
+ "estado_actual": "Armazón (/home/user/descargar-mp3-o-mp4/movil/lib/main.dart, clase Inicio): un Scaffold con un IndexedStack perezoso (`_vistas` solo construye una pestaña cuando se visita, aunque la 0 se construye siempre), el MiniReproductor fijo y debajo un NavigationBar con 3 destinos: 0 'Inicio' (PantallaInicio), 1 'Descargar' (PantallaDescarga) y 2 'Biblioteca' (PantallaBiblioteca). La 3 'Ver' (PantallaVer, anime) está aparcada con mostrarVer=false. Los índices viven en navegacion.dart (inicio=0, descargar=1, biblioteca=2, ver=3; `Navegacion.irA`). Los usan:\n- atajos.dart: los atajos del icono llevan 'descargar' a 1, y 'continuar', 'aleatorio' y 'me_gusta' a 2.\n- main.dart: `_alRecibirEnlace` lleva a 1 lo que llega por `Nucleo.enlaceCompartido`. `_irA` recarga Inicio (0) y Biblioteca (2) con literales.\n\nINICIO (pantalla_inicio.dart)\n- Cabecera: saludo según la hora, 'N canciones · M listas', IconButton con tooltip 'Ajustes' que abre PantallaAjustes, y botón con tooltip 'Buscar algo nuevo' que lleva a Descargar.\n- Biblioteca vacía: 'Empieza tu biblioteca', el botón 'Buscar musica' y la tarjeta 'Radio en vivo'.\n- Con canciones: tarjeta CONTINUAR ESCUCHANDO / SONANDO AHORA, tarjeta 'Radio en vivo' (abre PantallaRadio) y tres carruseles: 'Lo que mas oyes' (Catalogo.masEscuchadas, solo con 3 o más), 'Anadido recientemente' (los 10 primeros de Nucleo.biblioteca()) y 'Tus listas'. Todos tienen 'Ver todo', que lleva a Biblioteca.\n- No hay nada personalizado ni de descubrimiento.\n\nDESCARGAR (pantalla_descarga.dart)\n- Un único TextField 'Busca o pega un enlace' con 'Pegar'.\n- Fichas de Fuente: Todas, YouTube, SoundCloud, Audius, Bandcamp, Archive, Jamendo, hearthis y Podcasts. 'Todas' pregunta en paralelo a las de música y ordena por calidad real.\n- Importar listas, seguir una lista (Suscripciones), la hoja '¿Como lo quieres?', la vista previa y el estado vacío _Vacio 'Dos formas de encontrar algo'.\n- Los podcasts solo se alcanzan eligiendo aquí la ficha Podcasts.\n\nBIBLIOTECA (pantalla_biblioteca.dart)\n- Arriba, 'Buscar en lo que tienes' y 'Ordenar'. Fichas Canciones, Artistas, Videos y Listas.\n- Canciones: Reproducir y Aleatorio sobre ListaConSecciones.\n- Artistas: abre PantallaArtista, con los discos de cada artista (Albumes.agrupar).\n- Listas: fichas de ListaAuto (Me gusta, Escuchadas hace poco, Lo mas escuchado, Sin escuchar todavia, Sin perdida, que abren PantallaListaAuto), luego 'TUS LISTAS' y 'Nueva lista'.\n- Menú de cada pista (fila_pista.dart): Me gusta, Radio de esta cancion (emisora.dart), anadir a lista, etiquetas, tono, Buscar mejor calidad y eliminar.\n\nRADIO (pantalla_radio.dart, se abre desde Inicio): buscador y fichas Populares, Favoritas, Peru, Sin perdida y géneros. Usa RadioMundial (Radio Browser, inyectable con `transporte`) y RadiosFavoritas (SharedPreferences 'radios_favoritas_v1').\n\nAJUSTES (pantalla_ajustes.dart, se abre desde Inicio): SONIDO (Volumen parejo, Saltar silencios, Ecualizador AutoEQ, Fundido), LISTAS QUE SIGUES, COPIA DE SEGURIDAD y ACERCA DE.\n\nREPRODUCTOR (reproductor.dart) y barra inferior\n- Portada a sangre que se desliza para cambiar de canción, letras con traducción (PanelLetras) y sello de calidad real.\n- Botones Aleatorio, Repetición, Velocidad, A-B y ±10 s; Me gusta, temporizador y cola (hoja_cola.dart).\n- Menú con Ecualizador, Ver videoclip, Fundido y Compartir.\n- MiniReproductor (mini_reproductor.dart): barra de la pista, o barra EN VIVO si suena la radio.\n\nDATOS DISPONIBLES\n- catalogo.dart, SQLite versión 8: descargas, letras, escuchas (uri, veces, ultima), calidades (codec, kbps, hz, bits), favoritas (uri, fecha) y volumenes.\n- En SharedPreferences: Listas, Suscripciones, RadiosFavoritas y Posiciones.audio (audios largos a medias).\n- Elemento trae artista, tema, álbum, número de pista, fecha y duración.\n- No hay historial por día, ni BPM ni energía, ni género.",
+ "propuesta_navegacion": "PRINCIPIO: no tocar los índices 0, 1 y 2 ni las etiquetas 'Inicio', 'Descargar' y 'Biblioteca' (las pruebas dependen de ellas). Se hace en dos fases.\n\nFASE 1 (no cambia ninguna prueba): se quedan las 3 pestañas.\n- 'Explorar' (pantalla_explorar.dart) se añade como pantalla que se abre con Navigator.push, igual que hoy Radio y Ajustes. Se entra desde:\n  - un icono en la cabecera de Inicio (tooltip 'Explorar');\n  - la tarjeta final de Inicio 'Explora radio, podcasts y sin perdida';\n  - el 'Encontrar mas' de la sección Sin perdida;\n  - tres fichas en el estado vacío de Descargar (_Vacio).\n- La Radio en vivo pasa a colgar de Explorar, pero su tarjeta sigue en Inicio.\n- 'Pidele a Tumbao' es otra pantalla de ese tipo (pantalla_pidele.dart), que se abre desde una pastilla en Inicio y otra en Explorar. No es pestaña.\n- El DJ automático no es un sitio al que navegar. Vive en el reproductor, la cola, el fundido y Ajustes, y en Inicio aparece solo como 'Sesion DJ' dentro de Tus mixes.\n\nFASE 2: Explorar pasa a ser pestaña.\n- Opción A (recomendada): ponerla al final, Inicio(0) · Descargar(1) · Biblioteca(2) · Explorar(3), y Ver pasa a 4.\n  - Cambios en navegacion.dart: explorar=3 y ver=4.\n  - Cambios en main.dart: un destino nuevo con Icons.explore_outlined / Icons.explore_rounded, construido con `_siSeHaVisto(3, ...)` para que siga siendo perezoso; `_irA` y las recargas con Navegacion.* en vez de literales; mostrarVer apunta al índice 4.\n  - Solo cambia una prueba: 'la pestania Ver no sale mientras esta aparcada' (L2980, hasLength(3) pasa a 4).\n- Opción B, orden tipo Apple Music (Inicio · Explorar · Descargar · Biblioteca): es más natural, pero desplaza Descargar a 2 y Biblioteca a 3.\n  - Obliga a reescribir L502, L2782, L2798 y L2980, mejor usando Navegacion.descargar y Navegacion.biblioteca en vez de números.\n- No conviene renombrar 'Descargar' a 'Buscar': rompe el ayudante abrir(), que usan 33 pruebas.\n\nCONEXIONES NUEVAS\n- `Navegacion.busquedaPedida`, un ValueNotifier<({String texto, Fuente fuente})?>. main.dart lo escucha y lleva a Descargar; PantallaDescarga lo atiende igual que `_atenderCompartido`, pero fijando antes la fuente (Podcasts, Jamendo, Archive, Commons…). Explorar lo usa para ir a una fuente concreta.\n- Para que Pídele busque en internet basta con `Nucleo.enlaceCompartido.value = texto`: eso ya busca un nombre en Descargar (lo cubre la prueba 'un nombre compartido se busca directamente').\n- PantallaRadio gana un parámetro opcional `inicial` (FiltroRadio) para abrirse en 'Sin perdida', 'Favoritas' o un género; `const PantallaRadio()` sigue funcionando.\n- Opcional: un atajo de icono 'pidele' en movil/android/app/src/main/res/xml/atajos.xml y en Atajos.atender. Los atajos que ya existen no cambian.\n\nPRIORIDAD (impacto frente a esfuerzo)\n- P1 (poco esfuerzo, ninguna prueba que cambiar): Accesos rápidos, Recién descargado, Radio favorita, Sin pérdida, Episodios a medias y Explorar como pantalla.\n- P2 (esfuerzo medio, sin cambiar el esquema de la base de datos): Hecho para ti y Mix por artista, la colocación y pantalla de Pídele a Tumbao, y las portadas HD.\n- P3 (mucho esfuerzo o pruebas a cambiar a propósito): DJ automático y mixes por estado de ánimo (catálogo v9, cambian 3 comprobaciones), fuentes nuevas dentro de 'Todas' (cambia 1), Explorar como pestaña (cambia 1), y las fichas Discos y Podcasts en Biblioteca.",
+ "secciones_nuevas": [
+  {
+   "nombre": "P1 · Accesos rapidos (rejilla tipo Spotify)",
+   "donde": "Inicio, bajo la cabecera y la pastilla Pidele; solo aparece si la biblioteca no está vacía y al menos una ficha tiene contenido",
+   "que_muestra": "Rejilla de 2 columnas y hasta 3 filas de fichas compactas (portada o mosaico de 48 px y el nombre): Me gusta, Lo mas escuchado, Sin perdida, la última lista abierta, Tu radio (la última emisora favorita, que suena en vivo al tocarla) y el Mix de tu artista más oído. Una ficha vacía se oculta.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/favoritas.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_lista_auto.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/radio_mundial.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/portadas.dart"
+   ],
+   "datos_que_usa": "Favoritas/Catalogo.favoritas, Catalogo.masEscuchadas, Catalogo.sinPerdida, Listas.instancia, RadiosFavoritas.todas y Artistas.agrupar(biblioteca)",
+   "esfuerzo": "bajo"
+  },
+  {
+   "nombre": "P1 · Recien descargado",
+   "donde": "Inicio, en el sitio de 'Anadido recientemente' (queda arriba, justo después de Continuar o de Hecho para ti)",
+   "que_muestra": "Las 10 últimas descargas con su sello de calidad (dorado si llegaron sin pérdida) y cuándo llegaron ('hoy', 'ayer'). 'Ver todo' abre Biblioteca > Canciones por Mas reciente. Si no hay fecha, se muestran igualmente las 10 primeras.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/calidad.dart"
+   ],
+   "datos_que_usa": "Nucleo.biblioteca() (ya viene por fecha), Elemento.fecha y Catalogo.sinPerdida() (tabla calidades)",
+   "esfuerzo": "bajo"
+  },
+  {
+   "nombre": "P1 · Radio favorita",
+   "donde": "Inicio, bloque Radio (carrusel de logos y, al final, la tarjeta 'Radio en vivo' de hoy). También en Explorar como 'Tus emisoras'",
+   "que_muestra": "Las emisoras guardadas con el corazón (LogoEmisora de 96 px, nombre, sello FLAC o kb/s); la que suena aparece resaltada. Al tocarla se pone en vivo. Sin favoritas solo queda la tarjeta 'Radio en vivo'.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_radio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/radio_mundial.dart"
+   ],
+   "datos_que_usa": "RadiosFavoritas.instancia (SharedPreferences 'radios_favoritas_v1'), EstadoReproductor.actual.enVivo y reproducirEmisora. No usa la red, salvo los logos",
+   "esfuerzo": "bajo"
+  },
+  {
+   "nombre": "P1 · Sin perdida",
+   "donde": "Inicio (carrusel, solo si hay alguna canción) y una categoría en Explorar",
+   "que_muestra": "En Inicio, lo bajado con origen sin pérdida (sello dorado; un FLAC hecho desde YouTube no cuenta) y el botón 'Encontrar mas sin perdida'. En Explorar, las vías reales sin cuenta: Audius (originales), Jamendo FLAC, Archive FLAC, Bandcamp (lo regalado), Wikimedia Commons (nueva) y radios en FLAC (PantallaRadio abierta en 'Sin perdida').",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_explorar.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/favoritas.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/navegacion.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_descarga.dart"
+   ],
+   "datos_que_usa": "Catalogo.sinPerdida() (tabla calidades), el enum Fuente y RadioMundial.buscar(soloSinPerdida: true), este último solo al tocar",
+   "esfuerzo": "bajo"
+  },
+  {
+   "nombre": "P1 · Episodios a medias / Tus podcasts",
+   "donde": "Inicio (carrusel, solo si hay alguno) y 'Tus programas' en Explorar",
+   "que_muestra": "Audios largos (20 minutos o más: episodios, mixes, sesiones de DJ) con posición guardada y su barra de progreso; al tocarlos siguen donde se dejaron. En Explorar, los podcasts que se siguen (Suscripciones), marcando los que tienen episodio nuevo.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/posiciones.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_explorar.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/suscripciones.dart"
+   ],
+   "datos_que_usa": "Posiciones.audio ('posiciones_audio_v1'; hace falta un método de solo lectura todas()), EstadoReproductor.esLarga y Suscripciones.instancia",
+   "esfuerzo": "bajo"
+  },
+  {
+   "nombre": "P1 · Explorar",
+   "donde": "Pantalla nueva. En la fase 1 se abre desde Inicio y desde el estado vacío de Descargar; en la fase 2 pasa a ser la pestaña 3",
+   "que_muestra": "Arriba, la pastilla Pídele a Tumbao. Debajo, una rejilla de categorías de colores: Radio en vivo, Podcasts, Sin perdida, Musica libre, Sesiones de DJ (hearthis), Conciertos (Archive), canciones de YouTube Music y géneros (Salsa, Reggaeton, Rock, Lofi, Jazz, Clasica). Luego los estantes 'Tus emisoras', 'Tus programas' y 'Musica libre' (Jamendo, ccMixter, Commons, netlabels del Archive). Al abrirse no usa la red: cada ficha abre PantallaRadio con su filtro o lleva a Descargar con fuente y texto.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_explorar.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/navegacion.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_descarga.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_radio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/main.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/nucleo.dart"
+   ],
+   "datos_que_usa": "Enum Fuente (estático, con su texto 'pista'), RadiosFavoritas, Suscripciones y RadioMundial (solo al tocar). Para ir a Descargar usa Navegacion.busquedaPedida (nuevo)",
+   "esfuerzo": "medio"
+  },
+  {
+   "nombre": "P2 · Hecho para ti",
+   "donde": "Inicio, carrusel de tarjetas grandes (150 px con mosaico) después de Continuar escuchando; solo con 8 canciones o más",
+   "que_muestra": "Mix diario 1 a 3: agrupa por los artistas más oídos y rellena con Emisora.mezcla; la semilla es la fecha del día, para que no cambie en cada recarga. Redescubre: favoritas o muy oídas que no suenan desde hace más de 30 días. Sin escuchar todavia. Tu repeticion: lo más oído según 'ultima'. Al tocar uno se abre PantallaMix con Reproducir, Aleatorio y Guardar como lista.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/hecho_para_ti.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_mix.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/portadas.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/catalogo.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/emisora.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart"
+   ],
+   "datos_que_usa": "Biblioteca (artista, fecha), tabla escuchas (veces, ultima) mediante una consulta nueva escuchasConFecha() que no cambia el esquema, favoritas y Emisora.mezcla. La lógica va en funciones puras con Random inyectable",
+   "esfuerzo": "medio"
+  },
+  {
+   "nombre": "P2 · Tus mixes (por artista y por estado de animo)",
+   "donde": "Inicio, carrusel después de Recien descargado; además, un botón 'Mix' en PantallaArtista",
+   "que_muestra": "Un 'Mix de <artista>' por cada artista con 3 canciones o más (hasta 6, ordenados por escuchas), cada uno con su mosaico. Cuando el DJ haya analizado la biblioteca, también mixes por estado de ánimo: 'Para moverse' (energía alta o 118 BPM o más), 'Tranqui' (energía baja), 'Para concentrarte' (energía media y estable) y 'Sesion DJ' (ordenada por BPM, con fundido al compás).",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/hecho_para_ti.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_mix.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_artista.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/catalogo.dart"
+   ],
+   "datos_que_usa": "Artistas.agrupar(biblioteca), escuchas, favoritas y, cuando exista, la tabla de análisis del DJ (bpm, energia)",
+   "esfuerzo": "medio"
+  },
+  {
+   "nombre": "P2 · Pidele a Tumbao",
+   "donde": "Pastilla bajo la cabecera de Inicio y arriba de Explorar. Tiene aspecto de campo pero NO es un TextField; abre pantalla_pidele.dart. Atajo de icono opcional",
+   "que_muestra": "Un campo de texto con sugerencias ('salsa para cocinar', 'lo que baje este mes', 'algo tranquilo de una hora', 'mis favoritas de <artista>', 'radio de jazz en FLAC'). Muestra lo que entendió como fichas que se pueden cambiar (artista, ánimo, duración, sin pérdida, periodo) y la cola propuesta. Botones Reproducir y Guardar como lista. Si en el teléfono no hay nada que encaje, ofrece 'Buscar en internet' (Nucleo.enlaceCompartido = texto). Si pide radio, propone emisoras.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pidele.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_pidele.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_inicio.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_explorar.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/atajos.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/android/app/src/main/res/xml/atajos.xml"
+   ],
+   "datos_que_usa": "Biblioteca (artista, tema, álbum, duración, fecha), favoritas, escuchas, calidades (sin pérdida), Listas, análisis del DJ (bpm, energia), RadiosFavoritas y RadioMundial (géneros) y Emisora.mezcla. El motor funciona sin red y se prueba con funciones puras",
+   "esfuerzo": "alto"
+  },
+  {
+   "nombre": "P2 · Portadas en alta resolucion",
+   "donde": "Reproductor (portada a sangre y fondo difuminado), cabeceras de PantallaMix, PantallaArtista y PantallaListaAuto, y la notificación y el widget. En Ajustes, una fila 'Mejorar portadas' que solo actúa con wifi",
+   "que_muestra": "La carátula oficial a 1200 px (iTunes, Deezer o CoverArt, que ya busca buscar_portada) en todo lo grande. Las listas y carruseles siguen con la de 512 px.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/portadas.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/nucleo.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/reproductor.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_ajustes.dart",
+    "/home/user/descargar-mp3-o-mp4/descargador/infrastructure.py"
+   ],
+   "datos_que_usa": "La carátula incrustada, buscar_portada(lado=1200) y Nucleo.redSinLimite(). Se pide por un método de canal nuevo (por ejemplo 'caratulaGrande') y con un widget nuevo PortadaGrande; PortadaLocal no se toca",
+   "esfuerzo": "medio"
+  },
+  {
+   "nombre": "P3 · DJ automatico (colocacion)",
+   "donde": "Reproductor: un botón en la fila de Aleatorio y Repetición (tooltip 'DJ automatico') y los BPM bajo el sello de calidad. Hoja de cola: acción 'Ordenar como DJ'. Hoja de fundido: interruptor 'Al compas'. Ajustes > SONIDO: UNA sola fila 'DJ automatico' que abre hoja_dj.dart. Inicio: 'Sesion DJ' dentro de Tus mixes. MiniReproductor: una marca 'DJ'",
+   "que_muestra": "Cuánto lleva analizado (N de M canciones), BPM y energía de lo que suena, y la cola reordenada por energía con fundido al compás.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/hoja_dj.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/reproductor.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/hoja_cola.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/hoja_fundido.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_ajustes.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/mini_reproductor.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/estado_reproductor.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/catalogo.dart"
+   ],
+   "datos_que_usa": "Una tabla nueva analisis (uri, bpm, energia, fecha) en el catálogo, que pasa a la versión 9; la cola de EstadoReproductor y el fundido",
+   "esfuerzo": "alto"
+  },
+  {
+   "nombre": "P3 · Fuentes nuevas en el buscador",
+   "donde": "Fichas de fuente en Descargar, y los estantes Musica libre y Sin perdida de Explorar",
+   "que_muestra": "Fichas nuevas 'Commons' (Wikimedia Commons: FLAC, WAV y OGG libres), 'ccMixter' (remezclas con licencia CC) y 'YT Music' (solo canciones de YouTube Music). MejorCalidad incluye Commons. Al principio pueden quedar fuera de 'Todas', como Podcasts, para no tocar pruebas.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/nucleo.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_descarga.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/mejor_calidad.dart",
+    "/home/user/descargar-mp3-o-mp4/descargador/domain.py",
+    "/home/user/descargar-mp3-o-mp4/descargador/infrastructure.py",
+    "/home/user/descargar-mp3-o-mp4/.github/prueba_red.py",
+    "/home/user/descargar-mp3-o-mp4/tests/test_downloader.py"
+   ],
+   "datos_que_usa": "La búsqueda por fuente del núcleo Python (FUENTES, search y _buscar_en_*). Antes de darlas por buenas hay que comprobarlas con la prueba de red",
+   "esfuerzo": "medio"
+  },
+  {
+   "nombre": "P3 · Biblioteca: fichas Discos y Podcasts (opcional)",
+   "donde": "Biblioteca, fichas nuevas después de Listas",
+   "que_muestra": "Discos: todos los álbumes (Albumes.agrupar sobre toda la biblioteca). Podcasts / Largos: audios de 20 minutos o más, con su progreso.",
+   "archivos": [
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_biblioteca.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/pantalla_artista.dart",
+    "/home/user/descargar-mp3-o-mp4/movil/lib/posiciones.dart"
+   ],
+   "datos_que_usa": "Elemento.album y Elemento.pista, Posiciones.audio y EstadoReproductor.esLarga",
+   "esfuerzo": "bajo"
+  }
+ ],
+ "inicio_redisenado": "REGLA GENERAL\nTodo lo que dependa del catálogo SQLite se carga sin esperarlo (unawaited y setState si sigue montado, como `_cargarMasOidas`) y no dibuja nada hasta tener datos: SizedBox.shrink, sin spinners ni animaciones en bucle. Al construirse no usa la red. Usa _Tarjeta y PortadaLocal (nunca FilaPista), y solo portadas de canciones de la biblioteca.\n\nORDEN, DE ARRIBA ABAJO\n0. Cabecera, igual que hoy: saludo, 'N canciones · M listas', IconButton Ajustes (tooltip 'Ajustes', que debe seguir siendo único) y botón buscar (tooltip 'Buscar algo nuevo'). En la fase 1 se añade un tercer icono, Explorar.\n1. Pastilla 'Pidele a Tumbao': un InkWell con forma de campo cuyo ejemplo cambia según la hora ('algo tranquilo para cocinar', 'lo que baje este mes'). Abre PantallaPidele.\n2. Accesos rápidos en rejilla de 2x3: Me gusta, Lo mas escuchado, Sin perdida, la última lista, Tu radio y el Mix del artista más oído. Si todas las fichas están vacías, la rejilla no aparece.\n3. CONTINUAR ESCUCHANDO / SONANDO AHORA, la tarjeta actual sin cambios.\n4. Hecho para ti (con 8 canciones o más): Mix diario 1 a 3, Redescubre, Sin escuchar todavia y Tu repeticion.\n5. Recien descargado (antes 'Anadido recientemente'): las 10 últimas con su sello de calidad, sin filtrar por fecha.\n6. Tus mixes: 'Mix de <artista>' (artistas con 3 canciones o más) y, cuando haya análisis del DJ, Para moverse, Tranqui, Para concentrarte y Sesion DJ.\n7. Radio: carrusel 'Radio favorita' (RadiosFavoritas) seguido de la tarjeta 'Radio en vivo' de hoy.\n8. Lo que mas oyes, igual que hoy (con 3 o más).\n9. Sin perdida (si hay alguna), con el botón 'Encontrar mas sin perdida' que abre Explorar.\n10. Episodios a medias (si hay), con barra de progreso.\n11. Tus listas, igual que hoy.\n12. Tarjeta final 'Explora radio, podcasts y musica libre', que abre Explorar (fase 1).\n\nBIBLIOTECA VACÍA\nCabecera, 'Empieza tu biblioteca' con su botón 'Buscar musica' (textos sin cambios), 'Radio en vivo' y una tarjeta de Explorar con otro texto. La pastilla Pídele solo aparece si se dirige a buscar en internet.\n\nPOR QUÉ ESTE ORDEN\nArriba va lo personal y de un toque (Pídele, accesos, continuar), en medio lo descubierto por la app (mixes) y abajo lo que ya existía. Los umbrales hacen que con la biblioteca de la prueba (3 canciones sin artista, sin escuchas, sin favoritas y con fecha 0) solo se vean la cabecera, la pastilla, Continuar, Recién descargado (las mismas 3 portadas), Radio en vivo y la tarjeta de Explorar. Así siguen siendo 3 las peticiones de 'caratula'.\n\nIMPLEMENTACIÓN\n- Partir pantalla_inicio.dart (528 líneas) creando /home/user/descargar-mp3-o-mp4/movil/lib/secciones_inicio.dart, con un Estante genérico (título, 'Ver todo' y carrusel de _Tarjeta), la RejillaAccesos y MosaicoPortadas.\n- `recargar()` carga la biblioteca una sola vez y lanza en paralelo masOidas, hecho para ti, sinPerdida, posiciones y radios favoritas; no vuelve a pedir Nucleo.biblioteca() en cada sección.\n- `_InicioState._irA(0)` ya llama a recargar, y ControlDescarga.alTerminar refresca 'Recien descargado' por su cuenta.",
+ "riesgos_pruebas": "CONTEXTO\nmovil/test/widget_test.dart tiene 88 testWidgets y 166 test. 57 pruebas montan la app entera (AplicacionTumbao) con tres ayudantes, y todas construyen Inicio primero, porque la pestaña 0 está siempre en `_vistas`. Flutter no está instalado en este entorno, así que no pude ejecutarlas; lo que sigue sale de leer el código.\n\nA) AYUDANTES Y TEXTOS DE LA BARRA\n- `abrir()` (L215-221) hace `tap(find.text('Descargar').last)`. Hay 32 llamadas: 31 pruebas directas más `bajarElPrimero`, que usan 2. La etiqueta debe seguir siendo exactamente 'Descargar'. El `.last` funciona porque el NavigationBar va después del body en el Scaffold; no hay que poner un texto 'Descargar' en algo que se dibuje después (FAB, drawer, hoja abierta).\n- `abrirBiblioteca()` (L231-237) hace `tap(find.text('Biblioteca').last)`. Lo usan 13 pruebas.\n- `abrirInicio()` (L223-228) lo usan 11 pruebas.\n- `find.text('Biblioteca')` SIN `.last` aparece en L620, L658 y L678, estando en Descargar. Si lo visible de Descargar gana un texto exacto 'Biblioteca' (por ejemplo una ficha en _Vacio), el toque es ambiguo y fallan esas 3 pruebas. En L2010 lleva `.last`.\n- Las pestañas no visibles no molestan: los finders saltan lo que el IndexedStack tiene fuera de escena.\n\nB) ÍNDICES DE PESTAÑA (comprueban `NavigationBar.selectedIndex` con números)\n- L493 'un enlace compartido abre directamente como bajarlo': espera 1.\n- L2777 'el atajo Descargar abre esa pestania': espera 1.\n- L2787 'sin atajo la app abre en Inicio como siempre': espera 0.\n- L2792 'Aleatorio sin canciones lo explica en vez de no hacer nada': espera 2.\n- L2977 'la pestania Ver no sale mientras esta aparcada': `destinations hasLength(3)` y ningún 'Ver'.\n- Consecuencia: mientras Explorar sea una pantalla que se abre encima, no cambia ninguna. Como pestaña al final, cambia solo L2980 (3 pasa a 4). Intercalada, cambian además L502, L2782 y L2798.\n\nC) INICIO\n- L598 'la app abre en inicio y guia cuando no hay nada': 'Empieza tu biblioteca' y 'Buscar musica' deben aparecer una sola vez. No repetir esos textos en la tarjeta de Explorar ni en la pastilla.\n- L606 'desde inicio se llega a descargar': toca 'Buscar musica' y espera un único TextField en Descargar. Un campo en Inicio no molesta porque queda fuera de escena, pero la pastilla debe ser un InkWell.\n- L1997 'al arrancar no se prepara la biblioteca entera' (biblioteca de 3 canciones): espera que Inicio no tenga ninguna FilaPista y que haya exactamente 3 llamadas 'caratula'. Esto obliga a:\n  1. no usar nunca FilaPista en Inicio;\n  2. mostrar solo PortadaLocal de canciones de la biblioteca (las repetidas no suman, porque Nucleo.caratula guarda por URI);\n  3. que 'Recien descargado' no filtre por fecha (en la prueba la fecha es 0) y quede dentro de lo que se llega a construir (pantalla de 392x873 más el margen perezoso), así que las secciones de encima se ocultan con biblioteca pequeña;\n  4. que la portada HD no use el método 'caratula' ni PortadaLocal.\n- L3539 'los ajustes salen desde Inicio con todo lo nuevo': una sola tooltip 'Ajustes' en Inicio. En Ajustes, 'Volumen parejo', 'Saltar silencios' y 'LISTAS QUE SIGUES' deben verse sin desplazar, y tras `scrollUntilVisible('Tumbao 2.0.0')` debe seguir construida 'COPIA DE SEGURIDAD'. Por eso el DJ entra en SONIDO como una sola fila que abre hoja_dj.dart, y lo de portadas va entre LISTAS QUE SIGUES y COPIA DE SEGURIDAD, nunca entre COPIA y ACERCA DE.\n- L2792 y L2803 buscan con `textContaining` (una sola vez) 'Todavia no tienes canciones' y 'Aun no tienes canciones en Me gusta'. Esas frases no deben aparecer en Inicio.\n\nD) DESCARGAR (33 pruebas)\n- Debe haber un solo TextField: lo comprueba L245 y lo exigen 20 `enterText(find.byType(TextField), ...)` sin `.first`. Pídele no puede añadir un segundo campo a Descargar.\n- 'Pegar' debe aparecer una vez.\n- La ficha 'YouTube' debe aparecer una vez (L246 y L3896). Llamar a la nueva 'YT Music' o 'YouTube Music' no choca, porque `find.text` compara el texto exacto.\n- En reposo, `find.text('Musica')` no debe encontrar nada (L250): las fichas de Explorar en _Vacio no pueden decir 'Musica' a secas.\n\nE) FUENTES\n- L3916 'por defecto se busca en todas a la vez' compara el conjunto exacto {youtube, soundcloud, audius, bandcamp, archive, jamendo, hearthis}. Añadir Commons, ccMixter o YT Music a `Fuente.deMusica` obliga a actualizarlo a propósito; dejarlas fuera de 'Todas', como Podcasts, no lo toca.\n- L4086 exige Jamendo en `Fuente.reales` y en `MejorCalidad.fuentes`.\n- En Python, tests/test_downloader.py L454-457 (PREFIJOS_BUSQUEDA) y L468 (FUENTES_DE_LISTAS == ('archive','podcasts')): las fuentes nuevas son de pistas sueltas y no deben entrar en FUENTES_DE_LISTAS.\n\nF) CATÁLOGO\n- L1167, L1716 y L1754 esperan `getVersion() == 8`. La tabla del DJ (versión 9) obliga a cambiar esas tres comprobaciones; mejor exponer `Catalogo.version` con @visibleForTesting y compararlo con él.\n- Hecho para ti y Mix por artista no cambian el esquema.\n\nG) BIBLIOTECA\n- L616: las fichas Canciones, Artistas, Videos y Listas deben aparecer una vez cada una.\n- L2749: 'Me gusta' una vez en Listas. L2659: tooltip 'Mas opciones' única. L2589: 'Ordenar'. L2711: 'Buscar en lo que tienes' una vez.\n- Las fichas o ListaAuto nuevas valen si no repiten 'Me gusta' ni llevan la tooltip 'Mas opciones'.\n\nH) OTRAS\n- L1404 construye `const PantallaRadio()` y espera 'EN VIVO  ·  AAC 128 kb/s' en la barra: el parámetro `inicial` tiene que ser opcional y el texto de la barra en vivo no puede cambiar.\n- L2957 (HojaFundido) espera 'Apagado' una vez y toca la ficha '4 s': el interruptor 'Al compas' no puede añadir otra ficha 'Apagado'.\n\nI) RIESGO MÁS GRAVE\nEn las pruebas el catálogo es un SQLite de verdad y con el reloj falso nunca responde. Si una sección nueva de Inicio o Explorar muestra un spinner o un brillo animado en bucle mientras espera al catálogo, `pumpAndSettle` no termina nunca y fallan las 57 pruebas que abren la app. La red tampoco se toca al construir: RadioMundial solo al tocar, o con `RadioMundial.transporte` inyectado en la prueba. Explorar como pestaña tiene que ir con `_siSeHaVisto` para seguir siendo perezosa.\n\nCÓMO NO ROMPERLAS\n- En la fase 1 no se tocan índices ni etiquetas.\n- Cada sección nueva lleva su propia prueba montando el widget suelto, como hace L1404 con PantallaRadio.\n- La lógica va en funciones puras con Random inyectable, como Emisora.mezcla (L1460).\n- Los cambios a propósito (L2980, L3916 y las tres versiones del catálogo) van en el mismo commit que la función que los motiva."
+}
