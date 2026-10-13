@@ -1,4 +1,5 @@
 import contextlib
+import http.client
 import io
 import itertools
 import json
@@ -52,6 +53,7 @@ from descargador.infrastructure import (
     PLANTILLA_CAPITULO,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
+    _consultar,
     _extraer,
     _portada_deezer,
     _portada_itunes,
@@ -1426,6 +1428,41 @@ class BandcampTests(unittest.TestCase):
     def test_las_nuevas_fuentes_se_aceptan(self):
         for fuente in ("audius", "bandcamp"):
             self.assertEqual(SearchQuery("algo", source=fuente).source, fuente)
+
+
+class FallosHttpTests(unittest.TestCase):
+    """Los fallos de http.client no heredan de OSError, y aun así se cuentan."""
+
+    def test_una_cabecera_enorme_sale_como_error_nuestro(self):
+        # Lo que hace ccMixter: repite el cuerpo en una cabecera de 100 KB.
+        with (
+            patch("descargador.infrastructure.urlopen",
+                  side_effect=http.client.LineTooLong("header line")),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_bandcamp(SearchQuery("ambient", source="bandcamp"))
+        self.assertIn("Bandcamp", str(fallo.exception))
+
+    def test_una_respuesta_cortada_a_medias_tambien(self):
+        with (
+            patch("descargador.infrastructure.urlopen",
+                  side_effect=http.client.IncompleteRead(b"{")),
+            self.assertRaises(DownloadError),
+        ):
+            YtDlpDownloader._buscar_en_hearthis(SearchQuery("lofi", source="hearthis"))
+
+    def test_las_cabeceras_propias_se_suman_a_las_de_siempre(self):
+        with patch("descargador.infrastructure.urlopen", return_value=_Json({})) as red:
+            _consultar("https://api/x", "prueba", cabeceras={"Referer": "https://de/aqui"})
+        peticion = red.call_args.args[0]
+        self.assertEqual(peticion.get_header("Referer"), "https://de/aqui")
+        self.assertIn("descargador", peticion.get_header("User-agent"))
+
+    def test_buscar_la_portada_no_se_cae_por_eso(self):
+        # Cada proveedor responde vacío en vez de reventar.
+        with patch("descargador.infrastructure.urlopen",
+                   side_effect=http.client.IncompleteRead(b"")):
+            self.assertIsNone(_portada_itunes("Artista", "Tema", 1200))
 
 
 class JamendoTests(unittest.TestCase):

@@ -1,6 +1,7 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import functools
 import hashlib
+import http.client
 import json
 import os
 import re
@@ -536,15 +537,32 @@ def _extraer(engine, url: str, **opciones):
     return engine.extract_info(url, **opciones)
 
 
-def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None) -> dict:
-    """Pide un JSON a la API de una fuente. Un fallo se cuenta, no se esconde."""
-    cabeceras = {"User-Agent": "Mozilla/5.0 (descargador)"}
+def _pedir(direccion: str, fuente: str, cuerpo: bytes | None = None,
+           cabeceras: dict[str, str] | None = None) -> bytes:
+    """Pide algo a la API de una fuente. Un fallo se cuenta, no se esconde.
+
+    HTTPException va aparte porque no hereda de OSError: una cabecera de más
+    de 64 KB lanza LineTooLong (ccMixter repite el cuerpo entero en una), y
+    un corte a mitad de respuesta, IncompleteRead. Sin capturarlas llegarían
+    al usuario como un fallo sin traducir, que es justo lo que no puede pasar.
+    """
+    todas = {"User-Agent": "Mozilla/5.0 (descargador)", **(cabeceras or {})}
     if cuerpo is not None:
-        cabeceras["Content-Type"] = "application/json"
+        todas["Content-Type"] = "application/json"
     try:
-        with urlopen(Request(direccion, data=cuerpo, headers=cabeceras), timeout=30) as respuesta:
-            return json.loads(respuesta.read().decode("utf-8"))
-    except (OSError, ValueError) as exc:
+        with urlopen(Request(direccion, data=cuerpo, headers=todas), timeout=30) as respuesta:
+            return respuesta.read()
+    except (OSError, http.client.HTTPException) as exc:
+        raise DownloadError(f"No se pudo buscar en {fuente}: {exc}") from exc
+
+
+def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None,
+               cabeceras: dict[str, str] | None = None) -> dict:
+    """Pide un JSON a la API de una fuente."""
+    crudo = _pedir(direccion, fuente, cuerpo, cabeceras)
+    try:
+        return json.loads(crudo.decode("utf-8"))
+    except ValueError as exc:
         raise DownloadError(f"No se pudo buscar en {fuente}: {exc}") from exc
 
 
@@ -1373,7 +1391,7 @@ def _json_remoto(direccion: str) -> dict:
         peticion = Request(direccion, headers={"User-Agent": AGENTE})
         with urlopen(peticion, timeout=20) as respuesta:
             datos = json.loads(respuesta.read().decode("utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, http.client.HTTPException):
         return {}
     return datos if isinstance(datos, dict) else {}
 
@@ -1468,7 +1486,7 @@ def descargar_portada(direccion: str, destino: Path) -> bool:
         peticion = Request(direccion, headers={"User-Agent": "descargador"})
         with urlopen(peticion, timeout=30) as respuesta:
             imagen = respuesta.read()
-    except OSError:
+    except (OSError, http.client.HTTPException):
         return False
     if not imagen:
         return False
