@@ -124,7 +124,9 @@ class _ReproductorState extends State<Reproductor> {
             ),
             actions: <Widget>[
               if (elemento.audio) ...<Widget>[
-                BotonMeGusta(uri: elemento.uri, color: Theme.of(context).colorScheme.primary),
+                // Sin marcar, en blanco: en el tinte de la caratula el corazon
+                // marcado (cian hielo) y el primario quedaban casi iguales.
+                BotonMeGusta(uri: elemento.uri, color: Colors.white70),
                 IconButton(
                   tooltip: _letras ? 'Ver la caratula' : 'Ver la letra',
                   onPressed: () => setState(() => _letras = !_letras),
@@ -480,6 +482,15 @@ class _BotonGrande extends StatelessWidget {
   final bool sonando;
   final VoidCallback alPulsar;
 
+  /// El mismo color, un poco mas claro y con el tono corrido hacia el cian.
+  static Color _vecino(Color base) {
+    final HSLColor hsl = HSLColor.fromColor(base);
+    return hsl
+        .withHue((hsl.hue - 18) % 360)
+        .withLightness((hsl.lightness + 0.08).clamp(0, 0.85))
+        .toColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme colores = Theme.of(context).colorScheme;
@@ -489,12 +500,14 @@ class _BotonGrande extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
-          // Secundario y primario, no primario y terciario: Material gira el
-          // tono del terciario, y una portada azul acababa con el boton rosa.
-          // El secundario conserva el tono de la caratula y, sin ella, da el
-          // degradado de marca de cian a azul.
+          // Sin caratula, el degradado de marca de cian a azul. Con caratula,
+          // dos tonos vecinos de su primario: el terciario de Material gira el
+          // tono (una portada azul acababa con el boton rosa) y el secundario
+          // sale casi gris, porque Material le quita casi todo el color.
           gradient: LinearGradient(
-            colors: <Color>[colores.secondary, colores.primary],
+            colors: colores == Paleta.neutra
+                ? Tema.degradado.colors
+                : <Color>[_vecino(colores.primary), colores.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),

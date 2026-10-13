@@ -21,6 +21,10 @@ class Tema {
   /// Filetes de 1 px, divisores y la pista apagada del deslizador.
   static const Color contorno = Color(0xFF2A3A5E);
 
+  /// Pista apagada de deslizadores y barras de progreso. El contorno no
+  /// llegaba al 3:1 que piden los componentes; este da 4,7:1 o mas.
+  static const Color pista = Color(0xFF6B7A9A);
+
   /// El azul de texto e iconos activos.
   ///
   /// No es el azul profundo del logo: un azul muy saturado «vibra» sobre negro
@@ -75,7 +79,7 @@ class Tema {
   ///
   /// Es lo que hace YouTube Music en su Inicio: un poco de color de marca que
   /// se funde con el negro y da profundidad sin tapar nada. Va tan suave que
-  /// el texto de encima sigue por encima de 15:1.
+  /// el texto de encima sigue por encima de 14:1.
   static const RadialGradient resplandor = RadialGradient(
     center: Alignment(-0.6, -1.1),
     radius: 1.2,
@@ -131,7 +135,7 @@ class Tema {
     surfaceContainer: superficie,
     surfaceContainerHigh: superficieAlta,
     surfaceContainerHighest: superficieMaxima,
-    outline: const Color(0xFF6B7A9A),
+    outline: pista,
     outlineVariant: contorno,
     inverseSurface: const Color(0xFFE3EAF8),
     onInverseSurface: superficie,
@@ -198,21 +202,22 @@ class Tema {
       sliderTheme: SliderThemeData(
         trackHeight: 5,
         activeTrackColor: acento,
-        inactiveTrackColor: contorno,
+        inactiveTrackColor: pista,
         thumbColor: Colors.white,
         overlayShape: SliderComponentShape.noOverlay,
         thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
       ),
       // El color de la barra no se fija: sale del primario del esquema, y asi
       // en el reproductor sigue el tinte de la caratula. Solo la pista va fija.
-      progressIndicatorTheme: const ProgressIndicatorThemeData(linearTrackColor: contorno),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(linearTrackColor: pista),
       // Los interruptores no necesitan tema propio: con onPrimary en tinta y
       // surfaceContainerHighest en superficieMaxima, el de Material 3 ya sale
       // con pulgar oscuro sobre pista azul, y apagado sobre el azul mas claro.
       // Fijarlos aqui romperia el tinte de la caratula en el ecualizador.
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        selectedColor: esquema.secondaryContainer,
+        // Sin selectedColor: el de Material ya es secondaryContainer, y asi
+        // dentro del reproductor sigue el tinte de la caratula.
         // Un filete en las fichas sin elegir: sin el, sobre el negro azulado
         // no se ve donde empieza una y acaba la otra.
         side: WidgetStateBorderSide.resolveWith(

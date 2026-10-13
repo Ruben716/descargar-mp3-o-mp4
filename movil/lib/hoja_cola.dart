@@ -83,7 +83,7 @@ class _Cabecera extends StatelessWidget {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: Tema.contorno,
               borderRadius: BorderRadius.circular(2),
             ),
           ),

@@ -323,7 +323,7 @@ class _ControlSincronia extends StatelessWidget {
           ),
           Text(
             ajustada ? 'Toca el valor para dejarlo como estaba' : 'Ajusta si no va a la par',
-            style: const TextStyle(color: Colors.white24, fontSize: 10),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 10),
           ),
         ],
       ),
