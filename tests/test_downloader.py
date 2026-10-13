@@ -56,9 +56,11 @@ from descargador.infrastructure import (
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
     _consultar,
+    _extractor_ccmixter,
     _extraer,
     _portada_deezer,
     _portada_itunes,
+    archivo_ccmixter,
     argumentos_etiquetas,
     buscar_portada,
     cabecera_sin_perdida,
@@ -74,6 +76,8 @@ from descargador.infrastructure import (
     formatos_jamendo,
     incrusta_caratula,
     incrustar_portada,
+    info_ccmixter,
+    json_ccmixter,
     mensaje_claro,
     necesita_portada_oficial,
     nombre_con_etiquetas,
@@ -1763,6 +1767,130 @@ class CommonsTests(unittest.TestCase):
     def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
         self.assertEqual(SearchQuery("algo", source="commons").source, "commons")
         self.assertNotIn("commons", FUENTES_DE_LISTAS)
+
+
+class _Crudo(_Json):
+    """Una respuesta HTTP con el texto tal cual, aunque no sea JSON válido."""
+
+    def __init__(self, texto: str):
+        self._datos = texto.encode()
+
+
+class CcMixterTests(unittest.TestCase):
+    """ccMixter: la mezcla en MP3, con todas las manías de su API."""
+
+    SUBIDA: ClassVar[dict] = {
+        "upload_id": 63345, "upload_name": "Sunset Groove", "user_name": "admiralbob77",
+        "user_real_name": "Admiral Bob", "license_name": "Attribution (4.0)",
+        "license_url": "http://creativecommons.org/licenses/by/4.0/",
+        "file_page_url": "https://ccmixter.org/files/admiralbob77/63345",
+        "files": [
+            {"download_url": "https://ccmixter.org/content/admiralbob77/samples.zip",
+             "file_rawsize": 30_000_000, "file_format_info": {"media-type": "archive", "default-ext": "zip"},
+             "file_extra": {"type": "samples"}},
+            {"download_url": "https://ccmixter.org/content/admiralbob77/voz.flac",
+             "file_rawsize": 40_000_000, "file_extra": {"type": "pella"},
+             "file_format_info": {"media-type": "audio", "default-ext": "flac", "sr": "48k", "ps": "3:16"}},
+            {"download_url": "https://ccmixter.org/content/admiralbob77/Sunset_Groove.mp3",
+             "file_rawsize": 7_900_000, "file_extra": {},
+             "file_format_info": {"media-type": "audio", "format-name": "audio-mp3-mp3",
+                                  "default-ext": "mp3", "mime_type": "audio/mpeg", "sr": "44k",
+                                  "ch": "stereo", "ps": "3:16", "br": "CBR"}},
+        ],
+    }
+
+    def _buscar(self, respuesta, texto="groove", limite=10):
+        with patch("descargador.infrastructure.urlopen", side_effect=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_ccmixter(
+                SearchQuery(texto, limit=limite, source="ccmixter"))
+        return resultados, [c.args[0] for c in red.call_args_list]
+
+    def test_la_cancion_es_la_mezcla_y_no_las_muestras_ni_la_voz(self):
+        resultados, _ = self._buscar([_Json([self.SUBIDA])])
+        r = resultados[0]
+        self.assertEqual(r.url, "https://ccmixter.org/files/admiralbob77/63345")
+        self.assertEqual(r.uploader, "Admiral Bob")
+        self.assertEqual(r.duration, 196)
+        # 7,9 MB en 3:16 dan 322 kb/s: lo que sobra es la cabecera, y en un
+        # MP3 constante se redondea al estándar.
+        self.assertEqual(r.quality, AudioQuality("mp3", 320.0, 44100))
+
+    def test_una_a_cappella_subida_como_tal_tambien_vale(self):
+        solo_voz = {**self.SUBIDA, "files": self.SUBIDA["files"][:2]}
+        self.assertEqual(archivo_ccmixter(solo_voz)["download_url"],
+                         "https://ccmixter.org/content/admiralbob77/voz.flac")
+        self.assertIsNone(archivo_ccmixter({**self.SUBIDA, "files": self.SUBIDA["files"][:1]}))
+
+    def test_se_piden_pocas_y_con_la_procedencia_que_exige(self):
+        _, peticiones = self._buscar([_Json([])], limite=25)
+        self.assertIn("limit=10", peticiones[0].full_url, msg="más rompe la cabecera X-JSON")
+        self.assertEqual(peticiones[0].get_header("Referer"), "https://ccmixter.org/")
+
+    def test_si_la_cabecera_no_cabe_se_pide_la_mitad(self):
+        _, peticiones = self._buscar([http.client.LineTooLong("header line"), _Json([self.SUBIDA])])
+        self.assertEqual(len(peticiones), 2)
+        self.assertIn("limit=5", peticiones[1].full_url)
+
+    def test_si_nunca_cabe_se_cuenta_como_error_nuestro(self):
+        siempre = itertools.repeat(http.client.LineTooLong("header line"))
+        with self.assertRaises(DownloadError) as fallo:
+            self._buscar(siempre)
+        self.assertIn("ccMixter", str(fallo.exception))
+
+    def test_su_json_roto_se_arregla(self):
+        # Ceros a la izquierda en el bpm y un carácter de control en un texto.
+        crudo = ('[{"upload_id": 63345, "upload_name": "Sunset\x01 Groove", "user_name": "admiralbob77",'
+                 ' "upload_extra": {"bpm": 090, "nada": 0, "medio": 0.5},'
+                 ' "files": ' + json.dumps(self.SUBIDA["files"]) + "}]")
+        resultados, _ = self._buscar([_Crudo(crudo)])
+        self.assertEqual(len(resultados), 1)
+        datos = json_ccmixter(crudo)[0]["upload_extra"]
+        self.assertEqual(datos, {"bpm": 90, "nada": 0, "medio": 0.5})
+
+    def test_lo_que_no_se_entiende_se_dice(self):
+        with self.assertRaises(DownloadError):
+            self._buscar([_Crudo("Illegal")])
+
+    def test_una_comilla_al_final_no_llega_a_su_servidor(self):
+        _, peticiones = self._buscar([_Json([])], texto="rock'")
+        self.assertIn("search=rock&", peticiones[0].full_url)
+        _, peticiones = self._buscar([_Json([])], texto="don't stop")
+        self.assertIn("search=don%27t+stop", peticiones[0].full_url)
+
+    def test_el_motor_recibe_la_mezcla_con_su_procedencia(self):
+        info = info_ccmixter(self.SUBIDA)
+        self.assertEqual(info["id"], "63345")
+        self.assertEqual(info["license"], "Attribution (4.0)")
+        formato = info["formats"][0]
+        self.assertEqual(formato["url"], "https://ccmixter.org/content/admiralbob77/Sunset_Groove.mp3")
+        self.assertEqual((formato["ext"], formato["acodec"], formato["vcodec"]), ("mp3", "mp3", "none"))
+        self.assertEqual(formato["http_headers"], {"Referer": "https://ccmixter.org/"})
+
+    def test_el_extractor_lee_su_api_sin_tocar_la_red(self):
+        from yt_dlp.utils import YoutubeDLError
+
+        url = "https://ccmixter.org/files/admiralbob77/63345"
+        extractor = _extractor_ccmixter()()
+        crudo = json.dumps([self.SUBIDA]).replace('"upload_id": 63345', '"upload_id": 063345')
+        with patch.object(extractor, "_download_webpage", return_value=crudo) as api:
+            info = extractor._real_extract(url)
+        self.assertEqual(api.call_args.kwargs["query"], {"f": "json", "ids": "63345"})
+        self.assertEqual(info["title"], "Sunset Groove")
+        self.assertEqual(info["webpage_url"], url)
+        with (
+            patch.object(extractor, "_download_webpage", return_value="[]"),
+            self.assertRaises(YoutubeDLError),
+        ):
+            extractor._real_extract(url)
+
+    def test_sus_enlaces_van_por_el_extractor_propio(self):
+        motor = Mock()
+        _extraer(motor, "https://ccmixter.org/files/admiralbob77/63345", download=False)
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "CcMixter")
+
+    def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
+        self.assertEqual(SearchQuery("algo", source="ccmixter").source, "ccmixter")
+        self.assertNotIn("ccmixter", FUENTES_DE_LISTAS)
 
 
 class CapitulosTests(unittest.TestCase):

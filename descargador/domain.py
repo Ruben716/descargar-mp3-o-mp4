@@ -26,10 +26,11 @@ AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "
 #:
 #: Wikimedia Commons («commons») guarda clásica, folk y discos antiguos de
 #: dominio público o con licencia libre, y da el archivo que se subió: a veces
-#: un FLAC o un WAV, si no un Ogg o un MP3.
+#: un FLAC o un WAV, si no un Ogg o un MP3. ccMixter son remixes, a cappellas
+#: e instrumentales con licencia Creative Commons, en MP3 de 192 a 320 kb/s.
 FUENTES = (
     "youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "commons",
-    "hearthis", "podcasts",
+    "ccmixter", "hearthis", "podcasts",
 )
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.

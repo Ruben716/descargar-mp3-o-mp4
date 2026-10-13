@@ -30,6 +30,7 @@ from .domain import (
     Playlist,
     SearchQuery,
     VideoInfo,
+    parse_timestamp,
 )
 
 FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
@@ -724,6 +725,183 @@ def _extractor_commons():
     return CommonsOriginalIE
 
 
+#: La API pública de ccMixter (motor ccHost): remixes, a cappellas e
+#: instrumentales con licencia Creative Commons. Sin clave.
+API_CCMIXTER = "https://ccmixter.org/api/query"
+
+#: Sin esta cabecera su servidor corta el «hotlink»: 403 al pedir el MP3 con
+#: otra procedencia, 206 con esta. Va también en la búsqueda, por lo mismo.
+CABECERAS_CCMIXTER = {"Referer": "https://ccmixter.org/"}
+
+#: Cuántas subidas se piden de una vez, como mucho.
+#:
+#: Su API repite el cuerpo entero en la cabecera «X-JSON», y Python no admite
+#: una cabecera de más de 64 KB: lanza LineTooLong. Con 25 subidas medía de
+#: 100 a 160 KB; con 10 cabe. Y por encima de 25 responde 200 sin nada.
+LIMITE_CCMIXTER = 10
+
+#: Las direcciones de una subida: «ccmixter.org/files/usuario/12345».
+ES_CCMIXTER = re.compile(r"https?://(?:www\.)?ccmixter\.org/files/[^/?#]+/(?P<id>\d+)")
+
+#: Un número con ceros delante, que su JSON trae (el «bpm») y no es JSON válido.
+CEROS_CCMIXTER = re.compile(r'(":\s*)0+(\d)')
+
+#: Comillas que no están dentro de una palabra. Una búsqueda que acaba en «'»
+#: la rechaza su servidor con un «Illegal»; la de «don't» se queda como está.
+#: El apóstrofo tipográfico va por su código (\u2019), que a simple vista no
+#: se distingue de otros signos parecidos.
+COMILLAS_SUELTAS = re.compile(r"(?<!\w)['\"\u2019]|['\"\u2019](?!\w)")
+
+#: Los kb/s que puede tener un MP3 a velocidad constante.
+BITRATES_MP3 = (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+
+#: Los extras de una subida que no son la canción: las muestras, las pistas
+#: sueltas o la voz sola.
+EXTRAS_CCMIXTER = ("samples", "stems", "pella")
+
+
+def json_ccmixter(texto: str):
+    """El JSON de ccMixter, arreglado: trae ceros a la izquierda y caracteres de control."""
+    return json.loads(CEROS_CCMIXTER.sub(r"\1\2", texto), strict=False)
+
+
+def segundos_ccmixter(duracion: object) -> float | None:
+    """«3:16» en segundos. ccMixter da la duración así y no en número."""
+    try:
+        return parse_timestamp(str(duracion)) if duracion else None
+    except DownloadError:
+        return None
+
+
+def archivo_ccmixter(subida: dict) -> dict | None:
+    """El archivo de la canción dentro de una subida de ccMixter.
+
+    Una subida trae varios: la mezcla y, a veces, extras (las muestras en un
+    ZIP, la voz sola). La mezcla es el primero de audio que no es un extra;
+    los FLAC que trae alguna suelen ser muestras, no la canción, así que no se
+    ofrecen aunque «suenen mejor». Si todo son extras (una a cappella que se
+    sube como tal), la canción es el primero de audio.
+    """
+    audios = [
+        a for a in subida.get("files") or []
+        if isinstance(a, dict) and a.get("download_url")
+        and (a.get("file_format_info") or {}).get("media-type") == "audio"
+    ]
+
+    def extra(archivo: dict) -> bool:
+        datos = archivo.get("file_extra")
+        return isinstance(datos, dict) and datos.get("type") in EXTRAS_CCMIXTER
+
+    return next((a for a in audios if not extra(a)), audios[0] if audios else None)
+
+
+def calidad_ccmixter(archivo: dict) -> AudioQuality:
+    """Lo que da el archivo de una subida, sacado de lo que dice su API.
+
+    Los kb/s no los da: se calculan con el peso y la duración. En un MP3 a
+    velocidad constante se redondean al valor estándar más cercano, porque lo
+    que sobra es la cabecera y la carátula, no sonido.
+    """
+    formato = archivo.get("file_format_info") or {}
+    extension = str(formato.get("default-ext")
+                    or Path(urlparse(str(archivo.get("download_url"))).path).suffix.lstrip("."))
+    codec = codec_legible(None, extension.lower())
+    frecuencia = str(formato.get("sr") or "").lower().rstrip("k")
+    # «44k» son 44 100 Hz y «48k», 48 000: el redondeo de ccHost.
+    hz = {"11": 11025, "22": 22050, "44": 44100, "88": 88200}.get(
+        frecuencia, int(frecuencia) * 1000 if frecuencia.isdigit() else None)
+    if codec in CODECS_SIN_PERDIDA:
+        return AudioQuality(codec, hz=hz)
+    kbps = kbps_medios(archivo.get("file_rawsize"), segundos_ccmixter(formato.get("ps")))
+    if kbps and codec == "mp3" and str(formato.get("br") or "").upper() == "CBR":
+        medido = kbps
+        estandar = min(BITRATES_MP3, key=lambda b: abs(b - medido))
+        if abs(estandar - medido) <= estandar * 0.05:
+            kbps = float(estandar)
+    return AudioQuality(codec, kbps, hz)
+
+
+def pagina_ccmixter(subida: dict) -> str | None:
+    """La dirección de la ficha de una subida, la que entiende su extractor."""
+    pagina = str(subida.get("file_page_url") or "")
+    if ES_CCMIXTER.match(pagina):
+        return pagina
+    usuario, ident = subida.get("user_name"), subida.get("upload_id")
+    if usuario and str(ident or "").isdigit():
+        return f"https://ccmixter.org/files/{quote(str(usuario))}/{ident}"
+    return None
+
+
+def info_ccmixter(subida: dict) -> dict | None:
+    """Lo que el motor necesita para bajar una subida de ccMixter."""
+    archivo = archivo_ccmixter(subida)
+    if archivo is None or subida.get("upload_id") is None:
+        return None
+    calidad = calidad_ccmixter(archivo)
+    formato = archivo.get("file_format_info") or {}
+    extension = str(formato.get("default-ext") or calidad.codec)
+    autor = subida.get("user_real_name") or subida.get("user_name")
+    return {
+        "id": str(subida["upload_id"]),
+        "title": str(subida.get("upload_name") or subida["upload_id"]),
+        "uploader": autor,
+        "artist": autor,
+        "duration": segundos_ccmixter(formato.get("ps")),
+        "license": subida.get("license_name"),
+        "webpage_url": pagina_ccmixter(subida),
+        "formats": [{
+            "format_id": extension,
+            "url": str(archivo["download_url"]),
+            "ext": extension,
+            "acodec": calidad.codec,
+            "vcodec": "none",
+            "abr": calidad.kbps,
+            "asr": calidad.hz,
+            "filesize": archivo.get("file_rawsize"),
+            "http_headers": dict(CABECERAS_CCMIXTER),
+        }],
+    }
+
+
+@functools.cache
+def _extractor_ccmixter():
+    """Un extractor para ccMixter, que el motor no trae.
+
+    Sin él, el genérico bajaría la página web y no el audio; o, con la
+    dirección directa del MP3, sin título ni artista.
+    """
+    try:
+        from yt_dlp.extractor.common import InfoExtractor
+        from yt_dlp.utils import ExtractorError
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class CcMixterIE(InfoExtractor):
+        IE_NAME = "ccmixter"
+        _VALID_URL = ES_CCMIXTER.pattern
+
+        def _real_extract(self, url):
+            ident = self._match_id(url)
+            texto = self._download_webpage(
+                API_CCMIXTER, ident, query={"f": "json", "ids": ident},
+                headers=CABECERAS_CCMIXTER, note="Consultando la subida en ccMixter")
+            try:
+                subidas = json_ccmixter(texto)
+            except ValueError as exc:
+                raise ExtractorError(f"ccMixter respondió algo que no se entiende: {exc}",
+                                     expected=True) from exc
+            subida = next((s for s in subidas if isinstance(s, dict)), None) \
+                if isinstance(subidas, list) else None
+            if subida is None:
+                raise ExtractorError("Esa subida ya no está en ccMixter.", expected=True)
+            info = info_ccmixter(subida)
+            if info is None:
+                raise ExtractorError("Esa subida de ccMixter no trae audio.", expected=True)
+            return {**info, "webpage_url": url}
+
+    return CcMixterIE
+
+
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
     if (partes := partir_episodio(url)) is not None:
@@ -732,6 +910,7 @@ def _extraer(engine, url: str, **opciones):
         (ES_AUDIUS, _extractor_audius),
         (ES_JAMENDO, _extractor_jamendo),
         (ES_COMMONS, _extractor_commons),
+        (ES_CCMIXTER, _extractor_ccmixter),
     )
     for patron, fabrica in propios:
         if patron.match(url):
@@ -985,6 +1164,7 @@ class YtDlpDownloader:
             "bandcamp": self._buscar_en_bandcamp,
             "jamendo": self._buscar_en_jamendo,
             "commons": self._buscar_en_commons,
+            "ccmixter": self._buscar_en_ccmixter,
             "hearthis": self._buscar_en_hearthis,
             "podcasts": self._buscar_podcasts,
         }
@@ -1134,6 +1314,51 @@ class YtDlpDownloader:
         paginas = sorted((datos.get("query") or {}).get("pages") or [],
                          key=lambda p: p.get("index") or 0)
         resultados = [r for r in map(resultado_commons, paginas) if r is not None]
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
+    def _buscar_en_ccmixter(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en ccMixter: remixes, a cappellas e instrumentales libres.
+
+        La canción llega en MP3 de 192 a 320 kb/s, más que YouTube, y todo
+        lleva licencia Creative Commons. La calidad se calcula ya aquí con lo
+        que dice su API, sin pedir nada más.
+        """
+        texto = re.sub(r"\s+", " ", COMILLAS_SUELTAS.sub(" ", query.text)).strip()
+        if not texto:
+            raise DownloadError("Escribe algo que buscar en ccMixter.")
+        limite = min(query.limit, LIMITE_CCMIXTER)
+        while True:
+            direccion = API_CCMIXTER + "?" + urlencode({
+                "f": "json", "datasource": "uploads", "search": texto,
+                "search_type": "any", "sort": "rank", "limit": limite,
+            })
+            try:
+                crudo = _pedir(direccion, "ccMixter", cabeceras=CABECERAS_CCMIXTER)
+                break
+            except DownloadError as exc:
+                # Si aun así la cabecera repetida no cabe, se pide la mitad.
+                if not isinstance(exc.__cause__, http.client.LineTooLong) or limite == 1:
+                    raise
+                limite //= 2
+        try:
+            subidas = json_ccmixter(crudo.decode("utf-8", errors="replace"))
+        except ValueError as exc:
+            raise DownloadError(f"ccMixter respondió algo que no se entiende: {exc}") from exc
+        resultados = []
+        for subida in subidas if isinstance(subidas, list) else []:
+            if not isinstance(subida, dict):
+                continue
+            archivo, pagina = archivo_ccmixter(subida), pagina_ccmixter(subida)
+            if archivo is None or pagina is None:
+                continue
+            resultados.append(VideoInfo(
+                title=str(subida.get("upload_name") or "(sin título)"),
+                uploader=subida.get("user_real_name") or subida.get("user_name"),
+                duration=segundos_ccmixter((archivo.get("file_format_info") or {}).get("ps")),
+                url=pagina,
+                quality=calidad_ccmixter(archivo),
+            ))
         return tuple(resultados[:query.limit])
 
     @staticmethod
