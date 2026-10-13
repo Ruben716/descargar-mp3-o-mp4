@@ -47,7 +47,7 @@ Dos agentes trabajaron en copias aisladas del código. Su trabajo está guardado
 | Parche | Qué trae | Estado |
 |---|---|---|
 | `docs/pendiente/diseno_commits.patch` | Rediseño azul y negro (7 commits) | Listo para aplicar y revisar |
-| `docs/pendiente/proveedores_commits.patch` | Fuentes nuevas de alta calidad (7 commits) | Listo para aplicar y revisar |
+| `docs/pendiente/proveedores_commits.patch` | Fuentes nuevas de alta calidad (10 commits, con la Prueba de red y CLAUDE.md al día) | Listo para aplicar y revisar |
 
 ### Cómo aplicarlos
 
@@ -94,6 +94,9 @@ tinta `#040814`, oro `#FFC857` (sellos de sin pérdida), peligro `#FF5D5D` y exi
 5. **ccMixter** (`ccmixter`), con un extractor propio.
 6. **YouTube Music** (`ytmusic`): solo canciones, con título, artista y carátula oficiales.
 7. Las tres fuentes nuevas aparecen en el buscador de la app.
+8. La Prueba de red comprueba Commons, el Archive, ccMixter y YouTube Music.
+9. CLAUDE.md recoge las trampas de las cuatro.
+10. El puente dice qué fuentes traen la calidad ya al buscar.
 
 **Antes de darlas por buenas**, lanzar la **Prueba de red** en GitHub Actions. El agente añadió las comprobaciones
 a `.github/prueba_red.py`. Trampas ya conocidas (en `docs/investigacion/proveedores.json`, campo `notas`):
@@ -143,7 +146,10 @@ Sesiones de DJ, Conciertos (Archive), YouTube Music y géneros.
 `find.text('Descargar').last`. Y en la pantalla Descargar no puede aparecer un texto exacto «Biblioteca».
 
 ### 3.3 DJ automático y «Pídele a Tumbao» (sin coste)
-El agente de investigación del DJ no llegó a entregar su informe. El plan, para retomarlo:
+Investigado y con un **prototipo que funciona**: `docs/pendiente/dj_prototipo/` (`ritmo2.py.txt`, con sus pruebas en
+`test_ritmo.py.txt`; llevan `.txt` para que ruff no los revise hasta integrarlos), y el diseño completo en `docs/investigacion/dj.json` (con su crítica en `critica_dj.json`).
+Medido en un PC: unos 3 s por canción de 4 minutos. En un móvil se estiman 4-6 s en gama media y 12-20 s en gama
+baja, así que conviene analizar en segundo plano y por lotes. El plan:
 - **BPM y energía de cada canción en el propio teléfono, sin numpy**: FFmpeg decodifica a mono y a pocos hercios;
   Python calcula la energía cada 10 ms, el flujo de ataques y la autocorrelación entre 60 y 200 BPM, corrigiendo
   el doble o la mitad. Se guarda en el catálogo SQLite (subir a la versión 9) y se calcula en segundo plano.

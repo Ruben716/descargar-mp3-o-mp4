@@ -1,8 +1,8 @@
 From 3fa04475d8ed60280cf5cf99899163e65b135df6 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:24:28 +0000
-Subject: [PATCH 1/7] =?UTF-8?q?fix:=20los=20fallos=20de=20http.client=20ta?=
- =?UTF-8?q?mbi=C3=A9n=20salen=20como=20DownloadError?=
+Subject: [PATCH 01/10] =?UTF-8?q?fix:=20los=20fallos=20de=20http.client=20?=
+ =?UTF-8?q?tambi=C3=A9n=20salen=20como=20DownloadError?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -156,7 +156,7 @@ index d91c5c2..6815b9f 100644
 From f24683cec85a27b45d7105fc630206a704d9a0ac Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:24:48 +0000
-Subject: [PATCH 2/7] fix: escuchar antes de bajar acepta formatos sin
+Subject: [PATCH 02/10] fix: escuchar antes de bajar acepta formatos sin
  protocolo declarado
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -225,7 +225,8 @@ index 6815b9f..81ff9e5 100644
 From 276db4e78fcb68943e54de941ce7e0c7ed9dae39 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:27:25 +0000
-Subject: [PATCH 3/7] feat: Wikimedia Commons como fuente, bajando el original
+Subject: [PATCH 03/10] feat: Wikimedia Commons como fuente, bajando el
+ original
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -722,7 +723,7 @@ index 81ff9e5..ae9e976 100644
 From cfbed8535d8c268f3647128029fab3513512a11d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:28:23 +0000
-Subject: [PATCH 4/7] feat: el Archive busca todo lo de licencia libre y dice
+Subject: [PATCH 04/10] feat: el Archive busca todo lo de licencia libre y dice
  si es de 24 bits
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -932,7 +933,7 @@ index ae9e976..26d912d 100644
 From 995e21fd28a41e68c1c5ff366b0d497c55ce70e1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:30:45 +0000
-Subject: [PATCH 5/7] feat: ccMixter como fuente, con un extractor propio
+Subject: [PATCH 05/10] feat: ccMixter como fuente, con un extractor propio
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -1400,7 +1401,7 @@ index 26d912d..13b7b93 100644
 From 15390c6559645a97379743457320dff15156c1ed Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:32:28 +0000
-Subject: [PATCH 6/7] feat: YouTube Music como fuente, solo canciones y con
+Subject: [PATCH 06/10] feat: YouTube Music como fuente, solo canciones y con
  datos oficiales
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -1721,7 +1722,7 @@ index 13b7b93..8d1d0a1 100644
 From 70d94bab1bafc85b617adfc5d1086f92c2c933e7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 13 Oct 2026 00:35:26 +0000
-Subject: [PATCH 7/7] feat(movil): YouTube Music, Commons y ccMixter en el
+Subject: [PATCH 07/10] feat(movil): YouTube Music, Commons y ccMixter en el
  buscador
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -1968,6 +1969,334 @@ index ece53de..6b481cc 100644
    testWidgets('tocar un concierto del Archive trae sus pistas',
        (WidgetTester tester) async {
      respuestas['archive'] = _busqueda;
+-- 
+2.43.0
+
+
+From d928c383ff391e38153c8c2104e567be6258356f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 13 Oct 2026 00:37:19 +0000
+Subject: [PATCH 08/10] ci: la prueba de red comprueba Commons, el Archive,
+ ccMixter y YouTube Music
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Para cada fuente nueva: busca, mira la calidad como la app, escucha (donde
+hay extractor propio) y baja una pista corta, imprimiendo nombre, tamaño y
+primeros bytes. En Commons exige que llegue el original («fLaC» o «RIFF») y
+no la copia Ogg; en el Archive, que etree siga entrando y cuántos dicen 24
+bits; en ccMixter, que pedir 25 no reviente la cabecera X-JSON.
+
+Cada bloque va por su cuenta, así que una fuente caída no tapa a las demás,
+y el proceso acaba con error si alguna falló. Podcasts y hearthis siguen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HgAzPqzMyDgbtuBYhjZEkH
+---
+ .github/prueba_red.py | 179 ++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 153 insertions(+), 26 deletions(-)
+
+diff --git a/.github/prueba_red.py b/.github/prueba_red.py
+index 9e0d1a3..c71d80e 100644
+--- a/.github/prueba_red.py
++++ b/.github/prueba_red.py
+@@ -1,35 +1,162 @@
+-"""Prueba de punta a punta contra internet de lo que las pruebas normales no tocan."""
++"""Prueba de punta a punta contra internet de lo que las pruebas normales no tocan.
++
++Cada fuente va en su propio bloque: si una falla se dice con su traza y se
++sigue con las demás, y al final el proceso acaba con error para que el flujo
++salga en rojo. Así una fuente caída no esconde lo que pasa con las otras.
++"""
++import sys
++import traceback
++from collections.abc import Callable
+ from pathlib import Path
+ 
+-from descargador.domain import DownloadOptions, DownloadRequest, SearchQuery
++from descargador.application import CheckQuality, StreamVideo
++from descargador.domain import DownloadError, DownloadOptions, DownloadRequest, SearchQuery, VideoInfo
+ from descargador.infrastructure import YtDlpDownloader
+ 
+ motor = YtDlpDownloader()
++fallos: list[str] = []
+ 
+ 
+-def bajar(url: str, carpeta: str) -> None:
+-    calidad = motor.quality(DownloadRequest(url, Path("x")))
+-    print("   calidad en origen:", calidad)
+-    opciones = DownloadOptions(audio_only=True, audio_format="best")
++def bajar(url: str, carpeta: str, formato: str = "best") -> list[bytes]:
++    """Mira la calidad como lo hace la app, baja la pista y dice qué llegó."""
++    print("   calidad en origen:", CheckQuality(motor).execute(url))
++    opciones = DownloadOptions(audio_only=True, audio_format=formato)
+     res = motor.download(DownloadRequest(url, Path(carpeta), opciones))
++    cabezas = []
+     for f in res.files:
+-        print("   BAJADO:", f.name, f.stat().st_size // 1024, "KB, empieza por", f.read_bytes()[:4])
+-
+-
+-print("===== PODCASTS (con id corto)")
+-programas = motor.search(SearchQuery("historia", limit=5, source="podcasts"))
+-for p in programas:
+-    print("  ", p.uploader, "-", p.title, "|", p.url)
+-lista = motor.playlist(programas[0].url)
+-print("episodios de", lista.title, ":", len(lista.items))
+-corto = min(lista.items, key=lambda e: e.duration or 10**9)
+-print("el mas corto:", corto.title, corto.duration, "s |", corto.url[:160])
+-bajar(corto.url, "podcast")
+-
+-print("\n===== HEARTHIS")
+-pistas = motor.search(SearchQuery("chill", limit=10, source="hearthis"))
+-for p in pistas:
+-    print("  ", p.uploader, "-", p.title, p.duration, "|", p.url)
+-corta = min((p for p in pistas if p.duration), key=lambda p: p.duration or 0)
+-print("la mas corta:", corta.title, corta.duration)
+-bajar(corta.url, "hearthis")
++        cabeza = f.read_bytes()[:4]
++        cabezas.append(cabeza)
++        print("   BAJADO:", f.name, f.stat().st_size // 1024, "KB, empieza por", cabeza,
++              "| llegó:", res.quality)
++    if not res.files:
++        raise AssertionError("no se bajó ningún archivo")
++    return cabezas
++
++
++def escuchar(url: str) -> None:
++    """La escucha previa: una dirección que el reproductor pueda abrir ya."""
++    pista = StreamVideo(motor).execute(url)
++    print("   ESCUCHA:", pista.url[:120], "| cabeceras:", dict(pista.headers))
++
++
++def listar(resultados: tuple[VideoInfo, ...]) -> None:
++    for r in resultados:
++        print("  ", r.uploader, "-", r.title, "|", r.duration, "s |", r.quality, "|", r.url)
++
++
++def la_mas_corta(resultados) -> VideoInfo:
++    con_duracion = [r for r in resultados if r.duration]
++    return min(con_duracion or list(resultados), key=lambda r: r.duration or 10**9)
++
++
++def seccion(nombre: str, prueba: Callable[[], None]) -> None:
++    print(f"\n===== {nombre}")
++    try:
++        prueba()
++    except Exception:
++        traceback.print_exc()
++        fallos.append(nombre)
++
++
++def podcasts() -> None:
++    programas = motor.search(SearchQuery("historia", limit=5, source="podcasts"))
++    for p in programas:
++        print("  ", p.uploader, "-", p.title, "|", p.url)
++    lista = motor.playlist(programas[0].url)
++    print("episodios de", lista.title, ":", len(lista.items))
++    corto = min(lista.items, key=lambda e: e.duration or 10**9)
++    print("el mas corto:", corto.title, corto.duration, "s |", corto.url[:160])
++    bajar(corto.url, "podcast")
++
++
++def hearthis() -> None:
++    pistas = motor.search(SearchQuery("chill", limit=10, source="hearthis"))
++    for p in pistas:
++        print("  ", p.uploader, "-", p.title, p.duration, "|", p.url)
++    corta = min((p for p in pistas if p.duration), key=lambda p: p.duration or 0)
++    print("la mas corta:", corta.title, corta.duration)
++    bajar(corta.url, "hearthis")
++
++
++def commons() -> None:
++    """Que salga el original (FLAC o WAV) y no la copia Ogg de Commons."""
++    pistas = motor.search(SearchQuery("beethoven sonata", limit=10, source="commons"))
++    listar(pistas)
++    if not pistas:
++        raise AssertionError("Commons no devolvió nada")
++    sin_perdida = [p for p in pistas if p.quality and p.quality.lossless]
++    print("sin pérdida:", len(sin_perdida), "de", len(pistas))
++    corta = la_mas_corta(sin_perdida or pistas)
++    print("la elegida:", corta.title, corta.duration, "s |", corta.quality)
++    escuchar(corta.url)
++    original = bool(corta.quality and corta.quality.lossless)
++    cabezas = bajar(corta.url, "commons", "flac" if original else "best")
++    if original and not any(c in (b"fLaC", b"RIFF") for c in cabezas):
++        raise AssertionError(f"llegó una copia y no el original: {cabezas}")
++
++
++def archive() -> None:
++    """Lo de licencia libre entra, etree sigue entrando y se ven los 24 bits."""
++    discos = motor.search(SearchQuery("goldberg variations", limit=10, source="archive"))
++    listar(discos)
++    conciertos = motor.search(SearchQuery("grateful dead", limit=5, source="archive"))
++    print("conciertos de etree:")
++    listar(conciertos)
++    if not discos or not conciertos:
++        raise AssertionError("el Archive no devolvió nada en alguna de las dos")
++    hires = [d for d in (*discos, *conciertos) if d.quality and d.quality.bits == 24]
++    print("dicen 24 bits al buscar:", len(hires))
++    elegido = hires[0] if hires else discos[0]
++    lista = motor.playlist(elegido.url)
++    print("pistas de", lista.title, ":", len(lista.items))
++    corta = la_mas_corta(lista.items)
++    print("la mas corta:", corta.title, corta.duration, "s |", corta.url)
++    bajar(corta.url, "archive", "flac")
++
++
++def ccmixter() -> None:
++    """Con todas sus manías: cabecera enorme, JSON roto y Referer."""
++    pistas = motor.search(SearchQuery("piano", limit=10, source="ccmixter"))
++    listar(pistas)
++    if not pistas:
++        raise AssertionError("ccMixter no devolvió nada")
++    # 25 pedidas: se piden 10 para que la cabecera X-JSON quepa.
++    muchas = motor.search(SearchQuery("remix", limit=25, source="ccmixter"))
++    print("pidiendo 25 llegaron", len(muchas), "sin que reventara la cabecera")
++    corta = la_mas_corta(pistas)
++    print("la mas corta:", corta.title, corta.duration, "s |", corta.quality)
++    escuchar(corta.url)
++    bajar(corta.url, "ccmixter")
++
++
++def ytmusic() -> None:
++    """Canciones con artista y carátula oficiales."""
++    canciones = motor.search(SearchQuery("bad bunny", limit=5, source="ytmusic"))
++    for c in canciones:
++        print("  ", c.uploader, "-", c.title, "|", c.duration, "s |", c.url, "|", c.thumbnail)
++    if not canciones:
++        raise AssertionError("YouTube Music no devolvió nada")
++    if not all(c.uploader and c.thumbnail for c in canciones):
++        raise AssertionError("faltan artistas o carátulas: el motor pudo cambiar la fila")
++    corta = la_mas_corta(canciones)
++    try:
++        bajar(corta.url, "ytmusic")
++    except DownloadError as exc:
++        # Desde los servidores de GitHub YouTube pide a veces demostrar que no
++        # se es un robot. Eso no dice nada de la búsqueda, que es lo nuevo.
++        if "robot" not in str(exc):
++            raise
++        print("   AVISO: YouTube pidió verificación desde este servidor:", exc)
++
++
++seccion("PODCASTS (con id corto)", podcasts)
++seccion("HEARTHIS", hearthis)
++seccion("WIKIMEDIA COMMONS", commons)
++seccion("ARCHIVE (ampliado)", archive)
++seccion("CCMIXTER", ccmixter)
++seccion("YOUTUBE MUSIC", ytmusic)
++
++if fallos:
++    print("\nFALLARON:", ", ".join(fallos))
++    sys.exit(1)
++print("\nTodo bien.")
+-- 
+2.43.0
+
+
+From b11b863a0844412f3f0521cce0d1e0ca7f7cb10a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 13 Oct 2026 00:37:59 +0000
+Subject: [PATCH 09/10] docs: las trampas de Commons, el Archive, ccMixter y
+ YouTube Music
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Lo que no es obvio y se rompería al tocarlo: por qué Commons y ccMixter
+llevan extractor propio, que etree no es «audio» para el Archive, por qué
+_pedir captura HTTPException, la errata del método que redefine YouTube
+Music y por qué _elegir_pista mira la dirección cuando falta el protocolo.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HgAzPqzMyDgbtuBYhjZEkH
+---
+ CLAUDE.md | 32 ++++++++++++++++++++++++++++++--
+ 1 file changed, 30 insertions(+), 2 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 36c480f..83e0196 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -90,7 +90,34 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
+ - **Audius necesita el extractor propio** (`_extractor_audius`, enrutado por `_extraer`): el de
+   yt-dlp solo pide el streaming y nunca bajaría el original. Toda extracción de una pista suelta
+   debe pasar por `_extraer`. Los bits y la frecuencia reales salen de la cabecera del archivo ya
+-  bajado (`cabecera_sin_perdida`): ninguna web los dice al buscar.
++  bajado (`cabecera_sin_perdida`): casi ninguna web los dice al buscar. La excepción es el
++  Archive, que llama «24bit Flac» a ese formato: `calidad_archive` lo lee del campo `format`.
++- **Commons necesita el extractor propio** (`_extractor_commons`): el `WikimediaIE` de yt-dlp no le
++  pone `vcodec` al formato `source` (el original), solo a las copias Ogg que hace Commons, y con
++  `ba` se elegía la copia con pérdida en vez del FLAC. `formatos_commons` deja solo el original,
++  marcado como audio; las copias son recompresiones del mismo archivo. La búsqueda va con
++  `AGENTE_COMMONS`, porque fingir un navegador da 403, y descarta pronunciaciones (Lingua Libre),
++  lo de menos de 30 s, los MIDI y las licencias que no son CC0, dominio público, CC BY o BY-SA.
++  Un Ogg se anuncia como «ogg»: puede llevar Vorbis, Opus o FLAC dentro y no se adivina.
++- **El Archive no llama «audio» a etree**: sus conciertos son `mediatype:etree`, así que la consulta
++  pide `mediatype:(audio OR etree)` o se pierde la colección entera. Lo de fuera de las tres
++  colecciones entra por `licenseurl:*creativecommons*`/`*publicdomain*`: comodines sin «/», que con
++  barra su buscador falla. «24bit Flac» se busca con `format:24bit*`, sin comillas en la consulta.
++- **ccMixter repite el cuerpo en la cabecera `X-JSON`**, y pasa de los 64 KB que admite
++  `http.client`: lanza `LineTooLong`, que hereda de `HTTPException` y no de `OSError`. Por eso
++  `_pedir` captura `HTTPException` en todas las fuentes, se piden 10 como mucho
++  (`LIMITE_CCMIXTER`; por encima de 25 responde vacío) y, si aun así no cabe, la mitad. Su JSON
++  trae ceros a la izquierda y caracteres de control (`json_ccmixter`), corta el hotlink sin
++  `Referer: https://ccmixter.org/` (va en el formato, y llega también a la escucha previa) y
++  rechaza una búsqueda que acaba en comilla. yt-dlp no tiene extractor: `_extractor_ccmixter`
++  ofrece solo la mezcla, porque los FLAC de una subida suelen ser muestras o la voz sola.
++- **YouTube Music busca con el extractor del motor** (`youtube:music:search_url`, sección `#songs`),
++  pero ese solo saca título y enlace. `_extractor_ytmusic` lo subclasea y redefine
++  `_music_reponsive_list_entry` (con la errata de yt-dlp) para añadir artista, álbum, duración y
++  la carátula a 544 px. Si yt-dlp renombra el método, se pierde eso sin romper la búsqueda.
++- **Sin procesar, los formatos no traen `protocol`** (lo rellena yt-dlp al procesar), y la escucha
++  previa extrae sin procesar: `_elegir_pista` mira entonces la dirección. Sin eso, la escucha de
++  cualquier extractor propio acababa en «no ofrece una pista reproducible».
+ - **Jamendo pide una clave de la app** (no del usuario): `clave_jamendo()` la lee de
+   `JAMENDO_CLIENT_ID` o de `descargador/clave_jamendo.txt`, que git ignora y que GitHub Actions
+   escribe desde el secreto del mismo nombre antes de compilar el APK. Solo se ofrecen las pistas
+@@ -102,7 +129,8 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
+   allí y un identificador corto (`ep-…`). Los podcasts cuentan en `FUENTES_DE_LISTAS`.
+ - **Las fuentes nuevas se comprueban contra internet antes de darlas por buenas**, con
+   `.github/prueba_red.py` (flujo «Prueba de red»): las pruebas normales no salen a la red, y así se
+-  vio que el FLAC de Jamendo daba 404 por la dirección que usaba el motor.
++  vio que el FLAC de Jamendo daba 404 por la dirección que usaba el motor. Cada fuente va en su
++  bloque (`seccion`): una caída no tapa a las demás, y el proceso acaba con error si falló alguna.
+ - **La radio en vivo va por HTTP plano**: casi todas las emisoras emiten así, y
+   `network_security_config.xml` lo permite. Solo afecta a lo que reproduce la app.
+ - **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
+-- 
+2.43.0
+
+
+From 1486b70788bf12e466bb286103b04d9afe0d8085 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 13 Oct 2026 00:39:34 +0000
+Subject: [PATCH 10/10] =?UTF-8?q?docs:=20el=20puente=20dice=20qu=C3=A9=20f?=
+ =?UTF-8?q?uentes=20traen=20la=20calidad=20al=20buscar?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HgAzPqzMyDgbtuBYhjZEkH
+---
+ movil/android/app/src/main/python/puente.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/movil/android/app/src/main/python/puente.py b/movil/android/app/src/main/python/puente.py
+index b19263e..4be150c 100644
+--- a/movil/android/app/src/main/python/puente.py
++++ b/movil/android/app/src/main/python/puente.py
+@@ -248,7 +248,8 @@ def buscar(texto: str, limite: int, fuente: str = "youtube") -> str:
+                     "duracion": r.duration or 0,
+                     "url": r.url,
+                     "miniatura": r.thumbnail,
+-                    # Solo cuando la fuente ya la dice al buscar (Audius).
++                    # Solo cuando la fuente ya la dice al buscar (Audius,
++                    # Jamendo, el Archive, Commons, ccMixter).
+                     "calidad": _calidad_json(r.quality),
+                 }
+                 for r in resultados
 -- 
 2.43.0
 

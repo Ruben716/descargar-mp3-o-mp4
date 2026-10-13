@@ -1,0 +1,223 @@
+"""Tempo, pulso y energia de una cancion en Python puro (sin numpy).
+
+FFmpeg hace lo caro (decodificar, bajar a 12 kHz y separar en tres bandas);
+aqui solo se suman cuadrados con math.sumprod, que va en C.
+"""
+from __future__ import annotations
+
+import math
+import operator
+import re
+import subprocess
+import sys
+import time
+from array import array
+
+TASA = 12000            # Hz despues de bajar la frecuencia
+SALTO = 120             # muestras por cuadro: 10 ms
+CPS = TASA // SALTO     # cuadros por segundo (100)
+BANDAS = 3              # graves (<150 Hz), medios (150-2500), agudos (>2500)
+PESOS = (1.0, 1.0, 0.6)
+BPM_MIN, BPM_MAX = 60.0, 200.0
+MAX_SEGUNDOS = 600
+
+_sumprod = getattr(math, "sumprod", None) or (lambda a, b: sum(map(operator.mul, a, b)))
+
+_LUFS = re.compile(r"I:\s+(-?\d+(?:\.\d+)?)\s+LUFS")
+_LRA = re.compile(r"LRA:\s+(\d+(?:\.\d+)?)\s+LU")
+_GENERO = re.compile(r"^\s*genre\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+
+
+def orden_ffmpeg(ffmpeg: str, ruta: str, segundos: int = MAX_SEGUNDOS) -> list[str]:
+    filtro = (
+        "[0:a:0]asplit=2[v][r];"
+        "[v]ebur128,anullsink;"
+        f"[r]aformat=channel_layouts=mono,aresample={TASA},asplit=3[a][b][c];"
+        "[a]lowpass=f=150,aformat=channel_layouts=mono[g];"
+        "[b]highpass=f=150,lowpass=f=2500,aformat=channel_layouts=mono[m];"
+        "[c]highpass=f=2500,aformat=channel_layouts=mono[h];"
+        "[g][m][h]amerge=inputs=3[s]"
+    )
+    return [ffmpeg, "-hide_banner", "-nostats", "-i", ruta, "-t", str(segundos),
+            "-filter_complex", filtro, "-map", "[s]", "-f", "s16le", "-c:a", "pcm_s16le", "-"]
+
+
+def energias_por_cuadro(pcm: bytes | array, bandas: int = BANDAS, salto: int = SALTO) -> list[list[float]]:
+    """Energia media (cuadrado medio) de cada banda en cada cuadro de 10 ms."""
+    muestras = pcm if isinstance(pcm, array) else array("h", pcm)
+    if not isinstance(pcm, array) and sys.byteorder == "big":
+        muestras.byteswap()
+    salida: list[list[float]] = []
+    for b in range(bandas):
+        canal = muestras[b::bandas]
+        n = len(canal) // salto
+        fila = []
+        for i in range(0, n * salto, salto):
+            trozo = canal[i:i + salto]
+            fila.append(_sumprod(trozo, trozo) / salto)
+        salida.append(fila)
+    return salida
+
+
+def a_db(energias: list[float], suelo: float = 100.0) -> list[float]:
+    return [10.0 * math.log10(e + suelo) for e in energias]
+
+
+def flujo(energias: list[list[float]], pesos=PESOS) -> list[float]:
+    """Cuanto sube la energia de un cuadro al siguiente, sumado por bandas."""
+    n = min(len(e) for e in energias)
+    total = [0.0] * n
+    for e, w in zip(energias, pesos):
+        db = a_db(e)
+        for i in range(1, n):
+            d = db[i] - db[i - 1]
+            if d > 0:
+                total[i] += w * d
+    return total
+
+
+def quitar_tendencia(serie: list[float], ventana: int = 50) -> list[float]:
+    """Resta la media local (1 s) y se queda con lo positivo."""
+    n = len(serie)
+    acumulado = [0.0]
+    for x in serie:
+        acumulado.append(acumulado[-1] + x)
+    mitad = ventana // 2
+    salida = []
+    for i in range(n):
+        a, b = max(0, i - mitad), min(n, i + mitad + 1)
+        media = (acumulado[b] - acumulado[a]) / (b - a)
+        salida.append(max(0.0, serie[i] - media))
+    return salida
+
+
+def autocorrelacion(serie: list[float], max_lag: int) -> list[float]:
+    n = len(serie)
+    media = sum(serie) / n if n else 0.0
+    x = array("d", (v - media for v in serie))
+    acf = []
+    for lag in range(max_lag + 1):
+        if lag >= n:
+            acf.append(0.0)
+            continue
+        acf.append(_sumprod(x[: n - lag], x[lag:]) / (n - lag))
+    return acf
+
+
+def _interp(acf: list[float], lag: float) -> float:
+    i = int(lag)
+    if i + 1 >= len(acf):
+        return 0.0
+    f = lag - i
+    return acf[i] * (1 - f) + acf[i + 1] * f
+
+
+def peso_previo(bpm: float, centro: float = 120.0, sigma: float = 1.0) -> float:
+    """Preferencia por tempos cercanos a 120, en octavas (como Ellis 2007)."""
+    return math.exp(-0.5 * (math.log2(bpm / centro) / sigma) ** 2)
+
+
+def puntuaciones(acf: list[float], cps: int = CPS, paso: float = 0.5):
+    salida = []
+    bpm = BPM_MIN
+    while bpm <= BPM_MAX + 1e-9:
+        lag = 60.0 * cps / bpm
+        s = _interp(acf, lag) + 0.5 * _interp(acf, 2 * lag) + 0.25 * _interp(acf, 4 * lag) \
+            + 0.5 * _interp(acf, 3 * lag) * 0.5
+        salida.append((bpm, s))
+        bpm += paso
+    return salida
+
+
+def estimar_tempo(onset: list[float], cps: int = CPS) -> tuple[float, float]:
+    max_lag = int(4 * 60.0 * cps / BPM_MIN) + 2
+    acf = autocorrelacion(onset, max_lag)
+    if acf[0] <= 0:
+        return 0.0, 0.0
+    lista = puntuaciones(acf, cps)
+    mejor_bpm, mejor = max(((b, s * peso_previo(b)) for b, s in lista), key=lambda t: t[1])
+    # refinamiento parabolico sobre la rejilla de 0.5
+    idx = int(round((mejor_bpm - BPM_MIN) / 0.5))
+    if 0 < idx < len(lista) - 1:
+        y0 = lista[idx - 1][1] * peso_previo(lista[idx - 1][0])
+        y1 = mejor
+        y2 = lista[idx + 1][1] * peso_previo(lista[idx + 1][0])
+        den = y0 - 2 * y1 + y2
+        if den < 0:
+            mejor_bpm += 0.5 * 0.5 * (y0 - y2) / den
+    lag = 60.0 * cps / mejor_bpm
+    confianza = max(0.0, min(1.0, _interp(acf, lag) / acf[0]))
+    return mejor_bpm, confianza
+
+
+def fase(onset: list[float], periodo: float, desde: int = 0, hasta: int | None = None) -> float:
+    """Desfase (en cuadros) de la rejilla de pulsos que mas golpes recoge."""
+    hasta = len(onset) if hasta is None else hasta
+    mejor, mejor_fase = -1.0, 0.0
+    phi = 0.0
+    while phi < periodo:
+        total = 0.0
+        t = desde + phi
+        while t < hasta - 1:
+            r = int(round(t))
+            total += max(onset[r - 1] if r > 0 else 0.0, onset[r], onset[r + 1] if r + 1 < len(onset) else 0.0)
+            t += periodo
+        if total > mejor:
+            mejor, mejor_fase = total, phi
+        phi += 0.5
+    return desde + mejor_fase
+
+
+def analizar_pcm(pcm: bytes) -> dict:
+    t0 = time.perf_counter()
+    energias = energias_por_cuadro(pcm)
+    t1 = time.perf_counter()
+    bruto = flujo(energias)
+    onset = quitar_tendencia(bruto)
+    t2 = time.perf_counter()
+    bpm, confianza = estimar_tempo(onset)
+    t3 = time.perf_counter()
+    n = len(onset)
+    total_e = [sum(v) for v in zip(*energias)]
+    db = a_db(total_e, 1.0)
+    pico = max(db) if db else 0.0
+    sonando = [i for i, v in enumerate(db) if v > pico - 40]
+    inicio = sonando[0] if sonando else 0
+    fin = sonando[-1] if sonando else n
+    periodo = 60.0 * CPS / bpm if bpm else 0
+    primer = fase(onset, periodo, inicio, min(n, inicio + 30 * CPS)) if bpm else 0
+    ultimo_desde = max(inicio, fin - 30 * CPS)
+    f_fin = fase(onset, periodo, ultimo_desde, fin) if bpm else 0
+    ultimo = f_fin + int((fin - f_fin) / periodo) * periodo if bpm else 0
+    t4 = time.perf_counter()
+    eb = [sum(e) for e in energias]
+    suma = sum(eb) or 1.0
+    return {
+        "bpm": round(bpm, 1), "confianza": round(confianza, 3),
+        "inicio_ms": int(inicio * 1000 / CPS), "fin_ms": int(fin * 1000 / CPS),
+        "pulso_inicio_ms": int(primer * 1000 / CPS), "pulso_fin_ms": int(ultimo * 1000 / CPS),
+        "graves": round(eb[0] / suma, 3), "brillo": round(eb[2] / suma, 3),
+        "tiempos": [round(t1 - t0, 3), round(t2 - t1, 3), round(t3 - t2, 3), round(t4 - t3, 3)],
+    }
+
+
+def analizar(ruta: str, ffmpeg: str = "ffmpeg") -> dict:
+    t0 = time.perf_counter()
+    hecho = subprocess.run(orden_ffmpeg(ffmpeg, ruta), capture_output=True, timeout=300, check=False)
+    t1 = time.perf_counter()
+    datos = analizar_pcm(hecho.stdout)
+    err = hecho.stderr.decode("utf-8", "replace")
+    resumen = err.rsplit("Summary:", 1)
+    m = _LUFS.search(resumen[-1]) if len(resumen) == 2 else None
+    l = _LRA.search(resumen[-1]) if len(resumen) == 2 else None
+    datos["lufs"] = float(m.group(1)) if m else None
+    datos["lra"] = float(l.group(1)) if l else None
+    g = _GENERO.search(err.split("Stream #")[0])
+    datos["genero"] = g.group(1).strip() if g else ""
+    datos["ffmpeg_s"] = round(t1 - t0, 3)
+    return datos
+
+
+if __name__ == "__main__":
+    for r in sys.argv[1:]:
+        print(r.rsplit("/", 1)[-1], analizar(r))

@@ -1,0 +1,38 @@
+import math, sys
+sys.path.insert(0, 'proto')
+
+def normalizar(o):
+    n = len(o)
+    m = sum(o) / n
+    d = math.sqrt(sum((x - m) ** 2 for x in o) / n) or 1.0
+    return [x / d for x in o]
+
+def pulsos_dp(onset, periodo, desde, hasta, apriete=100.0):
+    """Seguidor de pulsos de Ellis (2007) por programacion dinamica, en una ventana."""
+    o = normalizar(onset[desde:hasta])
+    n = len(o)
+    p = periodo
+    lo, hi = int(round(p / 2)), int(round(2 * p))
+    penal = {d: -apriete * math.log(d / p) ** 2 for d in range(max(1, lo), hi + 1)}
+    acum = [0.0] * n
+    previo = [-1] * n
+    for t in range(n):
+        mejor, cual = 0.0, -1   # 0.0: empezar aqui de nuevo
+        for d, pen in penal.items():
+            u = t - d
+            if u < 0:
+                break
+            v = acum[u] + pen
+            if v > mejor:
+                mejor, cual = v, u
+        acum[t] = o[t] + mejor
+        previo[t] = cual
+    # el ultimo pulso: el mejor de la ultima ventana de un periodo
+    cola = range(max(0, n - int(p)), n)
+    t = max(cola, key=lambda i: acum[i]) if n else -1
+    salida = []
+    while t >= 0:
+        salida.append(desde + t)
+        t = previo[t]
+    salida.reverse()
+    return salida
