@@ -748,12 +748,15 @@ class YtDlpDownloader:
             if combinados:
                 return max(combinados, key=lambda f: f.get("height") or 0)
 
+        # Sin procesar, los formatos de los extractores propios (Audius,
+        # Jamendo, Commons, ccMixter) no dicen su protocolo, porque eso lo
+        # rellena el motor al procesar. Entonces manda la propia dirección.
         audios = [
             f for f in formatos
             if f.get("url")
             and f.get("acodec") not in (None, "none")
             and f.get("vcodec") in (None, "none")
-            and str(f.get("protocol") or "").startswith("http")
+            and str(f.get("protocol") or f["url"]).startswith("http")
         ]
         if audios:
             return max(audios, key=lambda f: f.get("abr") or 0)

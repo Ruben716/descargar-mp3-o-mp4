@@ -1015,6 +1015,18 @@ class StreamTests(unittest.TestCase):
         pista = YtDlpDownloader._elegir_pista(self.FORMATOS, audio_only=True)
         self.assertEqual(pista["url"], "https://cdn/mejor")
 
+    def test_un_formato_sin_protocolo_declarado_tambien_se_escucha(self):
+        # Así llegan, sin procesar, los de los extractores propios: el de
+        # Audius, por ejemplo, solo dice su dirección y su códec.
+        audius = {"formats": [{"format_id": "mp3-320", "url": "https://api/stream",
+                               "acodec": "mp3", "vcodec": "none", "abr": 320}]}
+        pista = YtDlpDownloader._elegir_pista(audius, audio_only=True)
+        self.assertEqual(pista["url"], "https://api/stream")
+        # Lo que no es http sigue fuera aunque no lo diga.
+        raro = {"formats": [{"url": "rtmp://cdn/a", "acodec": "aac", "vcodec": "none"}]}
+        with self.assertRaises(DownloadError):
+            YtDlpDownloader._elegir_pista(raro, audio_only=True)
+
     def test_video_falls_back_to_a_combined_format(self):
         combinado = {"formats": [
             {"url": "https://cdn/360", "vcodec": "avc1", "acodec": "mp4a", "height": 360},
