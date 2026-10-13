@@ -733,7 +733,7 @@ class _FilaLista extends StatelessWidget {
                       gradient: Tema.degradado,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.queue_music_rounded, color: Colors.black38),
+                    child: const Icon(Icons.queue_music_rounded, color: Color(0x73040814)),
                   )
                 else
                   PortadaLocal(elemento: pistas.first, lado: 52, radio: 14),
@@ -768,9 +768,9 @@ class _FilaLista extends StatelessWidget {
                       value: 'borrar',
                       child: Row(
                         children: <Widget>[
-                          Icon(Icons.delete_outline_rounded, color: Color(0xFFFF6B81)),
+                          Icon(Icons.delete_outline_rounded, color: Tema.peligro),
                           SizedBox(width: 12),
-                          Text('Eliminar lista', style: TextStyle(color: Color(0xFFFF6B81))),
+                          Text('Eliminar lista', style: TextStyle(color: Tema.peligro)),
                         ],
                       ),
                     ),

@@ -156,7 +156,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Icon(Icons.check_circle_rounded, color: Color(0xFF57D9A3), size: 48),
+              const Icon(Icons.check_circle_rounded, color: Tema.exito, size: 48),
               const SizedBox(height: 12),
               Text(
                 _control.mensaje,
@@ -212,12 +212,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         SnackBar(
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: fallo ? 10 : 4),
-          backgroundColor: fallo ? const Color(0xFF5C1F2B) : null,
+          backgroundColor: fallo ? Tema.peligroFondo : null,
           content: Row(
             children: <Widget>[
               Icon(
                 fallo ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                color: fallo ? const Color(0xFFFF6B81) : const Color(0xFF57D9A3),
+                color: fallo ? Tema.peligro : Tema.exito,
               ),
               const SizedBox(width: 12),
               Expanded(child: Text(mensaje, maxLines: 4, overflow: TextOverflow.ellipsis)),
@@ -958,12 +958,12 @@ class _TarjetaResultado extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.block_rounded, size: 12, color: Color(0xFFFF6B81)),
+          const Icon(Icons.block_rounded, size: 12, color: Tema.peligro),
           const SizedBox(width: 4),
           Flexible(
             child: Text(
               c!.error!.toLowerCase().contains('protegida') ? 'Protegida: no se puede bajar' : 'No se puede bajar',
-              style: const TextStyle(color: Color(0xFFFF6B81), fontSize: 10),
+              style: const TextStyle(color: Tema.peligro, fontSize: 10),
             ),
           ),
         ],
@@ -1190,7 +1190,7 @@ class _AvisoState extends State<_Aviso> {
         width: double.infinity,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: widget.fallo ? const Color(0x33FF6B81) : const Color(0x3357D9A3),
+          color: widget.fallo ? const Color(0x33FF5D5D) : const Color(0x3357D9A3),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(

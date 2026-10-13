@@ -311,7 +311,7 @@ class _TarjetaAnime extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
-                              const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFFC857)),
+                              const Icon(Icons.star_rounded, size: 12, color: Tema.oro),
                               const SizedBox(width: 2),
                               Text(
                                 '${anime.nota}',

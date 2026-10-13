@@ -203,7 +203,7 @@ class PantallaInicioState extends State<PantallaInicio> {
               gradient: Tema.degradado,
               borderRadius: BorderRadius.circular(28),
             ),
-            child: const Icon(Icons.music_note_rounded, size: 46, color: Colors.black38),
+            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x73040814)),
           ),
           const SizedBox(height: 22),
           Text(
@@ -288,7 +288,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                           ),
                     icon: Icon(
                       sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                      color: Colors.black87,
+                      color: Tema.tinta,
                     ),
                   ),
                 ),
@@ -501,7 +501,7 @@ class _Tarjeta extends StatelessWidget {
                     gradient: Tema.degradado,
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  child: const Icon(Icons.queue_music_rounded, color: Colors.black38, size: 40),
+                  child: const Icon(Icons.queue_music_rounded, color: Color(0x73040814), size: 40),
                 )
               else
                 PortadaLocal(elemento: pista, lado: 130, radio: 18),

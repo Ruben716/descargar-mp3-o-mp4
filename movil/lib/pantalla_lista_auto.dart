@@ -164,7 +164,7 @@ class BotonMeGusta extends StatelessWidget {
             child: Icon(
               marcada ? Icons.favorite_rounded : Icons.favorite_border_rounded,
               key: ValueKey<bool>(marcada),
-              color: marcada ? const Color(0xFFFF6B81) : color,
+              color: marcada ? Tema.meGusta : color,
             ),
           ),
         );

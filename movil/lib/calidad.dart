@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'tema.dart';
+
 /// Cuanta calidad tiene el audio de verdad.
 enum NivelCalidad {
   /// Sin perdida y por encima de lo de un CD.
@@ -191,16 +193,13 @@ class SelloCalidad extends StatelessWidget {
   final CalidadAudio calidad;
   final bool grande;
 
-  static const Color _oro = Color(0xFFFFC857);
-  static const Color _verde = Color(0xFF57D9A3);
-
   @override
   Widget build(BuildContext context) {
     final NivelCalidad nivel = calidad.nivel;
     final (String texto, Color color) = switch (nivel) {
-      NivelCalidad.hiRes => ('HI-RES · ${calidad.etiqueta}', _oro),
-      NivelCalidad.sinPerdida => ('SIN PERDIDA · ${calidad.etiqueta.split(' · ').first}', _oro),
-      NivelCalidad.alta => (calidad.etiqueta, _verde),
+      NivelCalidad.hiRes => ('HI-RES · ${calidad.etiqueta}', Tema.oro),
+      NivelCalidad.sinPerdida => ('SIN PERDIDA · ${calidad.etiqueta.split(' · ').first}', Tema.oro),
+      NivelCalidad.alta => (calidad.etiqueta, Tema.exito),
       NivelCalidad.buena => (calidad.etiqueta, Colors.white70),
       NivelCalidad.basica => (calidad.etiqueta, Colors.white38),
     };

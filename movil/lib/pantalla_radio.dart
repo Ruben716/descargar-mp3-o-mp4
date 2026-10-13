@@ -213,7 +213,7 @@ class _FilaEmisora extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color tono = emisora.sinPerdida ? const Color(0xFFFFC857) : Colors.white54;
+    final Color tono = emisora.sinPerdida ? Tema.oro : Colors.white54;
     return ListTile(
       onTap: alPulsar,
       leading: LogoEmisora(emisora: emisora, lado: 48),
@@ -260,7 +260,7 @@ class LogoEmisora extends StatelessWidget {
       width: lado,
       height: lado,
       decoration: BoxDecoration(gradient: Tema.degradado, borderRadius: BorderRadius.circular(lado / 4)),
-      child: Icon(Icons.radio_rounded, color: Colors.black45, size: lado / 2),
+      child: Icon(Icons.radio_rounded, color: const Color(0x73040814), size: lado / 2),
     );
     if (!emisora.logo.startsWith('http')) return reserva;
     return ClipRRect(

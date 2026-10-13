@@ -114,7 +114,7 @@ class FilaPista extends StatelessWidget {
                               if (Favoritas.instancia.contiene(elemento.uri))
                                 const Padding(
                                   padding: EdgeInsets.only(right: 4),
-                                  child: Icon(Icons.favorite_rounded, size: 12, color: Color(0xFFFF6B81)),
+                                  child: Icon(Icons.favorite_rounded, size: 12, color: Tema.meGusta),
                                 ),
                               Expanded(
                                 child: Text(

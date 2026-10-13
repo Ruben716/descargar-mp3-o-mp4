@@ -162,7 +162,7 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: <Color>[Color(0xCC08070C), Color(0xF208070C), Tema.fondo],
+                colors: <Color>[Tema.veloSuave, Tema.veloDenso, Tema.fondo],
               ),
             ),
           ),
@@ -305,21 +305,21 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
               shape: BoxShape.circle,
               boxShadow: <BoxShadow>[
                 BoxShadow(
-                  color: Tema.acento.withValues(alpha: 0.4),
-                  blurRadius: 24,
-                  offset: const Offset(0, 8),
+                  color: Tema.acento.withValues(alpha: 0.45),
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
             child: _cargando
                 ? const Padding(
                     padding: EdgeInsets.all(22),
-                    child: CircularProgressIndicator(strokeWidth: 3, color: Colors.black54),
+                    child: CircularProgressIndicator(strokeWidth: 3, color: Color(0x99040814)),
                   )
                 : Icon(
                     sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
                     size: 38,
-                    color: Colors.black87,
+                    color: Tema.tinta,
                   ),
           ),
         ),
@@ -344,7 +344,7 @@ class _Fallo extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
-      color: const Color(0x33FF6B81),
+      color: const Color(0x33FF5D5D),
       borderRadius: BorderRadius.circular(18),
     ),
     child: Column(
@@ -395,7 +395,7 @@ class _Descarga extends StatelessWidget {
           return Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.check_circle_rounded, color: Color(0xFF57D9A3)),
+              const Icon(Icons.check_circle_rounded, color: Tema.exito),
               const SizedBox(width: 8),
               Text(control.mensaje, style: const TextStyle(fontWeight: FontWeight.w700)),
             ],
