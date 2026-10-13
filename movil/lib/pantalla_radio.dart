@@ -21,7 +21,17 @@ class FiltroRadio {
 /// Radio en directo de todo el mundo: las de Peru, las de un genero, las
 /// que emiten en FLAC... Se escucha al momento, sin bajar nada.
 class PantallaRadio extends StatefulWidget {
-  const PantallaRadio({super.key});
+  const PantallaRadio({this.inicial, super.key});
+
+  /// Con que atajo se abre (Sin perdida, Favoritas, un genero...). Sin el,
+  /// las mas votadas.
+  final FiltroRadio? inicial;
+
+  /// El atajo de [filtros] que se llama asi, o el primero si no hay ninguno.
+  static FiltroRadio filtroDe(String etiqueta) => filtros.firstWhere(
+        (FiltroRadio f) => f.etiqueta == etiqueta,
+        orElse: () => filtros.first,
+      );
 
   /// Los atajos, en el orden en que se ensenian.
   static const List<FiltroRadio> filtros = <FiltroRadio>[
@@ -48,7 +58,11 @@ class _PantallaRadioState extends State<PantallaRadio> {
   final EstadoReproductor _reproductor = EstadoReproductor.instancia;
   final RadiosFavoritas _favoritas = RadiosFavoritas.instancia;
 
-  FiltroRadio _filtro = PantallaRadio.filtros.first;
+  late FiltroRadio _filtro = widget.inicial ?? PantallaRadio.filtros.first;
+
+  /// La ficha del atajo con que se abrio, para llevarla a la vista: los
+  /// generos quedan fuera de la pantalla, a la derecha.
+  final GlobalKey _fichaInicial = GlobalKey();
   List<EstacionRadio> _emisoras = <EstacionRadio>[];
   bool _cargando = false;
   String? _fallo;
@@ -59,6 +73,12 @@ class _PantallaRadioState extends State<PantallaRadio> {
     super.initState();
     _favoritas.cargar();
     unawaited(_buscar());
+    if (widget.inicial != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final BuildContext? ficha = _fichaInicial.currentContext;
+        if (ficha != null && mounted) Scrollable.ensureVisible(ficha, alignment: 0.5);
+      });
+    }
   }
 
   @override
@@ -133,10 +153,11 @@ class _PantallaRadioState extends State<PantallaRadio> {
               children: <Widget>[
                 for (final FiltroRadio f in PantallaRadio.filtros)
                   Padding(
+                    key: f.etiqueta == widget.inicial?.etiqueta ? _fichaInicial : null,
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ChoiceChip(
                       label: Text(f.etiqueta),
-                      selected: f == _filtro,
+                      selected: f.etiqueta == _filtro.etiqueta,
                       onSelected: (_) => _elegir(f),
                     ),
                   ),

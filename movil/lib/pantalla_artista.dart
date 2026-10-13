@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'estado_reproductor.dart';
 import 'fila_pista.dart';
 import 'formato.dart';
+import 'hecho_para_ti.dart';
 import 'nucleo.dart';
+import 'pantalla_mix.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
@@ -81,6 +83,21 @@ class PantallaArtista extends StatelessWidget {
       appBar: AppBar(
         title: Text(artista, style: const TextStyle(fontSize: 16)),
         actions: <Widget>[
+          // Su mix: lo suyo de lo mas oido a lo menos, con Mezcla DJ y la
+          // opcion de guardarlo como lista.
+          TextButton.icon(
+            onPressed: pistas.isEmpty
+                ? null
+                : () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PantallaMix(
+                          mix: HechoParaTi.mixDeArtista(artista, pistas, pistas),
+                        ),
+                      ),
+                    ),
+            icon: const Icon(Icons.auto_awesome_rounded, size: 18),
+            label: const Text('Mix'),
+          ),
           IconButton(
             tooltip: 'Escuchar en aleatorio',
             onPressed: pistas.isEmpty

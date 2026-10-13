@@ -16,7 +16,9 @@ import 'hoja_descarga.dart';
 import 'navegacion.dart';
 import 'nucleo.dart';
 import 'pantalla_ajustes.dart';
+import 'pantalla_explorar.dart';
 import 'pantalla_previa.dart';
+import 'pantalla_radio.dart';
 import 'portadas.dart';
 import 'tema.dart';
 
@@ -113,6 +115,9 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     // Si la pantalla nace precisamente porque se compartio algo, ya esta ahi.
     _alRecibirEnlace();
+    // Lo mismo con una busqueda pedida desde Explorar.
+    Navegacion.busquedaPedida.addListener(_alPedirBusqueda);
+    _alPedirBusqueda();
     // Quien abre Descargar va a buscar: se carga el motor mientras escribe.
     unawaited(Nucleo.precalentar());
   }
@@ -297,6 +302,35 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     if (e.tipo == TipoEntrada.lista) await _importarLista(e.url);
     // Un nombre compartido (desde las notas, un chat...) se busca sin mas.
     if (e.tipo == TipoEntrada.busqueda) await _buscar(e.texto);
+  }
+
+  void _alPedirBusqueda() {
+    if (Navegacion.busquedaPedida.value == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _atenderBusqueda());
+  }
+
+  /// Una busqueda pedida desde Explorar: como lo compartido, pero en la
+  /// fuente que se eligio alli. Sin texto solo se elige la fuente y se deja
+  /// el campo listo para escribir.
+  Future<void> _atenderBusqueda() async {
+    final ({String texto, Fuente fuente})? pedida = Navegacion.busquedaPedida.value;
+    if (pedida == null || !mounted) return;
+    Navegacion.busquedaPedida.value = null;
+    setState(() {
+      _fuente = pedida.fuente;
+      _busqueda++;
+      _pendientes.clear();
+      _sinRespuesta.clear();
+      _importada = false;
+      _resultados = <Resultado>[];
+      _aviso = '';
+    });
+    _poner(pedida.texto.trim());
+    if (pedida.texto.trim().isEmpty) {
+      _foco.requestFocus();
+      return;
+    }
+    await _buscar(pedida.texto.trim());
   }
 
   /// Deja un texto en el campo como si se hubiera escrito.
@@ -581,6 +615,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   @override
   void dispose() {
     Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
+    Navegacion.busquedaPedida.removeListener(_alPedirBusqueda);
     _control.removeListener(_refrescar);
     _reproductor.removeListener(_vigilarReproductor);
     _campo.dispose();
@@ -1246,6 +1281,36 @@ class _Vacio extends StatelessWidget {
           const _Forma(
             icono: Icons.share_rounded,
             texto: 'O desde su app: Compartir y elige Tumbao. Se abre listo para bajar.',
+          ),
+          const SizedBox(height: 10),
+          // Para quien no sabe que buscar. Ninguna dice «Musica» ni
+          // «Biblioteca» a secas: las pruebas buscan esos textos aqui.
+          const Text('¿Sin idea de que buscar?', style: TextStyle(color: Colors.white54)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              ActionChip(
+                avatar: const Icon(Icons.radio_rounded, size: 18, color: Tema.acento),
+                label: const Text('Radio en vivo'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const PantallaRadio()),
+                ),
+              ),
+              ActionChip(
+                avatar: const Icon(Icons.graphic_eq_rounded, size: 18, color: Tema.oro),
+                label: const Text('Donde hay sin perdida'),
+                onPressed: () => irADestino(context, categoriaSinPerdida),
+              ),
+              ActionChip(
+                avatar: const Icon(Icons.explore_rounded, size: 18, color: Tema.acentoHielo),
+                label: const Text('Explorar todo'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const PantallaExplorar()),
+                ),
+              ),
+            ],
           ),
         ],
       ),

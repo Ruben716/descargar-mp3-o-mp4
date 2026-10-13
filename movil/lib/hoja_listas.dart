@@ -129,8 +129,10 @@ class _HojaAnadirAListaState extends State<HojaAnadirALista> {
 }
 
 /// Pide el nombre de una lista nueva. null si se cancela.
-Future<String?> pedirNombreDeLista(BuildContext context) =>
-    showDialog<String>(context: context, builder: (_) => const DialogoNuevaLista());
+///
+/// Con [inicial] el campo ya viene escrito (guardar un mix con su nombre).
+Future<String?> pedirNombreDeLista(BuildContext context, {String inicial = ''}) =>
+    showDialog<String>(context: context, builder: (_) => DialogoNuevaLista(inicial: inicial));
 
 /// Dialogo para crear una lista.
 ///
@@ -138,14 +140,17 @@ Future<String?> pedirNombreDeLista(BuildContext context) =>
 /// morir con el. Crearlo fuera y liberarlo tras el await lo destruia mientras
 /// el dialogo seguia cerrandose, y Flutter aborta por ello.
 class DialogoNuevaLista extends StatefulWidget {
-  const DialogoNuevaLista({super.key});
+  const DialogoNuevaLista({this.inicial = '', super.key});
+
+  /// Lo que ya viene escrito en el campo.
+  final String inicial;
 
   @override
   State<DialogoNuevaLista> createState() => _DialogoNuevaListaState();
 }
 
 class _DialogoNuevaListaState extends State<DialogoNuevaLista> {
-  final TextEditingController _nombre = TextEditingController();
+  late final TextEditingController _nombre = TextEditingController(text: widget.inicial);
 
   @override
   void dispose() {

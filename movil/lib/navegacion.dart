@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'nucleo.dart';
+
 /// Pedir desde cualquier pantalla que se cambie de pestania.
 ///
 /// Las pestanias las lleva el armazon de main.dart, que escucha esto. Asi
@@ -27,5 +29,18 @@ class Navegacion {
     // Se pasa por null para que pedir dos veces la misma pestania avise igual.
     pestanaPedida.value = null;
     pestanaPedida.value = pestana;
+  }
+
+  /// Una busqueda pedida desde fuera de Descargar (Explorar), con su fuente.
+  ///
+  /// El armazon lo escucha para ir a Descargar, y Descargar la atiende como lo
+  /// compartido: fija la fuente, pone el texto y, si lo hay, busca.
+  static final ValueNotifier<({String texto, Fuente fuente})?> busquedaPedida =
+      ValueNotifier<({String texto, Fuente fuente})?>(null);
+
+  /// Lleva a Descargar con [fuente] elegida y, si hay [texto], buscandolo.
+  static void buscarEn(Fuente fuente, {String texto = ''}) {
+    busquedaPedida.value = null;
+    busquedaPedida.value = (texto: texto, fuente: fuente);
   }
 }

@@ -32,6 +32,24 @@ class Posiciones {
     }
   }
 
+  /// Todo lo que se dejo a medias, de lo ultimo a lo mas antiguo. Solo lee.
+  ///
+  /// Al guardar, cada una se quita y se vuelve a poner al final, asi que el
+  /// orden en que estan es el de la ultima vez que sonaron.
+  Future<Map<String, Duration>> todas() async {
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      final Map<String, dynamic> guardadas =
+          jsonDecode(memoria.getString(_clave) ?? '{}') as Map<String, dynamic>;
+      return <String, Duration>{
+        for (final MapEntry<String, dynamic> e in guardadas.entries.toList().reversed)
+          if (e.value is num) e.key: Duration(milliseconds: (e.value as num).toInt()),
+      };
+    } catch (_) {
+      return <String, Duration>{};
+    }
+  }
+
   Future<void> guardar(String uri, Duration posicion, Duration total) async {
     try {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
