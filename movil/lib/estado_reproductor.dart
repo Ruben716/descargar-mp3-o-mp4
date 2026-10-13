@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:convert';
 
@@ -8,12 +9,14 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalogo.dart';
+import 'dj.dart';
 import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
 import 'posiciones.dart';
 import 'radio_mundial.dart';
+import 'ritmos.dart';
 import 'volumen_parejo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
@@ -487,6 +490,7 @@ class EstadoReproductor extends ChangeNotifier {
     if (elementos.isEmpty) return;
     final int ordenes = ++_ordenes;
     _quitarTramo();
+    _modoDj = null;
     // Desde el mismo momento en que cambia la cola: a partir de aqui, un
     // aviso del motor (que aun suena con la vieja) se traduciria mal.
     _cargasEnCurso++;
@@ -625,6 +629,92 @@ class EstadoReproductor extends ChangeNotifier {
     if (elementos.isEmpty) return;
     if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
     await reproducirLista(elementos, 0);
+  }
+
+  /// Una mezcla DJ: se ordena para que fluya y suena en ese orden.
+  ///
+  /// Lo que falte por analizar se pide con prioridad y entra igual, con coste
+  /// neutro: nada se pierde por no estar analizado.
+  Future<void> reproducirDj(
+    List<Elemento> elementos, {
+    ModoDj modo = ModoDj.flujo,
+    Elemento? primera,
+  }) async {
+    if (elementos.isEmpty) return;
+    final Ritmos ritmos = Ritmos.instancia;
+    ritmos.analizarTodas(elementos.map((Elemento e) => e.uri), urgente: true);
+    final List<Elemento> orden = await ordenarComoDj(
+      elementos,
+      rasgos: ritmos.todos,
+      modo: modo,
+      primera: primera?.uri,
+    );
+    if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
+    await reproducirLista(orden, 0);
+    _modoDj = modo;
+    notifyListeners();
+  }
+
+  /// Reordena lo que queda por sonar como lo haria un DJ, sin cortar la que
+  /// suena: se queda delante y lo demas se mueve detras de ella.
+  Future<void> ordenarColaDj(ModoDj modo) async {
+    final int? indice = motor.currentIndex;
+    if (_cola.length < 3 || indice == null) return;
+    if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
+    final Elemento actual = _cola[indice];
+    Ritmos.instancia.analizarTodas(_cola.map((Elemento e) => e.uri), urgente: true);
+    final List<Elemento> orden = await ordenarComoDj(
+      _cola,
+      rasgos: Ritmos.instancia.todos,
+      modo: modo,
+      primera: actual.uri,
+    );
+    // Las que el DJ deja fuera (las muy largas) siguen al final.
+    final Set<String> dentro = <String>{for (final Elemento e in orden) e.uri};
+    final List<Elemento> deseado = <Elemento>[
+      ...orden,
+      for (final Elemento e in _cola)
+        if (!dentro.contains(e.uri)) e,
+    ];
+    // La que suena primero; despues, una a una a su sitio, con el motor.
+    await moverEnCola(indice, 0);
+    for (int destino = 1; destino < deseado.length; destino++) {
+      // Por URI: si se ordeno en otro isolate, llegan copias.
+      final int desde = _cola.indexWhere(
+        (Elemento e) => e.uri == deseado[destino].uri,
+        destino,
+      );
+      if (desde > destino) await moverEnCola(desde, destino);
+    }
+    _modoDj = modo;
+    notifyListeners();
+  }
+
+  /// Con que modo se ordeno la cola, o null si no es una mezcla DJ.
+  ModoDj? _modoDj;
+  ModoDj? get modoDj => _modoDj;
+
+  /// Ordena fuera del hilo de la pantalla cuando son muchas: con 500 canciones
+  /// el 2-opt tarda unos cientos de milisegundos.
+  @visibleForTesting
+  static Future<List<Elemento>> ordenarComoDj(
+    List<Elemento> elementos, {
+    required Map<String, Rasgos> rasgos,
+    ModoDj modo = ModoDj.flujo,
+    String? primera,
+  }) async {
+    List<Elemento> ordenar() => Dj.ordenarElementos(
+          elementos,
+          rasgos: (String uri) => rasgos[uri],
+          modo: modo,
+          primera: primera,
+        );
+    if (elementos.length <= 150) return ordenar();
+    try {
+      return await Isolate.run(ordenar);
+    } catch (_) {
+      return ordenar();
+    }
   }
 
   /// Todo en orden aleatorio, empezando por una cualquiera.
@@ -1123,6 +1213,7 @@ class EstadoReproductor extends ChangeNotifier {
     _uriNormalizada = null;
     _silenciosPuestos = null;
     _ordenes = 0;
+    _modoDj = null;
     _artes.clear();
     _relojSuenio?.cancel();
     _relojSuenio = null;

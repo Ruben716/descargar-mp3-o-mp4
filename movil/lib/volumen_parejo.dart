@@ -126,6 +126,18 @@ class VolumenParejo extends ChangeNotifier {
     unawaited(_trabajar());
   }
 
+  /// Una medida que llega de otro lado (el analisis del DJ mide tambien la
+  /// sonoridad): se apunta igual que si la hubiera medido esta cola.
+  void anotarMedida(String uri, double lufs) {
+    if (!valida(lufs) || _lufs[uri] == lufs) return;
+    _lufs[uri] = lufs;
+    _cola.remove(uri);
+    notifyListeners();
+    unawaited(
+      Catalogo.instancia.anotarVolumen(uri, lufs).catchError((Object _) {}),
+    );
+  }
+
   /// Mide toda la biblioteca que falte. Devuelve cuantas se pusieron en cola.
   int medirTodas(Iterable<String> uris) {
     if (!_listo) return 0;

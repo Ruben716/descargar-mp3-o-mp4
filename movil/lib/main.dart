@@ -17,6 +17,7 @@ import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
 import 'pantalla_inicio.dart';
 import 'pantalla_ver.dart';
+import 'ritmos.dart';
 import 'suscripciones.dart';
 import 'tema.dart';
 import 'volumen_parejo.dart';
@@ -69,6 +70,8 @@ Future<void> main() async {
     }),
   );
   unawaited(Favoritas.instancia.cargar());
+  // El pulso y la energia de lo ya analizado, para el DJ y «Pidele».
+  unawaited(Ritmos.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());
   // Sin esperarla: deja la cola como estaba, parada, mientras la app abre.

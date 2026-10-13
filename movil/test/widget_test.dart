@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/ritmos.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
@@ -145,6 +146,7 @@ void main() {
     Listas.instancia.reiniciar();
     Favoritas.instancia.reiniciar();
     VolumenParejo.instancia.reiniciar();
+    Ritmos.instancia.reiniciar();
     tareasDeFondo = false;
     Suscripciones.instancia.reiniciar();
     AutoEq.olvidar();
@@ -1164,7 +1166,7 @@ void main() {
     try {
       // Salta cinco versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -1713,7 +1715,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       final List<Map<String, Object?>> filas = await nueva.query('calidades');
       expect(filas.single['codec'], 'opus', reason: 'lo anotado no se pierde');
       expect(filas.single.containsKey('bits'), isTrue, reason: 'y la columna nueva ya esta');
@@ -1751,7 +1753,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
