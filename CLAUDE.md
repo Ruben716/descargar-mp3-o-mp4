@@ -90,7 +90,34 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **Audius necesita el extractor propio** (`_extractor_audius`, enrutado por `_extraer`): el de
   yt-dlp solo pide el streaming y nunca bajaría el original. Toda extracción de una pista suelta
   debe pasar por `_extraer`. Los bits y la frecuencia reales salen de la cabecera del archivo ya
-  bajado (`cabecera_sin_perdida`): ninguna web los dice al buscar.
+  bajado (`cabecera_sin_perdida`): casi ninguna web los dice al buscar. La excepción es el
+  Archive, que llama «24bit Flac» a ese formato: `calidad_archive` lo lee del campo `format`.
+- **Commons necesita el extractor propio** (`_extractor_commons`): el `WikimediaIE` de yt-dlp no le
+  pone `vcodec` al formato `source` (el original), solo a las copias Ogg que hace Commons, y con
+  `ba` se elegía la copia con pérdida en vez del FLAC. `formatos_commons` deja solo el original,
+  marcado como audio; las copias son recompresiones del mismo archivo. La búsqueda va con
+  `AGENTE_COMMONS`, porque fingir un navegador da 403, y descarta pronunciaciones (Lingua Libre),
+  lo de menos de 30 s, los MIDI y las licencias que no son CC0, dominio público, CC BY o BY-SA.
+  Un Ogg se anuncia como «ogg»: puede llevar Vorbis, Opus o FLAC dentro y no se adivina.
+- **El Archive no llama «audio» a etree**: sus conciertos son `mediatype:etree`, así que la consulta
+  pide `mediatype:(audio OR etree)` o se pierde la colección entera. Lo de fuera de las tres
+  colecciones entra por `licenseurl:*creativecommons*`/`*publicdomain*`: comodines sin «/», que con
+  barra su buscador falla. «24bit Flac» se busca con `format:24bit*`, sin comillas en la consulta.
+- **ccMixter repite el cuerpo en la cabecera `X-JSON`**, y pasa de los 64 KB que admite
+  `http.client`: lanza `LineTooLong`, que hereda de `HTTPException` y no de `OSError`. Por eso
+  `_pedir` captura `HTTPException` en todas las fuentes, se piden 10 como mucho
+  (`LIMITE_CCMIXTER`; por encima de 25 responde vacío) y, si aun así no cabe, la mitad. Su JSON
+  trae ceros a la izquierda y caracteres de control (`json_ccmixter`), corta el hotlink sin
+  `Referer: https://ccmixter.org/` (va en el formato, y llega también a la escucha previa) y
+  rechaza una búsqueda que acaba en comilla. yt-dlp no tiene extractor: `_extractor_ccmixter`
+  ofrece solo la mezcla, porque los FLAC de una subida suelen ser muestras o la voz sola.
+- **YouTube Music busca con el extractor del motor** (`youtube:music:search_url`, sección `#songs`),
+  pero ese solo saca título y enlace. `_extractor_ytmusic` lo subclasea y redefine
+  `_music_reponsive_list_entry` (con la errata de yt-dlp) para añadir artista, álbum, duración y
+  la carátula a 544 px. Si yt-dlp renombra el método, se pierde eso sin romper la búsqueda.
+- **Sin procesar, los formatos no traen `protocol`** (lo rellena yt-dlp al procesar), y la escucha
+  previa extrae sin procesar: `_elegir_pista` mira entonces la dirección. Sin eso, la escucha de
+  cualquier extractor propio acababa en «no ofrece una pista reproducible».
 - **Jamendo pide una clave de la app** (no del usuario): `clave_jamendo()` la lee de
   `JAMENDO_CLIENT_ID` o de `descargador/clave_jamendo.txt`, que git ignora y que GitHub Actions
   escribe desde el secreto del mismo nombre antes de compilar el APK. Solo se ofrecen las pistas
@@ -102,7 +129,8 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   allí y un identificador corto (`ep-…`). Los podcasts cuentan en `FUENTES_DE_LISTAS`.
 - **Las fuentes nuevas se comprueban contra internet antes de darlas por buenas**, con
   `.github/prueba_red.py` (flujo «Prueba de red»): las pruebas normales no salen a la red, y así se
-  vio que el FLAC de Jamendo daba 404 por la dirección que usaba el motor.
+  vio que el FLAC de Jamendo daba 404 por la dirección que usaba el motor. Cada fuente va en su
+  bloque (`seccion`): una caída no tapa a las demás, y el proceso acaba con error si falló alguna.
 - **La radio en vivo va por HTTP plano**: casi todas las emisoras emiten así, y
   `network_security_config.xml` lo permite. Solo afecta a lo que reproduce la app.
 - **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
