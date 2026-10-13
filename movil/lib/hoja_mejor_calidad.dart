@@ -124,7 +124,7 @@ class _HojaMejorCalidadState extends State<HojaMejorCalidad> {
                           child: ListTile(
                             leading: Icon(
                               a.calidad.sinPerdida ? Icons.workspace_premium_rounded : Icons.high_quality_rounded,
-                              color: a.calidad.sinPerdida ? const Color(0xFFFFC857) : Tema.acento,
+                              color: a.calidad.sinPerdida ? Tema.oro : Tema.acento,
                             ),
                             title: Text(a.calidad.etiqueta, style: const TextStyle(fontWeight: FontWeight.w800)),
                             subtitle: Text(

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 o superior. Desde la API 31 el sistema dibuja su propia pantalla
+     de arranque e ignora el windowBackground de LaunchTheme: sin esto, con el
+     telefono en modo claro, se veia un fogonazo blanco antes de la app. -->
+<resources>
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowSplashScreenBackground">@color/fondo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/fondo</item>
+        <item name="android:windowBackground">@color/fondo</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/fondo</item>
+    </style>
+</resources>

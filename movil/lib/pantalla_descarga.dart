@@ -74,10 +74,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// unos 127 kb/s) y solo hace falta saber que se deja bajar. En SoundCloud
   /// se miran mas, porque lo de los sellos grandes viene con DRM, y lo que no
   /// lo lleva llega a AAC 160. En Bandcamp, porque solo uno de cada diez
-  /// regala el FLAC y no hay otra forma de saber cual. Audius ya lo dice al
-  /// buscar y el Archive siempre es FLAC: esos no hace falta mirarlos.
+  /// regala el FLAC y no hay otra forma de saber cual. Audius, Jamendo, el
+  /// Archive, Commons y ccMixter ya lo dicen al buscar: esos no hace falta
+  /// mirarlos. YouTube Music es el mismo YouTube: como el, basta uno.
   static const Map<Fuente, int> _aComprobar = <Fuente, int>{
     Fuente.youtube: 1,
+    Fuente.ytmusic: 1,
     Fuente.soundcloud: 3,
     Fuente.bandcamp: 4,
   };
@@ -89,7 +91,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     _comprobadas.clear();
   }
 
-  /// El Archive solo devuelve grabaciones con FLAC: su calidad ya se sabe.
+  /// El Archive solo devuelve grabaciones sin perdida. El nucleo ya dice
+  /// cual (y si es de 24 bits); esto queda para lo que no lo trajera.
   static const CalidadAudio _flac = CalidadAudio(codec: 'flac');
 
   /// Lo que esta mal de lo escrito, debajo del campo.
@@ -156,7 +159,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const Icon(Icons.check_circle_rounded, color: Color(0xFF57D9A3), size: 48),
+              const Icon(Icons.check_circle_rounded, color: Tema.exito, size: 48),
               const SizedBox(height: 12),
               Text(
                 _control.mensaje,
@@ -212,12 +215,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         SnackBar(
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: fallo ? 10 : 4),
-          backgroundColor: fallo ? const Color(0xFF5C1F2B) : null,
+          backgroundColor: fallo ? Tema.peligroFondo : null,
           content: Row(
             children: <Widget>[
               Icon(
                 fallo ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
-                color: fallo ? const Color(0xFFFF6B81) : const Color(0xFF57D9A3),
+                color: fallo ? Tema.peligro : Tema.exito,
               ),
               const SizedBox(width: 12),
               Expanded(child: Text(mensaje, maxLines: 4, overflow: TextOverflow.ellipsis)),
@@ -439,7 +442,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     return r.calidad ??
         switch (r.fuente) {
           Fuente.archive => _flac,
-          Fuente.youtube => CalidadAudio.tipicaDeYoutube,
+          Fuente.youtube || Fuente.ytmusic => CalidadAudio.tipicaDeYoutube,
           _ => null,
         };
   }
@@ -700,7 +703,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// Donde se busca. Solo tiene sentido buscando: un enlace ya dice de donde es.
   ///
   /// Compactas y sin la marca de elegida (ya lo dice el color): con «Todas»
-  /// son cuatro, y en un telefono normal la ultima quedaba fuera de la vista.
+  /// son muchas, y en un telefono normal las ultimas quedan fuera de la vista.
   /// Se deja el desplazamiento por si la letra del sistema es grande.
   Widget _fuentes() {
     return SingleChildScrollView(
@@ -875,14 +878,14 @@ class _Nota extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
         child: Row(
           children: <Widget>[
-            Icon(icono, size: 14, color: Colors.white38),
+            Icon(icono, size: 14, color: Tema.textoTenue),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 texto,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
               ),
             ),
           ],
@@ -950,7 +953,7 @@ class _TarjetaResultado extends StatelessWidget {
         children: <Widget>[
           SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
           SizedBox(width: 6),
-          Text('comprobando calidad', style: TextStyle(color: Colors.white38, fontSize: 10)),
+          Text('comprobando calidad', style: TextStyle(color: Tema.textoTenue, fontSize: 10)),
         ],
       );
     }
@@ -958,12 +961,12 @@ class _TarjetaResultado extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.block_rounded, size: 12, color: Color(0xFFFF6B81)),
+          const Icon(Icons.block_rounded, size: 12, color: Tema.peligro),
           const SizedBox(width: 4),
           Flexible(
             child: Text(
               c!.error!.toLowerCase().contains('protegida') ? 'Protegida: no se puede bajar' : 'No se puede bajar',
-              style: const TextStyle(color: Color(0xFFFF6B81), fontSize: 10),
+              style: const TextStyle(color: Tema.peligro, fontSize: 10),
             ),
           ),
         ],
@@ -1062,7 +1065,7 @@ class _TarjetaResultado extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: <Widget>[
                           if (fuente case final String f)
-                            Text(f, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                            Text(f, style: const TextStyle(color: Tema.textoTenue, fontSize: 10)),
                           ?_estado(),
                         ],
                       ),
@@ -1190,7 +1193,7 @@ class _AvisoState extends State<_Aviso> {
         width: double.infinity,
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: widget.fallo ? const Color(0x33FF6B81) : const Color(0x3357D9A3),
+          color: widget.fallo ? const Color(0x33FF5D5D) : const Color(0x3357D9A3),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(

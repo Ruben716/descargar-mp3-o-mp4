@@ -100,7 +100,7 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
               ),
               if (recuperables > 0)
                 FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Colors.black),
+                  style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Tema.tinta),
                   onPressed: () => Navigator.of(contexto).pop(true),
                   child: Text('Bajar $recuperables'),
                 ),
@@ -301,7 +301,7 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
             runSpacing: 4,
             children: <Widget>[
               FilledButton.icon(
-                style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Colors.black),
+                style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Tema.tinta),
                 onPressed: _copiando ? null : _hacerCopia,
                 icon: const Icon(Icons.save_alt_rounded, size: 18),
                 label: const Text('Hacer copia ahora'),
@@ -393,7 +393,7 @@ Future<void> seguirLista(BuildContext context, {String? url}) async {
         actions: <Widget>[
           TextButton(onPressed: () => Navigator.of(contexto).pop(false), child: const Text('Cancelar')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Colors.black),
+            style: FilledButton.styleFrom(backgroundColor: Tema.acento, foregroundColor: Tema.tinta),
             onPressed: () => Navigator.of(contexto).pop(true),
             child: const Text('Seguir'),
           ),

@@ -1,0 +1,62 @@
+"""Tonalidad aproximada: banco de filtros de semitono en FFmpeg + perfiles de Krumhansl."""
+import math, operator, subprocess, sys, time
+from array import array
+
+_sumprod = getattr(math, "sumprod", None) or (lambda a, b: sum(map(operator.mul, a, b)))
+TASA_TONO = 4000
+NOTA_BAJA = 36   # MIDI C2 = 65.4 Hz
+NOTAS = 60       # cinco octavas, hasta B6 (~1976 Hz)
+Q_SEMITONO = 1 / (2 ** (1 / 24) - 2 ** (-1 / 24))  # ~17.3
+MAYOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+MENOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+NOMBRES = ("Do", "Do#", "Re", "Mib", "Mi", "Fa", "Fa#", "Sol", "Lab", "La", "Sib", "Si")
+
+def hz(midi):
+    return 440.0 * 2 ** ((midi - 69) / 12)
+
+def orden_tono(ffmpeg, ruta, desde=30, segundos=90):
+    ramas = [f"[x{i}]bandpass=f={hz(NOTA_BAJA + i):.2f}:width_type=q:width={Q_SEMITONO:.2f},aformat=channel_layouts=mono[n{i}]" for i in range(NOTAS)]
+    filtro = (f"[0:a:0]aformat=channel_layouts=mono,aresample={TASA_TONO},asplit={NOTAS}" + "".join(f"[x{i}]" for i in range(NOTAS)) + ";"
+              + ";".join(ramas) + ";" + "".join(f"[n{i}]" for i in range(NOTAS)) + f"amerge=inputs={NOTAS}[k]")
+    return [ffmpeg, "-hide_banner", "-nostats", "-v", "error", "-ss", str(desde), "-t", str(segundos), "-i", ruta,
+            "-filter_complex", filtro, "-map", "[k]", "-f", "s16le", "-c:a", "pcm_s16le", "-"]
+
+def croma(pcm):
+    m = array("h", pcm)
+    if sys.byteorder == "big":
+        m.byteswap()
+    energia = [0.0] * 12
+    for i in range(NOTAS):
+        canal = m[i::NOTAS]
+        energia[(NOTA_BAJA + i) % 12] += math.sqrt(_sumprod(canal, canal) / max(1, len(canal)))
+    return energia
+
+def correlacion(a, b):
+    ma, mb = sum(a) / 12, sum(b) / 12
+    num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+    den = math.sqrt(sum((x - ma) ** 2 for x in a) * sum((y - mb) ** 2 for y in b))
+    return num / den if den else 0.0
+
+def tonalidad(c):
+    mejor = None
+    for raiz in range(12):
+        for modo, perfil in (("mayor", MAYOR), ("menor", MENOR)):
+            rot = [perfil[(i - raiz) % 12] for i in range(12)]
+            r = correlacion(c, rot)
+            if mejor is None or r > mejor[0]:
+                mejor = (r, raiz, modo)
+    return mejor
+
+def camelot(raiz, modo):
+    mayor = raiz if modo == "mayor" else (raiz + 3) % 12
+    return f"{(mayor * 7 + 7) % 12 + 1}{'B' if modo == 'mayor' else 'A'}"
+
+if __name__ == "__main__":
+    for r in sys.argv[1:]:
+        t0 = time.perf_counter()
+        pcm = subprocess.run(orden_tono("ffmpeg", r), capture_output=True).stdout
+        t1 = time.perf_counter()
+        c = croma(pcm)
+        corr, raiz, modo = tonalidad(c)
+        t2 = time.perf_counter()
+        print(f"{r.rsplit('/',1)[-1][:40]:40s} {NOMBRES[raiz]} {modo} ({camelot(raiz, modo)}) r={corr:.2f} ffmpeg={t1-t0:.2f}s py={t2-t1:.3f}s")

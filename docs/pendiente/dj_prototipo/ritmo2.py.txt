@@ -1,0 +1,311 @@
+"""Pulso y energia de una cancion, en Python puro (prototipo de ritmo.py).
+
+FFmpeg decodifica, baja a 12 kHz, separa tres bandas y mide la sonoridad
+(ebur128) en una sola pasada; Python solo suma cuadrados con math.sumprod
+(que va en C) y trabaja con 100 numeros por segundo y banda.
+"""
+from __future__ import annotations
+
+import math
+import operator
+import re
+import subprocess
+import sys
+import tempfile
+import time
+from array import array
+
+VERSION = 1
+TASA = 12000
+SALTO = 120
+CPS = TASA // SALTO
+BANDAS = 3
+PESOS = (1.0, 1.0, 0.8)
+BPM_MIN, BPM_MAX, BPM_PASO = 60.0, 200.0, 0.5
+PEINE = ((1, 1.0), (2, 0.5), (3, 0.25), (4, 0.25))
+MAX_SEGUNDOS = 600
+VENTANA_TEMPO = 120 * CPS     # dos minutos bastan para el tempo
+VENTANA_PULSOS = 30 * CPS     # pulsos solo al principio y al final
+FUERZA_MINIMA = 1.0           # dB: por debajo no hay golpes, hay un tono fijo
+CONFIANZA_MINIMA = 0.1
+
+_sumprod = getattr(math, "sumprod", None) or (lambda a, b: sum(map(operator.mul, a, b)))
+_LUFS = re.compile(r"I:\s+(-?\d+(?:\.\d+)?)\s+LUFS")
+_LRA = re.compile(r"LRA:\s+(\d+(?:\.\d+)?)\s+LU")
+# Cuatro espacios en MP3/M4A/FLAC (etiqueta del archivo), seis en Opus/OGG
+# (etiqueta de la pista). Comprobado con FFmpeg 6.1.
+_ETIQUETA = re.compile(r"^\s{4,6}(genre|date|year)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+
+
+def orden_ffmpeg(ffmpeg: str, ruta: str, segundos: int = MAX_SEGUNDOS) -> list[str]:
+    filtro = (
+        "[0:a:0]asplit=2[v][r];[v]ebur128,anullsink;"
+        f"[r]aformat=channel_layouts=mono,aresample={TASA},asplit=3[a][b][c];"
+        "[a]lowpass=f=150,aformat=channel_layouts=mono[g];"
+        "[b]highpass=f=150,lowpass=f=2500,aformat=channel_layouts=mono[m];"
+        "[c]highpass=f=2500,aformat=channel_layouts=mono[h];"
+        "[g][m][h]amerge=inputs=3[s]"
+    )
+    return [ffmpeg, "-hide_banner", "-nostats", "-i", ruta, "-t", str(segundos),
+            "-filter_complex", filtro, "-map", "[s]", "-f", "s16le", "-acodec", "pcm_s16le", "-"]
+
+
+class Energias:
+    """Acumula la energia de cada banda por cuadro de 10 ms, trozo a trozo."""
+
+    def __init__(self, bandas: int = BANDAS, salto: int = SALTO):
+        self.bandas, self.salto = bandas, salto
+        self.filas: list[list[float]] = [[] for _ in range(bandas)]
+        self._resto = b""
+
+    def anadir(self, datos: bytes) -> None:
+        bloque = self.bandas * self.salto * 2
+        datos = self._resto + datos
+        util = len(datos) - len(datos) % bloque
+        self._resto = datos[util:]
+        if not util:
+            return
+        muestras = array("h", datos[:util])
+        if sys.byteorder == "big":
+            muestras.byteswap()
+        s = self.salto
+        for b in range(self.bandas):
+            canal = muestras[b::self.bandas]
+            fila = self.filas[b]
+            for i in range(0, len(canal), s):
+                trozo = canal[i:i + s]
+                fila.append(_sumprod(trozo, trozo) / s)
+
+
+def a_db(energia: float, suelo: float = 100.0) -> float:
+    return 10.0 * math.log10(energia + suelo)
+
+
+def flujo(filas: list[list[float]], pesos=PESOS) -> list[float]:
+    """Cuanto sube la energia (en dB) de un cuadro al siguiente, sumado por bandas.
+
+    Cada cuadro mide 20 ms (dos saltos de 10 ms): con 10 ms a secas, un bajo
+    de 110 Hz cabe 1,1 veces y su energia baila sola, y eso parecia un ritmo.
+    """
+    n = min(len(f) for f in filas)
+    total = [0.0] * n
+    for fila, w in zip(filas, pesos):
+        antes = a_db(fila[0]) if n else 0.0
+        for i in range(1, n):
+            ahora = a_db(fila[i] + fila[i - 1])
+            if ahora > antes:
+                total[i] += w * (ahora - antes)
+            antes = ahora
+    return total
+
+
+def fuerza(serie: list[float]) -> float:
+    """Cuanto sobresalen los golpes (percentil 95 menos mediana, en dB)."""
+    if not serie:
+        return 0.0
+    orden = sorted(serie)
+    return orden[int(len(orden) * 0.95)] - orden[len(orden) // 2]
+
+
+def quitar_tendencia(serie: list[float], ventana: int = CPS // 2) -> list[float]:
+    n = len(serie)
+    acumulado = [0.0]
+    for x in serie:
+        acumulado.append(acumulado[-1] + x)
+    mitad = ventana // 2
+    salida = []
+    for i in range(n):
+        a, b = max(0, i - mitad), min(n, i + mitad + 1)
+        salida.append(max(0.0, serie[i] - (acumulado[b] - acumulado[a]) / (b - a)))
+    return salida
+
+
+def autocorrelacion(serie: list[float], max_lag: int) -> list[float]:
+    n = len(serie)
+    media = sum(serie) / n if n else 0.0
+    x = array("d", (v - media for v in serie))
+    return [(_sumprod(x[: n - lag], x[lag:]) / (n - lag)) if lag < n else 0.0
+            for lag in range(max_lag + 1)]
+
+
+def _interp(acf: list[float], lag: float) -> float:
+    i = int(lag)
+    if i + 1 >= len(acf):
+        return 0.0
+    f = lag - i
+    return acf[i] * (1 - f) + acf[i + 1] * f
+
+
+def peso_previo(bpm: float, centro: float = 120.0, sigma: float = 1.0) -> float:
+    return math.exp(-0.5 * (math.log2(bpm / centro) / sigma) ** 2)
+
+
+def estimar_tempo(onset: list[float], cps: int = CPS) -> tuple[float | None, float]:
+    """(bpm, confianza). None cuando no hay pulso que valga."""
+    if len(onset) < 8 * cps:
+        return None, 0.0
+    acf = autocorrelacion(onset, int(4 * 60.0 * cps / BPM_MIN) + 2)
+    if acf[0] <= 0:
+        return None, 0.0
+    candidatos = []
+    bpm = BPM_MIN
+    while bpm <= BPM_MAX + 1e-9:
+        lag = 60.0 * cps / bpm
+        s = sum(w * _interp(acf, k * lag) for k, w in PEINE)
+        candidatos.append((bpm, s * peso_previo(bpm)))
+        bpm += BPM_PASO
+    i = max(range(len(candidatos)), key=lambda j: candidatos[j][1])
+    mejor = candidatos[i][0]
+    if 0 < i < len(candidatos) - 1:
+        y0, y1, y2 = candidatos[i - 1][1], candidatos[i][1], candidatos[i + 1][1]
+        den = y0 - 2 * y1 + y2
+        if den < 0:
+            mejor += BPM_PASO * 0.5 * (y0 - y2) / den
+    confianza = max(0.0, min(1.0, _interp(acf, 60.0 * cps / mejor) / acf[0]))
+    return mejor, confianza
+
+
+def pulsos(onset: list[float], periodo: float, desde: int, hasta: int, apriete: float = 100.0) -> list[int]:
+    """Seguidor de pulsos de Ellis (2007) por programacion dinamica, en una ventana."""
+    trozo = onset[desde:hasta]
+    n = len(trozo)
+    if n == 0:
+        return []
+    media = sum(trozo) / n
+    desv = math.sqrt(sum((x - media) ** 2 for x in trozo) / n) or 1.0
+    o = [x / desv for x in trozo]
+    saltos = [(d, -apriete * math.log(d / periodo) ** 2)
+              for d in range(max(1, round(periodo / 2)), round(2 * periodo) + 1)]
+    acum, previo = [0.0] * n, [-1] * n
+    for t in range(n):
+        mejor, cual = 0.0, -1
+        for d, pen in saltos:
+            u = t - d
+            if u < 0:
+                break
+            v = acum[u] + pen
+            if v > mejor:
+                mejor, cual = v, u
+        acum[t], previo[t] = o[t] + mejor, cual
+    t = max(range(max(0, n - int(periodo)), n), key=acum.__getitem__)
+    salida = []
+    while t >= 0:
+        salida.append(desde + t)
+        t = previo[t]
+    return salida[::-1]
+
+
+def golpes_por_segundo(onset: list[float], cps: int = CPS) -> float:
+    n = len(onset)
+    if n < 3:
+        return 0.0
+    media = sum(onset) / n
+    desv = math.sqrt(sum((x - media) ** 2 for x in onset) / n)
+    # Con un minimo absoluto: en un tono fijo hasta el rizado parecia un golpe.
+    umbral = max(media + 0.5 * desv, 1.0)
+    hueco = cps // 10   # 100 ms entre golpes
+    golpes, ultimo = 0, -hueco
+    for i in range(1, n - 1):
+        x = onset[i]
+        if x > umbral and x >= onset[i - 1] and x >= onset[i + 1] and i - ultimo >= hueco:
+            golpes += 1
+            ultimo = i
+    return golpes * cps / n
+
+
+def _normal(x: float | None, bajo: float, alto: float) -> float:
+    if x is None:
+        return 0.5
+    return min(1.0, max(0.0, (x - bajo) / (alto - bajo)))
+
+
+def energia_cruda(lufs, golpes, bpm, brillo, lra) -> float:
+    return round(0.30 * _normal(lufs, -22.0, -7.0) + 0.25 * _normal(golpes, 0.5, 5.0)
+                 + 0.20 * _normal(bpm, 70.0, 150.0) + 0.15 * _normal(brillo, 0.01, 0.15)
+                 + 0.10 * (1.0 - _normal(lra, 3.0, 14.0)), 3)
+
+
+def rasgos(filas: list[list[float]], cps: int = CPS) -> dict:
+    """Todo lo que se calcula sin FFmpeg: lo que prueban las pruebas."""
+    n = min(len(f) for f in filas)
+    total = [sum(f[i] for f in filas) for i in range(n)]
+    niveles = [a_db(e, 1.0) for e in total]
+    pico = max(niveles, default=0.0)
+    sonando = [i for i, v in enumerate(niveles) if v > pico - 40.0]
+    inicio, fin = (sonando[0], sonando[-1] + 1) if sonando else (0, n)
+    bruto = flujo(filas)
+    golpe = fuerza(bruto[inicio:fin])
+    onset = quitar_tendencia(bruto)
+    # Para el tempo basta con dos minutos del centro de la cancion.
+    centro = (inicio + fin) // 2
+    a = max(inicio, centro - VENTANA_TEMPO // 2)
+    bpm, confianza = estimar_tempo(onset[a:a + VENTANA_TEMPO], cps)
+    if golpe < FUERZA_MINIMA or confianza < CONFIANZA_MINIMA:
+        # Un tono fijo, ruido o una orquesta sin metronomo: no se inventa un
+        # tempo. Se guarda la confianza para saber que se intento.
+        bpm = None
+    pulso_inicio = pulso_fin = None
+    if bpm:
+        periodo = 60.0 * cps / bpm
+        primeros = pulsos(onset, periodo, inicio, min(fin, inicio + VENTANA_PULSOS))
+        ultimos = pulsos(onset, periodo, max(inicio, fin - VENTANA_PULSOS), fin)
+        pulso_inicio = primeros[0] if primeros else None
+        pulso_fin = ultimos[-1] if ultimos else None
+    sumas = [sum(f[:n]) for f in filas]
+    s = sum(sumas) or 1.0
+    ms = 1000 // cps
+    return {
+        "bpm": round(bpm, 2) if bpm else None,
+        "confianza": round(confianza, 3),
+        "fuerza": round(golpe, 2),
+        "golpes": round(golpes_por_segundo(onset[inicio:fin], cps), 2),
+        "graves": round(sumas[0] / s, 3),
+        "brillo": round(sumas[-1] / s, 3),
+        "inicioMs": inicio * ms, "finMs": fin * ms,
+        "pulsoInicioMs": pulso_inicio * ms if pulso_inicio is not None else None,
+        "pulsoFinMs": pulso_fin * ms if pulso_fin is not None else None,
+    }
+
+
+def leer_resumen(salida: str) -> tuple[float | None, float | None, dict]:
+    partes = salida.rsplit("Summary:", 1)
+    lufs = lra = None
+    if len(partes) == 2:
+        m, r = _LUFS.search(partes[1]), _LRA.search(partes[1])
+        lufs = float(m.group(1)) if m else None
+        lra = float(r.group(1)) if r else None
+        if lufs is not None and not -70.0 < lufs < -1.0:
+            lufs = None
+    cabecera = salida.split("Stream mapping:", 1)[0]
+    etiquetas = {k.lower(): v.strip() for k, v in _ETIQUETA.findall(cabecera)}
+    return lufs, lra, etiquetas
+
+
+def analizar(ruta: str, ffmpeg: str = "ffmpeg") -> dict:
+    t0 = time.perf_counter()
+    energias = Energias()
+    with tempfile.TemporaryFile() as errores:
+        with subprocess.Popen(orden_ffmpeg(ffmpeg, ruta), stdout=subprocess.PIPE,
+                              stderr=errores) as proceso:
+            assert proceso.stdout
+            while trozo := proceso.stdout.read(TASA * BANDAS * 2):   # un segundo
+                energias.anadir(trozo)
+            proceso.wait(timeout=60)
+        errores.seek(0)
+        texto = errores.read().decode("utf-8", "replace")
+    t1 = time.perf_counter()
+    datos = rasgos(energias.filas)
+    lufs, lra, etiquetas = leer_resumen(texto)
+    datos.update(lufs=lufs, lra=lra, genero=etiquetas.get("genre", ""),
+                 anio=int(m.group(0)) if (m := re.search(r"\d{4}", etiquetas.get("date", "") or etiquetas.get("year", ""))) else None)
+    # Sin sonoridad medible es silencio: energia cero, no «media».
+    datos["energia"] = 0.0 if lufs is None and datos["fuerza"] == 0 else energia_cruda(
+        lufs, datos["golpes"], datos["bpm"], datos["brillo"], lra)
+    datos["version"] = VERSION
+    datos["segundos"] = [round(t1 - t0, 2), round(time.perf_counter() - t1, 2)]
+    return datos
+
+
+if __name__ == "__main__":
+    for r in sys.argv[1:]:
+        print(r.rsplit("/", 1)[-1][:28], analizar(r))

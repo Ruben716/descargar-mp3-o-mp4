@@ -133,7 +133,9 @@ class PantallaInicioState extends State<PantallaInicio> {
       child: ListView(
         padding: const EdgeInsets.only(bottom: 24),
         children: <Widget>[
-          _cabecera(context, canciones, listas.length),
+          // El destello va con la cabecera y no fijo detras de la lista: asi
+          // sube con ella al desplazar y se funde, como en YouTube Music.
+          Resplandor(hijo: _cabecera(context, canciones, listas.length)),
           if (_elementos.isEmpty) ...<Widget>[
             _primerosPasos(context),
             _radioEnVivo(context),
@@ -203,7 +205,7 @@ class PantallaInicioState extends State<PantallaInicio> {
               gradient: Tema.degradado,
               borderRadius: BorderRadius.circular(28),
             ),
-            child: const Icon(Icons.music_note_rounded, size: 46, color: Colors.black38),
+            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x73040814)),
           ),
           const SizedBox(height: 22),
           Text(
@@ -251,12 +253,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                     children: <Widget>[
                       Text(
                         sonando ? 'SONANDO AHORA' : 'CONTINUAR ESCUCHANDO',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          letterSpacing: 1.1,
-                          fontWeight: FontWeight.w800,
-                          color: Tema.acento,
-                        ),
+                        style: Tema.antetitulo,
                       ),
                       const SizedBox(height: 6),
                       Text(
@@ -288,7 +285,7 @@ class PantallaInicioState extends State<PantallaInicio> {
                           ),
                     icon: Icon(
                       sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                      color: Colors.black87,
+                      color: Tema.tinta,
                     ),
                   ),
                 ),
@@ -501,7 +498,7 @@ class _Tarjeta extends StatelessWidget {
                     gradient: Tema.degradado,
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  child: const Icon(Icons.queue_music_rounded, color: Colors.black38, size: 40),
+                  child: const Icon(Icons.queue_music_rounded, color: Color(0x73040814), size: 40),
                 )
               else
                 PortadaLocal(elemento: pista, lado: 130, radio: 18),
@@ -517,7 +514,7 @@ class _Tarjeta extends StatelessWidget {
                 subtitulo,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
               ),
             ],
           ),

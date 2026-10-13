@@ -23,7 +23,18 @@ AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "
 #: hearthis.at son sesiones de DJ y temas propios, a veces con el archivo
 #: original para bajar; los podcasts salen del directorio de Apple, que da el
 #: RSS de cada programa, y el RSS lo abre el motor como una lista más.
-FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "hearthis", "podcasts")
+#:
+#: Wikimedia Commons («commons») guarda clásica, folk y discos antiguos de
+#: dominio público o con licencia libre, y da el archivo que se subió: a veces
+#: un FLAC o un WAV, si no un Ogg o un MP3. ccMixter son remixes, a cappellas
+#: e instrumentales con licencia Creative Commons, en MP3 de 192 a 320 kb/s.
+#:
+#: YouTube Music («ytmusic») suena igual que YouTube, porque es el mismo, pero
+#: solo da canciones del catálogo, con su artista y su carátula oficiales.
+FUENTES = (
+    "youtube", "ytmusic", "soundcloud", "audius", "bandcamp", "archive", "jamendo",
+    "commons", "ccmixter", "hearthis", "podcasts",
+)
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
 #:
@@ -195,7 +206,9 @@ class AudioQuality:
     codec: str
     kbps: float | None = None
     hz: int | None = None
-    #: Bits por muestra. Solo se sabe leyendo el archivo sin pérdida ya bajado.
+    #: Bits por muestra. Casi siempre solo se sabe leyendo el archivo sin
+    #: pérdida ya bajado; el Archive es la excepción, porque llama «24bit Flac»
+    #: a ese formato y lo dice al buscar.
     bits: int | None = None
 
     @property

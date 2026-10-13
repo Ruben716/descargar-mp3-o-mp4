@@ -3924,7 +3924,64 @@ void main() {
         .map((MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['fuente'])
         .toSet();
     // Los podcasts no: se buscan a proposito, no mezclados con canciones.
-    expect(donde, <String>{'youtube', 'soundcloud', 'audius', 'bandcamp', 'archive', 'jamendo', 'hearthis'});
+    expect(donde, <String>{
+      'youtube',
+      'ytmusic',
+      'soundcloud',
+      'audius',
+      'bandcamp',
+      'archive',
+      'jamendo',
+      'commons',
+      'ccmixter',
+      'hearthis',
+    });
+  });
+
+  testWidgets('el buscador ofrece las fuentes nuevas', (WidgetTester tester) async {
+    await abrir(tester);
+
+    expect(find.widgetWithText(ChoiceChip, 'YouTube Music'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'Commons'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, 'ccMixter'), findsOneWidget);
+  });
+
+  testWidgets('el Archive dice los 24 bits ya al buscar', (WidgetTester tester) async {
+    // El nucleo lo sabe por el formato «24bit Flac» de la ficha.
+    respuestas['archive'] = '{"ok":true,"resultados":[{"titulo":"Goldberg","autor":"Ishizaka",'
+        '"duracion":0,"url":"https://archive.org/details/goldberg","miniatura":"",'
+        '"calidad":{"codec":"flac","kbps":null,"hz":null,"bits":24,"sinPerdida":true}}]}';
+    await abrir(tester);
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Archive'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Archive'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'goldberg');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('HI-RES · FLAC · 24 bits'), findsOneWidget);
+  });
+
+  testWidgets('YouTube Music se ordena como YouTube y se comprueba igual',
+      (WidgetTester tester) async {
+    respuestas['ytmusic'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Autor",'
+        '"duracion":254,"url":"https://music.youtube.com/watch?v=uno","miniatura":""}]}';
+    await abrir(tester);
+    await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'YouTube Music'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'YouTube Music'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    // Es el mismo YouTube: se mira el primero para saber que se deja bajar.
+    expect(
+      llamadas.where((MethodCall c) => c.method == 'calidad').map(
+            (MethodCall c) => (c.arguments as Map<dynamic, dynamic>)['url'],
+          ),
+      contains('https://music.youtube.com/watch?v=uno'),
+    );
+    expect(find.text('Cancion uno'), findsOneWidget);
   });
 
   /// La altura en pantalla de la tarjeta de una fuente, para ver el orden.
@@ -4089,6 +4146,24 @@ void main() {
     expect(MejorCalidad.fuentes, contains(Fuente.jamendo));
   });
 
+  test('YouTube Music, Commons y ccMixter se buscan con las demas', () {
+    // Espeja FUENTES del nucleo, con las mismas claves.
+    for (final Fuente f in <Fuente>[Fuente.ytmusic, Fuente.commons, Fuente.ccmixter]) {
+      expect(Fuente.reales, contains(f));
+      expect(Fuente.deMusica, contains(f));
+      expect(f.daListas, isFalse, reason: 'cada resultado es una cancion suelta');
+    }
+    expect(<String>[Fuente.ytmusic.clave, Fuente.commons.clave, Fuente.ccmixter.clave],
+        <String>['ytmusic', 'commons', 'ccmixter']);
+    // Commons y ccMixter pueden sonar mejor que lo que hay; YouTube Music, nunca.
+    expect(MejorCalidad.fuentes, containsAll(<Fuente>[Fuente.commons, Fuente.ccmixter]));
+    expect(MejorCalidad.fuentes, isNot(contains(Fuente.ytmusic)));
+    // Un resultado del Archive es un disco entero: nunca «la misma cancion».
+    expect(MejorCalidad.fuentes.where((Fuente f) => f.daListas), isEmpty);
+    // A igual calidad gana el orden: la version limpia antes que el videoclip.
+    expect(Fuente.reales.indexOf(Fuente.ytmusic), lessThan(Fuente.reales.indexOf(Fuente.youtube)));
+  });
+
   testWidgets('tocar un concierto del Archive trae sus pistas',
       (WidgetTester tester) async {
     respuestas['archive'] = _busqueda;
@@ -4156,6 +4231,85 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(visto, Paleta.neutra);
+  });
+
+  // --- La marca: azul y negro ---------------------------------------------
+
+  test('el esquema de la marca no tiene nada violeta', () {
+    // fromSeed gira el tono del terciario: sin fijarlo, una semilla azul deja
+    // contenedores rosa lila. Todo rol con color tiene que caer en el azul o
+    // el cian; solo el rojo del error va aparte.
+    final ColorScheme e = Tema.esquema;
+    final Map<String, Color> roles = <String, Color>{
+      'primary': e.primary,
+      'onPrimary': e.onPrimary,
+      'primaryContainer': e.primaryContainer,
+      'onPrimaryContainer': e.onPrimaryContainer,
+      'primaryFixed': e.primaryFixed,
+      'primaryFixedDim': e.primaryFixedDim,
+      'secondary': e.secondary,
+      'secondaryContainer': e.secondaryContainer,
+      'onSecondaryContainer': e.onSecondaryContainer,
+      'secondaryFixed': e.secondaryFixed,
+      'tertiary': e.tertiary,
+      'tertiaryContainer': e.tertiaryContainer,
+      'onTertiaryContainer': e.onTertiaryContainer,
+      'tertiaryFixed': e.tertiaryFixed,
+      'tertiaryFixedDim': e.tertiaryFixedDim,
+      'onTertiaryFixed': e.onTertiaryFixed,
+      'onTertiaryFixedVariant': e.onTertiaryFixedVariant,
+      'surface': e.surface,
+      'surfaceBright': e.surfaceBright,
+      'surfaceContainer': e.surfaceContainer,
+      'surfaceContainerHigh': e.surfaceContainerHigh,
+      'surfaceContainerHighest': e.surfaceContainerHighest,
+      'onSurface': e.onSurface,
+      'onSurfaceVariant': e.onSurfaceVariant,
+      'outline': e.outline,
+      'outlineVariant': e.outlineVariant,
+      'inverseSurface': e.inverseSurface,
+      'inversePrimary': e.inversePrimary,
+    };
+    roles.forEach((String rol, Color color) {
+      final double tono = HSLColor.fromColor(color).hue;
+      expect(tono, inInclusiveRange(190, 235), reason: '$rol sale con tono $tono');
+    });
+    expect(Paleta.neutra, same(Tema.esquema));
+  });
+
+  test('el texto y los acentos se leen en todas las superficies', () {
+    double contraste(Color a, Color b) {
+      final double la = a.computeLuminance();
+      final double lb = b.computeLuminance();
+      return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
+    }
+
+    const List<Color> superficies = <Color>[
+      Tema.fondo,
+      Tema.superficie,
+      Tema.superficieAlta,
+      Tema.superficieMaxima,
+    ];
+    for (final Color fondo in superficies) {
+      // 4,5:1 es el minimo de WCAG para texto normal.
+      expect(contraste(Tema.acento, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.textoTenue, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.textoSecundario, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.peligro, fondo), greaterThanOrEqualTo(4.5));
+    }
+    // Encima del acento, del degradado y de los estados va la tinta, nunca
+    // blanco: el blanco sobre el acento o el rojo se queda en 3:1.
+    for (final Color color in <Color>[
+      Tema.acento,
+      Tema.acentoHielo,
+      Tema.azulProfundo,
+      Tema.peligro,
+      Tema.oro,
+      Tema.exito,
+    ]) {
+      expect(contraste(Tema.tinta, color), greaterThanOrEqualTo(4.5));
+    }
+    expect(Tema.esquema.onPrimary, Tema.tinta);
   });
 }
 

@@ -246,7 +246,7 @@ class _PanelLetrasState extends State<PanelLetras> {
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
                             fontStyle: FontStyle.italic,
-                            color: suena ? Tema.acento.withValues(alpha: 0.8) : Colors.white38,
+                            color: suena ? Tema.acento.withValues(alpha: 0.8) : Tema.textoTenue,
                           ),
                         ),
                     ],
@@ -308,7 +308,7 @@ class _ControlSincronia extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: ajustada ? Tema.acento : Colors.white38,
+                      color: ajustada ? Tema.acento : Tema.textoTenue,
                     ),
                   ),
                 ),
@@ -323,7 +323,7 @@ class _ControlSincronia extends StatelessWidget {
           ),
           Text(
             ajustada ? 'Toca el valor para dejarlo como estaba' : 'Ajusta si no va a la par',
-            style: const TextStyle(color: Colors.white24, fontSize: 10),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 10),
           ),
         ],
       ),
@@ -352,7 +352,7 @@ class _SinLetra extends StatelessWidget {
             'Se busca por el nombre del archivo, asi que\n'
             'si viene raro puede que no aparezca.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white38, fontSize: 12, height: 1.5),
+            style: TextStyle(color: Tema.textoTenue, fontSize: 12, height: 1.5),
           ),
         ],
       ),

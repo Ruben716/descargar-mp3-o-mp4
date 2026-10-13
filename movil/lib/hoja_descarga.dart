@@ -194,7 +194,7 @@ class _HojaDescargaState extends State<HojaDescarga> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: Tema.contorno,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

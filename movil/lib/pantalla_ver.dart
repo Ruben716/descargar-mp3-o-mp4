@@ -212,7 +212,7 @@ class _Fila<T> extends StatelessWidget {
         if (subtitulo != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-            child: Text(subtitulo!, style: const TextStyle(color: Colors.white38, fontSize: 12)),
+            child: Text(subtitulo!, style: const TextStyle(color: Tema.textoTenue, fontSize: 12)),
           ),
         const SizedBox(height: 8),
         SizedBox(
@@ -229,7 +229,7 @@ class _Fila<T> extends StatelessWidget {
               final List<T> lista = estado.data ?? <T>[];
               if (lista.isEmpty) {
                 return const Center(
-                  child: Text('Nada por aqui ahora mismo.', style: TextStyle(color: Colors.white38)),
+                  child: Text('Nada por aqui ahora mismo.', style: TextStyle(color: Tema.textoTenue)),
                 );
               }
               return ListView.separated(
@@ -311,7 +311,7 @@ class _TarjetaAnime extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: <Widget>[
-                              const Icon(Icons.star_rounded, size: 12, color: Color(0xFFFFC857)),
+                              const Icon(Icons.star_rounded, size: 12, color: Tema.oro),
                               const SizedBox(width: 2),
                               Text(
                                 '${anime.nota}',

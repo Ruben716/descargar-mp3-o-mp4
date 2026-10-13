@@ -1,6 +1,8 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import functools
 import hashlib
+import html
+import http.client
 import json
 import os
 import re
@@ -14,6 +16,7 @@ from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .domain import (
+    CODECS_SIN_PERDIDA,
     GUIONES,
     SPONSOR_CATEGORIES,
     AudioQuality,
@@ -27,6 +30,7 @@ from .domain import (
     Playlist,
     SearchQuery,
     VideoInfo,
+    parse_timestamp,
 )
 
 FALTAN_DEPENDENCIAS = "Faltan dependencias. Ejecuta: python -m pip install -e ."
@@ -104,8 +108,40 @@ PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 #: «etree» son conciertos que los grupos dejan compartir; «netlabels», sellos
 #: que publican gratis (mucha electrónica); «georgeblood», el Great 78
 #: Project, discos de pizarra de 1900 a 1960 digitalizados. Solo se piden
-#: fichas con FLAC: lo demás que se puede buscar ya llega comprimido.
+#: fichas sin pérdida: lo demás que se puede buscar ya llega comprimido.
 COLECCIONES_ARCHIVE = ("etree", "netlabels", "georgeblood")
+
+#: Fuera de esas colecciones, lo que declara una licencia libre en «licenseurl».
+#:
+#: Así entran Musopen, las Open Goldberg y los netlabels que no cuelgan de
+#: «netlabels», y se quedan fuera las colecciones de derechos dudosos, que no
+#: declaran ninguna. Van con comodines y sin «/», porque con una barra dentro
+#: del comodín su buscador da error (medido por orbitape).
+LICENCIAS_ARCHIVE = ("creativecommons", "publicdomain")
+
+#: Los formatos sin pérdida que se buscan, como los nombra el Archive.
+#:
+#: «24bit Flac» se pide con «24bit*» y no entre comillas: el comodín cubre ese
+#: nombre lo trate el buscador como palabras sueltas o como una sola.
+FORMATOS_ARCHIVE = ("FLAC", "24bit*", "WAVE")
+
+
+def calidad_archive(formatos: object) -> AudioQuality | None:
+    """La calidad de una ficha del Archive según los formatos que dice tener.
+
+    Es la única fuente que dice los bits antes de bajar nada: al FLAC de 24
+    bits lo llama «24bit Flac», con ese nombre oficial. El motor baja el
+    original, que es ese cuando lo hay.
+    """
+    lista = formatos if isinstance(formatos, list) else [formatos]
+    nombres = {str(f).strip().lower() for f in lista if f}
+    if "24bit flac" in nombres:
+        return AudioQuality("flac", bits=24)
+    if "flac" in nombres:
+        return AudioQuality("flac")
+    if "wave" in nombres:
+        return AudioQuality("wav")
+    return None
 
 #: La API pública de Jamendo: música con licencia Creative Commons.
 JAMENDO_API = "https://api.jamendo.com/v3.0"
@@ -129,6 +165,15 @@ BUSCADOR_PODCASTS = "https://itunes.apple.com/search"
 #: llama por el nombre del archivo («micro1elizabeth...-ivoox16758032»). Bajado
 #: desde su programa, el título del RSS viaja con él.
 MARCA_EPISODIO = "#tumbao-episodio="
+
+
+def enlace_de_archive(identificador: str) -> str:
+    """La página de una pista suelta del Archive: «details/<álbum>/<archivo>».
+
+    El motor lee el nombre con unquote_plus, así que un «+» del nombre tiene
+    que ir como %2B o volvería convertido en espacio.
+    """
+    return "https://archive.org/details/" + quote(identificador, safe="/")
 
 
 def enlace_de_episodio(programa: str, episodio: str) -> str:
@@ -524,11 +569,464 @@ def _extractor_jamendo():
     return JamendoDescargaIE
 
 
+#: La API de Wikimedia Commons, el archivo de medios libres de la Wikipedia.
+API_COMMONS = "https://commons.wikimedia.org/w/api.php"
+
+#: Cómo se presenta la app ante Wikimedia.
+#:
+#: Su política con los robots pide un nombre y un enlace de contacto, y a
+#: quien finge ser un navegador le responde 403: el «Mozilla/5.0» que se manda
+#: a las demás fuentes aquí no vale.
+AGENTE_COMMONS = "Tumbao/1.0 (https://github.com/Ruben716/descargar-mp3-o-mp4; proyecto academico)"
+
+#: Las direcciones de un archivo de Commons: «commons.wikimedia.org/wiki/File:...».
+ES_COMMONS = re.compile(r"https?://commons\.wikimedia\.org/wiki/File:[^/#?]+")
+
+#: Lo que delata una pronunciación y no una grabación musical.
+#:
+#: Casi todo el audio de Commons son palabras sueltas (Lingua Libre sube
+#: millones, con nombres como «LL-Q1321 (spa)-...»): sin este filtro, buscar
+#: «agua» daría cien maneras de decirlo.
+ES_PRONUNCIACION = re.compile(r"pronunciation|pronounc|lingua[ _]libre|\bLL-Q\d", re.IGNORECASE)
+
+#: Las licencias que dejan bajar y compartir: dominio público, CC0, CC BY y
+#: CC BY-SA, con su versión detrás. Commons admite otras (la GFDL, el uso
+#: legítimo) que no se ofrecen, igual que una que no se sepa cuál es.
+LICENCIA_LIBRE = re.compile(
+    r"^(?:cc0\b.*|public domain\b.*|pd\b.*|cc[ -]by(?:[ -]sa)?(?:[ -]\d.*)?)$", re.IGNORECASE)
+
+#: Lo que dura menos que esto es un efecto o una muestra, no una pieza.
+DURACION_MINIMA_COMMONS = 30
+
+#: El códec de un archivo de Commons según su extensión.
+#:
+#: Un Ogg puede llevar Vorbis, Opus o hasta FLAC dentro, y la extensión no lo
+#: dice: se llama «ogg», que es lo que se sabe, en vez de adivinar.
+CODEC_COMMONS = {
+    "flac": "flac", "wav": "wav", "mp3": "mp3", "opus": "opus",
+    "ogg": "ogg", "oga": "ogg", "webm": "webm", "m4a": "aac",
+}
+
+
+def texto_plano(valor: object) -> str:
+    """El texto de un campo de Commons, que llega en HTML: «<a href=...>Musopen</a>»."""
+    sin_etiquetas = re.sub(r"<[^>]+>", " ", str(valor or ""))
+    return re.sub(r"\s+", " ", html.unescape(sin_etiquetas)).strip()
+
+
+def kbps_medios(tamano: object, segundos: object) -> float | None:
+    """Los kb/s de media de un archivo entero: lo que pesa entre lo que dura."""
+    try:
+        peso, duracion = float(str(tamano)), float(str(segundos))
+    except ValueError:
+        return None
+    if peso <= 0 or duracion <= 0:
+        return None
+    return float(round(peso * 8 / duracion / 1000))
+
+
+def calidad_commons(nombre: str, tamano: object = None, segundos: object = None) -> AudioQuality:
+    """Lo que da un archivo de Commons, que siempre es el que se subió.
+
+    Sin pérdida si es un FLAC o un WAV (los bits no se saben hasta bajarlo);
+    si no, el códec y los kb/s de media, que salen del tamaño y la duración
+    sin pedir nada más.
+    """
+    extension = Path(nombre).suffix.lower().lstrip(".")
+    codec = CODEC_COMMONS.get(extension, extension or "desconocido")
+    if codec in CODECS_SIN_PERDIDA:
+        return AudioQuality(codec)
+    return AudioQuality(codec, kbps_medios(tamano, segundos))
+
+
+def pagina_commons(nombre: str) -> str:
+    """La dirección de la ficha de un archivo de Commons, por su nombre."""
+    return "https://commons.wikimedia.org/wiki/File:" + quote(nombre.replace(" ", "_"), safe="()_,.-!'")
+
+
+def resultado_commons(pagina: dict) -> VideoInfo | None:
+    """Un resultado de la búsqueda en Commons, o None si no se ofrece.
+
+    Fuera lo que no es audio grabado (un MIDI son notas, no sonido), lo que
+    dura menos de medio minuto, las pronunciaciones y lo que no tiene una
+    licencia libre declarada.
+    """
+    titulo = str(pagina.get("title") or "")
+    info = (pagina.get("imageinfo") or [{}])[0]
+    meta = info.get("extmetadata") or {}
+
+    def campo(nombre: str) -> str:
+        return texto_plano((meta.get(nombre) or {}).get("value"))
+
+    mime = str(info.get("mime") or "")
+    if not titulo or not info.get("url") or "midi" in mime:
+        return None
+    if not (mime.startswith("audio/") or mime == "application/ogg"):
+        return None
+    duracion = info.get("duration")
+    if not isinstance(duracion, (int, float)):
+        duracion = None
+    if duracion is not None and duracion < DURACION_MINIMA_COMMONS:
+        return None
+    if ES_PRONUNCIACION.search(titulo) or ES_PRONUNCIACION.search(campo("Categories")):
+        return None
+    if not LICENCIA_LIBRE.match(campo("LicenseShortName")):
+        return None
+    nombre = titulo.partition(":")[2] or titulo
+    direccion = str(info.get("descriptionurl") or "")
+    autor = campo("Artist")
+    return VideoInfo(
+        title=campo("ObjectName") or Path(nombre).stem,
+        # A veces es una ficha entera de intérpretes y compositor.
+        uploader=(autor[:77] + "...") if len(autor) > 80 else (autor or None),
+        duration=float(duracion) if duracion is not None else None,
+        url=direccion if ES_COMMONS.match(direccion) else pagina_commons(nombre),
+        quality=calidad_commons(nombre, info.get("size"), duracion),
+    )
+
+
+def formatos_commons(formatos: list[dict], segundos: object = None) -> list[dict]:
+    """El original de un audio de Commons, listo para que el motor lo elija.
+
+    El extractor del motor no le pone «vcodec» al original, solo a las copias
+    Ogg que hace Commons, y con «ba» el motor se quedaba con una copia con
+    pérdida en vez del FLAC. Esas copias, además, son recompresiones del mismo
+    archivo y siempre peores que él: se quitan, y así ni pidiendo MP3 se
+    recomprime una recompresión. Un vídeo se deja como viene.
+    """
+    if any((f.get("height") or 0) > 0 or f.get("vcodec") not in (None, "none") for f in formatos):
+        return formatos
+    original = next((f for f in formatos if f.get("format_id") == "source" and f.get("url")), None)
+    if original is None:
+        return formatos
+    extension = Path(urlparse(str(original["url"])).path).suffix.lower().lstrip(".")
+    # Un MIDI no es audio grabado: el motor no lo sabría sonar, y la copia
+    # que sintetiza Commons es lo único que se oye. Se deja como viene.
+    if not extension or extension not in CODEC_COMMONS:
+        return formatos
+    return [{
+        **original,
+        "ext": extension,
+        "acodec": calidad_commons(f"original.{extension}").codec,
+        "vcodec": "none",
+        "abr": kbps_medios(original.get("filesize"), segundos),
+    }]
+
+
+@functools.cache
+def _extractor_commons():
+    """El extractor de Commons del motor, pero quedándose con el original.
+
+    Los datos (título, autor, licencia) los sigue sacando el del motor, que
+    ya se presenta con un User-Agent propio; solo cambian los formatos.
+    """
+    try:
+        from yt_dlp.extractor.wikimedia import WikimediaIE
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class CommonsOriginalIE(WikimediaIE):
+        IE_NAME = "wikimedia:original"
+
+        def _real_extract(self, url):
+            info = super()._real_extract(url)
+            info["formats"] = formatos_commons(info.get("formats") or [], info.get("duration"))
+            return info
+
+    return CommonsOriginalIE
+
+
+#: La API pública de ccMixter (motor ccHost): remixes, a cappellas e
+#: instrumentales con licencia Creative Commons. Sin clave.
+API_CCMIXTER = "https://ccmixter.org/api/query"
+
+#: Sin esta cabecera su servidor corta el «hotlink»: 403 al pedir el MP3 con
+#: otra procedencia, 206 con esta. Va también en la búsqueda, por lo mismo.
+CABECERAS_CCMIXTER = {"Referer": "https://ccmixter.org/"}
+
+#: Cuántas subidas se piden de una vez, como mucho.
+#:
+#: Su API repite el cuerpo entero en la cabecera «X-JSON», y Python no admite
+#: una cabecera de más de 64 KB: lanza LineTooLong. Con 25 subidas medía de
+#: 100 a 160 KB; con 10 cabe. Y por encima de 25 responde 200 sin nada.
+LIMITE_CCMIXTER = 10
+
+#: Las direcciones de una subida: «ccmixter.org/files/usuario/12345».
+ES_CCMIXTER = re.compile(r"https?://(?:www\.)?ccmixter\.org/files/[^/?#]+/(?P<id>\d+)")
+
+#: Un número con ceros delante, que su JSON trae (el «bpm») y no es JSON válido.
+CEROS_CCMIXTER = re.compile(r'(":\s*)0+(\d)')
+
+#: Comillas que no están dentro de una palabra. Una búsqueda que acaba en «'»
+#: la rechaza su servidor con un «Illegal»; la de «don't» se queda como está.
+#: El apóstrofo tipográfico va por su código (\u2019), que a simple vista no
+#: se distingue de otros signos parecidos.
+COMILLAS_SUELTAS = re.compile(r"(?<!\w)['\"\u2019]|['\"\u2019](?!\w)")
+
+#: Los kb/s que puede tener un MP3 a velocidad constante.
+BITRATES_MP3 = (32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320)
+
+#: Los extras de una subida que no son la canción: las muestras, las pistas
+#: sueltas o la voz sola.
+EXTRAS_CCMIXTER = ("samples", "stems", "pella")
+
+
+def json_ccmixter(texto: str):
+    """El JSON de ccMixter, arreglado: trae ceros a la izquierda y caracteres de control."""
+    return json.loads(CEROS_CCMIXTER.sub(r"\1\2", texto), strict=False)
+
+
+def segundos_ccmixter(duracion: object) -> float | None:
+    """«3:16» en segundos. ccMixter da la duración así y no en número."""
+    try:
+        return parse_timestamp(str(duracion)) if duracion else None
+    except DownloadError:
+        return None
+
+
+def archivo_ccmixter(subida: dict) -> dict | None:
+    """El archivo de la canción dentro de una subida de ccMixter.
+
+    Una subida trae varios: la mezcla y, a veces, extras (las muestras en un
+    ZIP, la voz sola). La mezcla es el primero de audio que no es un extra;
+    los FLAC que trae alguna suelen ser muestras, no la canción, así que no se
+    ofrecen aunque «suenen mejor». Si todo son extras (una a cappella que se
+    sube como tal), la canción es el primero de audio.
+    """
+    audios = [
+        a for a in subida.get("files") or []
+        if isinstance(a, dict) and a.get("download_url")
+        and (a.get("file_format_info") or {}).get("media-type") == "audio"
+    ]
+
+    def extra(archivo: dict) -> bool:
+        datos = archivo.get("file_extra")
+        return isinstance(datos, dict) and datos.get("type") in EXTRAS_CCMIXTER
+
+    return next((a for a in audios if not extra(a)), audios[0] if audios else None)
+
+
+def calidad_ccmixter(archivo: dict) -> AudioQuality:
+    """Lo que da el archivo de una subida, sacado de lo que dice su API.
+
+    Los kb/s no los da: se calculan con el peso y la duración. En un MP3 a
+    velocidad constante se redondean al valor estándar más cercano, porque lo
+    que sobra es la cabecera y la carátula, no sonido.
+    """
+    formato = archivo.get("file_format_info") or {}
+    extension = str(formato.get("default-ext")
+                    or Path(urlparse(str(archivo.get("download_url"))).path).suffix.lstrip("."))
+    codec = codec_legible(None, extension.lower())
+    frecuencia = str(formato.get("sr") or "").lower().rstrip("k")
+    # «44k» son 44 100 Hz y «48k», 48 000: el redondeo de ccHost.
+    hz = {"11": 11025, "22": 22050, "44": 44100, "88": 88200}.get(
+        frecuencia, int(frecuencia) * 1000 if frecuencia.isdigit() else None)
+    if codec in CODECS_SIN_PERDIDA:
+        return AudioQuality(codec, hz=hz)
+    kbps = kbps_medios(archivo.get("file_rawsize"), segundos_ccmixter(formato.get("ps")))
+    if kbps and codec == "mp3" and str(formato.get("br") or "").upper() == "CBR":
+        medido = kbps
+        estandar = min(BITRATES_MP3, key=lambda b: abs(b - medido))
+        if abs(estandar - medido) <= estandar * 0.05:
+            kbps = float(estandar)
+    return AudioQuality(codec, kbps, hz)
+
+
+def pagina_ccmixter(subida: dict) -> str | None:
+    """La dirección de la ficha de una subida, la que entiende su extractor."""
+    pagina = str(subida.get("file_page_url") or "")
+    if ES_CCMIXTER.match(pagina):
+        return pagina
+    usuario, ident = subida.get("user_name"), subida.get("upload_id")
+    if usuario and str(ident or "").isdigit():
+        return f"https://ccmixter.org/files/{quote(str(usuario))}/{ident}"
+    return None
+
+
+def info_ccmixter(subida: dict) -> dict | None:
+    """Lo que el motor necesita para bajar una subida de ccMixter."""
+    archivo = archivo_ccmixter(subida)
+    if archivo is None or subida.get("upload_id") is None:
+        return None
+    calidad = calidad_ccmixter(archivo)
+    formato = archivo.get("file_format_info") or {}
+    extension = str(formato.get("default-ext") or calidad.codec)
+    autor = subida.get("user_real_name") or subida.get("user_name")
+    return {
+        "id": str(subida["upload_id"]),
+        "title": str(subida.get("upload_name") or subida["upload_id"]),
+        "uploader": autor,
+        "artist": autor,
+        "duration": segundos_ccmixter(formato.get("ps")),
+        "license": subida.get("license_name"),
+        "webpage_url": pagina_ccmixter(subida),
+        "formats": [{
+            "format_id": extension,
+            "url": str(archivo["download_url"]),
+            "ext": extension,
+            "acodec": calidad.codec,
+            "vcodec": "none",
+            "abr": calidad.kbps,
+            "asr": calidad.hz,
+            "filesize": archivo.get("file_rawsize"),
+            "http_headers": dict(CABECERAS_CCMIXTER),
+        }],
+    }
+
+
+@functools.cache
+def _extractor_ccmixter():
+    """Un extractor para ccMixter, que el motor no trae.
+
+    Sin él, el genérico bajaría la página web y no el audio; o, con la
+    dirección directa del MP3, sin título ni artista.
+    """
+    try:
+        from yt_dlp.extractor.common import InfoExtractor
+        from yt_dlp.utils import ExtractorError
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class CcMixterIE(InfoExtractor):
+        IE_NAME = "ccmixter"
+        _VALID_URL = ES_CCMIXTER.pattern
+
+        def _real_extract(self, url):
+            ident = self._match_id(url)
+            texto = self._download_webpage(
+                API_CCMIXTER, ident, query={"f": "json", "ids": ident},
+                headers=CABECERAS_CCMIXTER, note="Consultando la subida en ccMixter")
+            try:
+                subidas = json_ccmixter(texto)
+            except ValueError as exc:
+                raise ExtractorError(f"ccMixter respondió algo que no se entiende: {exc}",
+                                     expected=True) from exc
+            subida = next((s for s in subidas if isinstance(s, dict)), None) \
+                if isinstance(subidas, list) else None
+            if subida is None:
+                raise ExtractorError("Esa subida ya no está en ccMixter.", expected=True)
+            info = info_ccmixter(subida)
+            if info is None:
+                raise ExtractorError("Esa subida de ccMixter no trae audio.", expected=True)
+            return {**info, "webpage_url": url}
+
+    return CcMixterIE
+
+
+#: El buscador de YouTube Music. «#songs» es su sección de canciones, que el
+#: motor traduce al filtro que usa la web; sin cuenta.
+BUSCADOR_YTMUSIC = "https://music.youtube.com/search"
+
+#: Lo que separa artistas, álbum y duración en una fila de YouTube Music. Va
+#: por su código porque a simple vista se confunde con otros puntos.
+PUNTO_YTMUSIC = chr(0x2022)
+
+#: La duración como la escribe YouTube Music: «3:45» o «1:02:03».
+DURACION_YTMUSIC = re.compile(r"^(?:\d+:)?\d{1,2}:\d{2}$")
+
+#: El lado de la carátula que se pide: el mismo que usa su web.
+LADO_CARATULA_YTMUSIC = 544
+
+
+def _pagina_ytmusic(trozo: dict) -> str:
+    """Qué abre un trozo de texto de la fila: un artista, un álbum o nada."""
+    destino = (trozo.get("navigationEndpoint") or {}).get("browseEndpoint") or {}
+    musica = ((destino.get("browseEndpointContextSupportedConfigs") or {})
+              .get("browseEndpointContextMusicConfig") or {})
+    tipo = str(musica.get("pageType") or "")
+    if not tipo and str(destino.get("browseId") or "").startswith("MPRE"):
+        return "MUSIC_PAGE_TYPE_ALBUM"
+    return tipo
+
+
+def datos_ytmusic(fila: dict) -> dict:
+    """Artista, álbum, duración y carátula de una fila de canciones de YouTube Music.
+
+    El motor solo saca de cada fila el título y el enlace. Lo demás está en la
+    segunda columna, en trozos separados por «•»: los artistas (unidos por
+    «&» o comas), el álbum y la duración. La carátula es la del disco,
+    cuadrada, y se pide más grande cambiando la medida de su dirección.
+    """
+    columnas = fila.get("flexColumns") or []
+    trozos: list = []
+    if len(columnas) > 1:
+        columna = (columnas[1] or {}).get("musicResponsiveListItemFlexColumnRenderer") or {}
+        trozos = (columna.get("text") or {}).get("runs") or []
+    grupos: list[list[dict]] = [[]]
+    for trozo in trozos:
+        if str(trozo.get("text") or "").strip() == PUNTO_YTMUSIC:
+            grupos.append([])
+        else:
+            grupos[-1].append(trozo)
+    datos: dict = {}
+    sin_enlace: list[str] = []
+    for grupo in grupos:
+        texto = "".join(str(t.get("text") or "") for t in grupo).strip()
+        paginas = {_pagina_ytmusic(t) for t in grupo}
+        if not texto:
+            continue
+        if "MUSIC_PAGE_TYPE_ALBUM" in paginas:
+            datos.setdefault("album", texto)
+        elif DURACION_YTMUSIC.match(texto):
+            datos["duration"] = parse_timestamp(texto)
+        elif "MUSIC_PAGE_TYPE_ARTIST" in paginas:
+            datos.setdefault("artist", texto)
+        else:
+            sin_enlace.append(texto)
+    # Hay artistas sin página propia: entonces son el primer trozo suelto.
+    if "artist" not in datos and sin_enlace:
+        datos["artist"] = sin_enlace[0]
+    if "artist" in datos:
+        datos["uploader"] = datos["artist"]
+    miniaturas = (((fila.get("thumbnail") or {}).get("musicThumbnailRenderer") or {})
+                  .get("thumbnail") or {}).get("thumbnails") or []
+    validas = [m for m in miniaturas if isinstance(m, dict) and m.get("url")]
+    if validas:
+        mayor = max(validas, key=lambda m: m.get("width") or 0)
+        lado = LADO_CARATULA_YTMUSIC
+        grande = re.sub(r"=w\d+-h\d+", f"=w{lado}-h{lado}", str(mayor["url"]))
+        datos["thumbnails"] = [{"url": grande, "width": lado, "height": lado}
+                               if grande != mayor["url"] else mayor]
+    return datos
+
+
+@functools.cache
+def _extractor_ytmusic():
+    """El buscador de canciones de YouTube Music del motor, con artista y carátula.
+
+    El del motor ya sabe pedir la sección de canciones sin cuenta; aquí solo
+    se le añade a cada resultado lo que su web enseña y él no recoge. Si el
+    motor cambiara el nombre del método (lleva una errata, «reponsive»), los
+    resultados seguirían saliendo, solo que sin artista ni carátula.
+    """
+    try:
+        from yt_dlp.extractor.youtube import YoutubeMusicSearchURLIE
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class YoutubeMusicCancionesIE(YoutubeMusicSearchURLIE):
+        IE_NAME = "youtube:music:canciones"
+
+        def _music_reponsive_list_entry(self, renderer):
+            entrada = super()._music_reponsive_list_entry(renderer)
+            if entrada and entrada.get("ie_key") == "Youtube":
+                entrada.update(datos_ytmusic(renderer))
+            return entrada
+
+    return YoutubeMusicCancionesIE
+
+
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
     if (partes := partir_episodio(url)) is not None:
         return _extraer_episodio(engine, *partes, **opciones)
-    for patron, fabrica in ((ES_AUDIUS, _extractor_audius), (ES_JAMENDO, _extractor_jamendo)):
+    propios = (
+        (ES_AUDIUS, _extractor_audius),
+        (ES_JAMENDO, _extractor_jamendo),
+        (ES_COMMONS, _extractor_commons),
+        (ES_CCMIXTER, _extractor_ccmixter),
+    )
+    for patron, fabrica in propios:
         if patron.match(url):
             clase = fabrica()
             engine.add_info_extractor(clase())
@@ -536,23 +1034,41 @@ def _extraer(engine, url: str, **opciones):
     return engine.extract_info(url, **opciones)
 
 
-def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None) -> dict:
-    """Pide un JSON a la API de una fuente. Un fallo se cuenta, no se esconde."""
-    cabeceras = {"User-Agent": "Mozilla/5.0 (descargador)"}
+def _pedir(direccion: str, fuente: str, cuerpo: bytes | None = None,
+           cabeceras: dict[str, str] | None = None) -> bytes:
+    """Pide algo a la API de una fuente. Un fallo se cuenta, no se esconde.
+
+    HTTPException va aparte porque no hereda de OSError: una cabecera de más
+    de 64 KB lanza LineTooLong (ccMixter repite el cuerpo entero en una), y
+    un corte a mitad de respuesta, IncompleteRead. Sin capturarlas llegarían
+    al usuario como un fallo sin traducir, que es justo lo que no puede pasar.
+    """
+    todas = {"User-Agent": "Mozilla/5.0 (descargador)", **(cabeceras or {})}
     if cuerpo is not None:
-        cabeceras["Content-Type"] = "application/json"
+        todas["Content-Type"] = "application/json"
     try:
-        with urlopen(Request(direccion, data=cuerpo, headers=cabeceras), timeout=30) as respuesta:
-            return json.loads(respuesta.read().decode("utf-8"))
-    except (OSError, ValueError) as exc:
+        with urlopen(Request(direccion, data=cuerpo, headers=todas), timeout=30) as respuesta:
+            return respuesta.read()
+    except (OSError, http.client.HTTPException) as exc:
+        raise DownloadError(f"No se pudo buscar en {fuente}: {exc}") from exc
+
+
+def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None,
+               cabeceras: dict[str, str] | None = None) -> dict:
+    """Pide un JSON a la API de una fuente."""
+    crudo = _pedir(direccion, fuente, cuerpo, cabeceras)
+    try:
+        return json.loads(crudo.decode("utf-8"))
+    except ValueError as exc:
         raise DownloadError(f"No se pudo buscar en {fuente}: {exc}") from exc
 
 
 def cabecera_sin_perdida(ruta: Path) -> tuple[int, int] | None:
     """Frecuencia y bits reales de un FLAC o un WAV, leídos de su cabecera.
 
-    Es lo que separa un CD (16 bits, 44,1 kHz) de un Hi-Res de verdad, y no
-    lo dice ninguna web al buscar: solo el archivo, una vez bajado.
+    Es lo que separa un CD (16 bits, 44,1 kHz) de un Hi-Res de verdad, y casi
+    ninguna web lo dice al buscar (el Archive sí, con su «24bit Flac»): lo
+    dice el archivo, una vez bajado.
     """
     try:
         with open(ruta, "rb") as archivo:
@@ -730,12 +1246,15 @@ class YtDlpDownloader:
             if combinados:
                 return max(combinados, key=lambda f: f.get("height") or 0)
 
+        # Sin procesar, los formatos de los extractores propios (Audius,
+        # Jamendo, Commons, ccMixter) no dicen su protocolo, porque eso lo
+        # rellena el motor al procesar. Entonces manda la propia dirección.
         audios = [
             f for f in formatos
             if f.get("url")
             and f.get("acodec") not in (None, "none")
             and f.get("vcodec") in (None, "none")
-            and str(f.get("protocol") or "").startswith("http")
+            and str(f.get("protocol") or f["url"]).startswith("http")
         ]
         if audios:
             return max(audios, key=lambda f: f.get("abr") or 0)
@@ -752,18 +1271,20 @@ class YtDlpDownloader:
         lentisimo. Esta es la unica ruta del adaptador que acepta una lista,
         porque una busqueda es precisamente eso.
         """
-        if query.source == "archive":
-            return self._buscar_en_archive(query)
-        if query.source == "audius":
-            return self._buscar_en_audius(query)
-        if query.source == "bandcamp":
-            return self._buscar_en_bandcamp(query)
-        if query.source == "jamendo":
-            return self._buscar_en_jamendo(query)
-        if query.source == "hearthis":
-            return self._buscar_en_hearthis(query)
-        if query.source == "podcasts":
-            return self._buscar_podcasts(query)
+        # Las que tienen API propia; las demás van por el buscador del motor.
+        propias: dict[str, Callable[[SearchQuery], tuple[VideoInfo, ...]]] = {
+            "ytmusic": self._buscar_en_ytmusic,
+            "archive": self._buscar_en_archive,
+            "audius": self._buscar_en_audius,
+            "bandcamp": self._buscar_en_bandcamp,
+            "jamendo": self._buscar_en_jamendo,
+            "commons": self._buscar_en_commons,
+            "ccmixter": self._buscar_en_ccmixter,
+            "hearthis": self._buscar_en_hearthis,
+            "podcasts": self._buscar_podcasts,
+        }
+        if query.source in propias:
+            return propias[query.source](query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -783,6 +1304,41 @@ class YtDlpDownloader:
             return tuple(self._resultado(e) for e in entradas if e)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
+
+    def _buscar_en_ytmusic(self, query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca solo canciones en YouTube Music, sin cuenta.
+
+        Son las pistas oficiales del catálogo: título limpio, el artista de
+        verdad y la carátula cuadrada del disco, en vez de un vídeo con el
+        título lleno de coletillas. El sonido es el mismo que en YouTube.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        clase = _extractor_ytmusic()
+        opciones = {
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+            "extract_flat": "in_playlist",
+            # Los resultados llegan por páginas; con esto se piden solo las
+            # que hacen falta.
+            "playlistend": query.limit,
+        }
+        direccion = f"{BUSCADOR_YTMUSIC}?{urlencode({'q': query.text})}#songs"
+        try:
+            with YoutubeDL(opciones) as engine:
+                engine.add_info_extractor(clase())
+                info = engine.extract_info(direccion, ie_key=clase.ie_key(), download=False)
+            entradas = (info or {}).get("entries") or []
+            return tuple(self._resultado(e) for e in entradas if e)[:query.limit]
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            # Sin el texto crudo del motor: llega en inglés y pide «reportar»
+            # cosas al usuario. Lo conocido se explica; lo demás, en llano.
+            explicacion = mensaje_claro(exc)
+            if explicacion.startswith("No se pudo completar la descarga"):
+                explicacion = "No se pudo buscar en YouTube Music. Comprueba la conexión y prueba de nuevo."
+            raise DownloadError(explicacion) from exc
 
     @staticmethod
     def _buscar_en_audius(query: SearchQuery) -> tuple[VideoInfo, ...]:
@@ -882,6 +1438,85 @@ class YtDlpDownloader:
         return tuple(resultados[:query.limit])
 
     @staticmethod
+    def _buscar_en_commons(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca grabaciones en Wikimedia Commons: clásica, folk, discos antiguos.
+
+        Todo lo de allí lleva su licencia declarada, y se baja el archivo que
+        se subió, que a veces es un FLAC o un WAV. Se piden de más porque casi
+        todo el audio de Commons son pronunciaciones, y esas se descartan.
+        """
+        direccion = API_COMMONS + "?" + urlencode({
+            "action": "query",
+            "format": "json",
+            "formatversion": 2,
+            "generator": "search",
+            # El espacio de nombres de los archivos («File:»).
+            "gsrnamespace": 6,
+            "gsrlimit": min(query.limit * 3, 50),
+            # filesize va en KB: de 300 KB, que menos es un efecto, a 600 MB.
+            "gsrsearch": f"{query.text} filetype:audio filesize:300,600000",
+            "prop": "imageinfo",
+            "iiprop": "url|size|mime|extmetadata",
+            "iiextmetadatafilter": "LicenseShortName|Artist|ObjectName|Categories",
+        })
+        datos = _consultar(direccion, "Commons", cabeceras={"User-Agent": AGENTE_COMMONS})
+        # MediaWiki responde 200 con {"error": ...} si la consulta falla (límite
+        # de peticiones, «maxlag»): sin esto se veía como «nada encontrado».
+        if isinstance(datos.get("error"), dict):
+            motivo = datos["error"].get("info") or "error de la API"
+            raise DownloadError(f"No se pudo buscar en Commons: {motivo}")
+        # Con «generator» las páginas no llegan en orden de relevancia: lo dice «index».
+        paginas = sorted((datos.get("query") or {}).get("pages") or [],
+                         key=lambda p: p.get("index") or 0)
+        resultados = [r for r in map(resultado_commons, paginas) if r is not None]
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
+    def _buscar_en_ccmixter(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca en ccMixter: remixes, a cappellas e instrumentales libres.
+
+        La canción llega en MP3 de 192 a 320 kb/s, más que YouTube, y todo
+        lleva licencia Creative Commons. La calidad se calcula ya aquí con lo
+        que dice su API, sin pedir nada más.
+        """
+        texto = re.sub(r"\s+", " ", COMILLAS_SUELTAS.sub(" ", query.text)).strip()
+        if not texto:
+            raise DownloadError("Escribe algo que buscar en ccMixter.")
+        limite = min(query.limit, LIMITE_CCMIXTER)
+        while True:
+            direccion = API_CCMIXTER + "?" + urlencode({
+                "f": "json", "datasource": "uploads", "search": texto,
+                "search_type": "any", "sort": "rank", "limit": limite,
+            })
+            try:
+                crudo = _pedir(direccion, "ccMixter", cabeceras=CABECERAS_CCMIXTER)
+                break
+            except DownloadError as exc:
+                # Si aun así la cabecera repetida no cabe, se pide la mitad.
+                if not isinstance(exc.__cause__, http.client.LineTooLong) or limite == 1:
+                    raise
+                limite //= 2
+        try:
+            subidas = json_ccmixter(crudo.decode("utf-8", errors="replace"))
+        except ValueError as exc:
+            raise DownloadError(f"ccMixter respondió algo que no se entiende: {exc}") from exc
+        resultados = []
+        for subida in subidas if isinstance(subidas, list) else []:
+            if not isinstance(subida, dict):
+                continue
+            archivo, pagina = archivo_ccmixter(subida), pagina_ccmixter(subida)
+            if archivo is None or pagina is None:
+                continue
+            resultados.append(VideoInfo(
+                title=str(subida.get("upload_name") or "(sin título)"),
+                uploader=subida.get("user_real_name") or subida.get("user_name"),
+                duration=segundos_ccmixter((archivo.get("file_format_info") or {}).get("ps")),
+                url=pagina,
+                quality=calidad_ccmixter(archivo),
+            ))
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
     def _buscar_en_hearthis(query: SearchQuery) -> tuple[VideoInfo, ...]:
         """Busca en hearthis.at: sesiones de DJ, mezclas y temas propios.
 
@@ -942,34 +1577,34 @@ class YtDlpDownloader:
         if not texto:
             raise DownloadError("Escribe algo que buscar en el Archive.")
         colecciones = " OR ".join(COLECCIONES_ARCHIVE)
+        licencias = " OR ".join(f"licenseurl:*{licencia}*" for licencia in LICENCIAS_ARCHIVE)
+        formatos = " OR ".join(f"format:{formato}" for formato in FORMATOS_ARCHIVE)
         consulta = (
-            f"collection:({colecciones}) AND format:FLAC "
+            # Los conciertos de «etree» no son «audio» para el Archive, sino
+            # «etree»: sin nombrarlo, se quedaría fuera la colección entera.
+            f"mediatype:(audio OR etree) AND ({formatos}) "
+            f"AND (collection:({colecciones}) OR {licencias}) "
             f"AND (title:({texto}) OR creator:({texto}))"
         )
         direccion = "https://archive.org/advancedsearch.php?" + urlencode(
             {
                 "q": consulta,
-                # doseq para que los tres campos viajen como «fl[]» repetido,
-                # que es como los pide su API.
-                "fl[]": ["identifier", "title", "creator"],
+                # doseq para que los campos viajen como «fl[]» repetido, que
+                # es como los pide su API. «format» dice si hay 24 bits.
+                "fl[]": ["identifier", "title", "creator", "format"],
                 "rows": query.limit,
                 "output": "json",
             },
             doseq=True,
         )
-        try:
-            peticion = Request(direccion, headers={"User-Agent": "descargador"})
-            with urlopen(peticion, timeout=30) as respuesta:
-                datos = json.loads(respuesta.read().decode("utf-8"))
-            documentos = datos.get("response", {}).get("docs", [])
-        except (OSError, ValueError) as exc:
-            raise DownloadError(f"No se pudo buscar en el Archive: {exc}") from exc
-
+        datos = _consultar(direccion, "el Archive", cabeceras={"User-Agent": "descargador"})
+        documentos = (datos.get("response") or {}).get("docs") or []
         return tuple(
             VideoInfo(
                 title=str(doc.get("title") or doc["identifier"]),
                 uploader=str(doc.get("creator") or ""),
                 url=f"https://archive.org/details/{doc['identifier']}",
+                quality=calidad_archive(doc.get("format")),
             )
             for doc in documentos
             if doc.get("identifier")
@@ -1002,13 +1637,22 @@ class YtDlpDownloader:
             # (el RSS de un podcast) se baja desde la lista, para no perder
             # el título de cada episodio.
             desde_lista = (info or {}).get("extractor_key") == "Generic"
+            del_archive = (info or {}).get("extractor_key") == "ArchiveOrg"
+
+            def pista(e: dict) -> VideoInfo:
+                if desde_lista and e.get("url"):
+                    return replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
+                if del_archive and "/" in str(e.get("id") or ""):
+                    # Cada pista trae la página del álbum entero como su
+                    # dirección, y bajarla pedía el concierto completo (que se
+                    # rechaza por ser una lista). La de la pista suelta es
+                    # «details/<álbum>/<archivo>», y el motor la entiende.
+                    return replace(self._resultado(e), url=enlace_de_archive(str(e["id"])))
+                return self._resultado(e)
+
             return Playlist(
                 title=(info or {}).get("title") or "Lista importada",
-                items=tuple(
-                    replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
-                    if desde_lista and e.get("url") else self._resultado(e)
-                    for e in entradas if e
-                ),
+                items=tuple(pista(e) for e in entradas if e),
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo leer la lista: {exc}") from exc
@@ -1373,7 +2017,7 @@ def _json_remoto(direccion: str) -> dict:
         peticion = Request(direccion, headers={"User-Agent": AGENTE})
         with urlopen(peticion, timeout=20) as respuesta:
             datos = json.loads(respuesta.read().decode("utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, http.client.HTTPException):
         return {}
     return datos if isinstance(datos, dict) else {}
 
@@ -1468,7 +2112,7 @@ def descargar_portada(direccion: str, destino: Path) -> bool:
         peticion = Request(direccion, headers={"User-Agent": "descargador"})
         with urlopen(peticion, timeout=30) as respuesta:
             imagen = respuesta.read()
-    except OSError:
+    except (OSError, http.client.HTTPException):
         return False
     if not imagen:
         return False

@@ -22,19 +22,24 @@ class Alternativa {
 }
 
 /// Buscar la misma cancion en mejor calidad en las fuentes que ya maneja la
-/// app (Bandcamp, Audius, Archive, Jamendo, SoundCloud) y cambiarla sin
-/// perder nada.
+/// app (Bandcamp, Audius, Jamendo, Commons, ccMixter, SoundCloud) y cambiarla
+/// sin perder nada.
 ///
 /// La calidad que se compara es la del origen, la real: nunca se presenta como
 /// mejor algo que solo es mas grande.
 class MejorCalidad {
   MejorCalidad._();
 
+  /// YouTube Music no esta: suena igual que YouTube, asi que nunca seria
+  /// mejor. El Archive tampoco: cada resultado suyo es un concierto o un disco
+  /// entero, no la cancion. Commons y ccMixter dicen su calidad al buscar, y
+  /// no cuestan ninguna comprobacion de mas.
   static const List<Fuente> fuentes = <Fuente>[
     Fuente.bandcamp,
     Fuente.audius,
-    Fuente.archive,
     Fuente.jamendo,
+    Fuente.commons,
+    Fuente.ccmixter,
     Fuente.soundcloud,
   ];
 
@@ -73,6 +78,9 @@ class MejorCalidad {
   }
 
   static Future<List<Alternativa>> _enFuente(Fuente f, String consulta, Elemento e, CalidadAudio actual) async {
+    // Un resultado del Archive es un concierto o un disco entero, no la
+    // cancion: ofrecerlo como «la misma, mejor» cambiaria un tema por un album.
+    if (f.daListas) return const <Alternativa>[];
     final List<Resultado> hallados;
     try {
       hallados = await Nucleo.buscar(consulta, limite: 6, fuente: f.clave);

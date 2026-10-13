@@ -124,7 +124,9 @@ class _ReproductorState extends State<Reproductor> {
             ),
             actions: <Widget>[
               if (elemento.audio) ...<Widget>[
-                BotonMeGusta(uri: elemento.uri, color: Theme.of(context).colorScheme.primary),
+                // Sin marcar, en blanco: en el tinte de la caratula el corazon
+                // marcado (cian hielo) y el primario quedaban casi iguales.
+                BotonMeGusta(uri: elemento.uri, color: Colors.white70),
                 IconButton(
                   tooltip: _letras ? 'Ver la caratula' : 'Ver la letra',
                   onPressed: () => setState(() => _letras = !_letras),
@@ -295,7 +297,7 @@ class _AudioState extends State<_Audio> {
               if (inflado)
                 Text(
                   'guardado en ${extension.toUpperCase()}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                 ),
             ],
           ),
@@ -385,15 +387,19 @@ class _AudioState extends State<_Audio> {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // Cifras tabulares: todas del mismo ancho, asi el
+                      // contador no baila a cada segundo que pasa.
                       children: <Widget>[
                         Text(formatoTiempo(actual.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                         Text(formatoTiempo(total.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                       ],
                     ),
                   ),
@@ -476,6 +482,15 @@ class _BotonGrande extends StatelessWidget {
   final bool sonando;
   final VoidCallback alPulsar;
 
+  /// El mismo color, un poco mas claro y con el tono corrido hacia el cian.
+  static Color _vecino(Color base) {
+    final HSLColor hsl = HSLColor.fromColor(base);
+    return hsl
+        .withHue((hsl.hue - 18) % 360)
+        .withLightness((hsl.lightness + 0.08).clamp(0, 0.85))
+        .toColor();
+  }
+
   @override
   Widget build(BuildContext context) {
     final ColorScheme colores = Theme.of(context).colorScheme;
@@ -485,8 +500,14 @@ class _BotonGrande extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
+          // Sin caratula, el degradado de marca de cian a azul. Con caratula,
+          // dos tonos vecinos de su primario: el terciario de Material gira el
+          // tono (una portada azul acababa con el boton rosa) y el secundario
+          // sale casi gris, porque Material le quita casi todo el color.
           gradient: LinearGradient(
-            colors: <Color>[colores.primary, colores.tertiary],
+            colors: colores == Paleta.neutra
+                ? Tema.degradado.colors
+                : <Color>[_vecino(colores.primary), colores.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -505,7 +526,7 @@ class _BotonGrande extends StatelessWidget {
             sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
             key: ValueKey<bool>(sonando),
             size: 40,
-            color: Colors.black87,
+            color: Tema.tinta,
           ),
         ),
       ),
@@ -708,13 +729,13 @@ class _BotonAleatorio extends StatelessWidget {
       icon: Icon(
         Icons.shuffle_rounded,
         size: 20,
-        color: estado.aleatorio ? tono : Colors.white38,
+        color: estado.aleatorio ? tono : Tema.textoTenue,
       ),
       label: Text(
         estado.aleatorio ? 'Aleatorio' : 'En orden',
         style: TextStyle(
           fontSize: 12,
-          color: estado.aleatorio ? tono : Colors.white38,
+          color: estado.aleatorio ? tono : Tema.textoTenue,
         ),
       ),
     );
@@ -740,11 +761,11 @@ class _BotonVelocidad extends StatelessWidget {
       icon: Icon(
         Icons.speed_rounded,
         size: 20,
-        color: normal ? Colors.white38 : tono,
+        color: normal ? Tema.textoTenue : tono,
       ),
       label: Text(
         etiqueta,
-        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : tono),
+        style: TextStyle(fontSize: 12, color: normal ? Tema.textoTenue : tono),
       ),
     );
   }
@@ -775,8 +796,8 @@ class _BotonTramo extends StatelessWidget {
       message: ayuda,
       child: TextButton.icon(
         onPressed: estado.alternarTramo,
-        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Colors.white38),
-        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Colors.white38)),
+        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Tema.textoTenue),
+        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Tema.textoTenue)),
       ),
     );
   }
@@ -799,7 +820,7 @@ class _BotonRepeticion extends StatelessWidget {
             ? Icons.repeat_one_rounded
             : Icons.repeat_rounded,
         size: 20,
-        color: activa ? tono : Colors.white38,
+        color: activa ? tono : Tema.textoTenue,
       ),
       label: Text(
         switch (estado.repeticion) {
@@ -809,7 +830,7 @@ class _BotonRepeticion extends StatelessWidget {
         },
         style: TextStyle(
           fontSize: 12,
-          color: activa ? tono : Colors.white38,
+          color: activa ? tono : Tema.textoTenue,
         ),
       ),
     );

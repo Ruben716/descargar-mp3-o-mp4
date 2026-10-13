@@ -83,7 +83,7 @@ class _Cabecera extends StatelessWidget {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: Tema.contorno,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -103,7 +103,7 @@ class _Cabecera extends StatelessWidget {
                       pendientes <= 0
                           ? 'Nada mas despues de esta'
                           : '$pendientes por sonar',
-                      style: const TextStyle(color: Colors.white38, fontSize: 12),
+                      style: const TextStyle(color: Tema.textoTenue, fontSize: 12),
                     ),
                   ],
                 ),
@@ -214,7 +214,7 @@ class _Fila extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           formatoTiempo(elemento.duracion),
-                          style: const TextStyle(color: Colors.white38, fontSize: 11),
+                          style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                         ),
                       ],
                     ),

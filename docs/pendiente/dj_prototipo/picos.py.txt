@@ -1,0 +1,13 @@
+import sys, subprocess
+sys.path.insert(0, 'proto')
+import ritmo
+for r in sys.argv[1:]:
+    pcm = subprocess.run(ritmo.orden_ffmpeg('ffmpeg', r), capture_output=True).stdout
+    e = ritmo.energias_por_cuadro(pcm)
+    o = ritmo.quitar_tendencia(ritmo.flujo(e))
+    acf = ritmo.autocorrelacion(o, 410)
+    lista = ritmo.puntuaciones(acf)
+    pts = [(b, s * ritmo.peso_previo(b), s) for b, s in lista]
+    picos = [pts[i] for i in range(1, len(pts)-1) if pts[i][1] >= pts[i-1][1] and pts[i][1] >= pts[i+1][1]]
+    picos.sort(key=lambda t: -t[1])
+    print(r.rsplit('/',1)[-1][:30], ' '.join(f"{b:.1f}:{w/acf[0]:.2f}" for b, w, s in picos[:5]))

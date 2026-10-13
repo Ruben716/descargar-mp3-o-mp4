@@ -22,6 +22,8 @@ class AccionPista {
   final IconData icono;
   final String texto;
   final VoidCallback alElegir;
+
+  /// Pinta el icono en el rojo de peligro: es para lo que borra algo.
   final bool destacada;
 }
 
@@ -112,7 +114,7 @@ class FilaPista extends StatelessWidget {
                               if (Favoritas.instancia.contiene(elemento.uri))
                                 const Padding(
                                   padding: EdgeInsets.only(right: 4),
-                                  child: Icon(Icons.favorite_rounded, size: 12, color: Color(0xFFFF6B81)),
+                                  child: Icon(Icons.favorite_rounded, size: 12, color: Tema.meGusta),
                                 ),
                               Expanded(
                                 child: Text(
@@ -218,7 +220,7 @@ class _Menu extends StatelessWidget {
             child: ListTile(
               leading: Icon(
                 accion.icono,
-                color: accion.destacada ? Tema.acentoCalido : null,
+                color: accion.destacada ? Tema.peligro : null,
               ),
               title: Text(accion.texto),
               contentPadding: EdgeInsets.zero,

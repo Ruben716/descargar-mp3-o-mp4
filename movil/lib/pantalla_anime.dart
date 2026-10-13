@@ -77,7 +77,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: <Color>[Color(0x66000000), Color(0x00000000), Tema.fondo],
+                        colors: <Color>[Color(0x66040814), Color(0x00040814), Tema.fondo],
                         stops: <double>[0, 0.45, 1],
                       ),
                     ),
@@ -128,7 +128,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                   const SizedBox(height: 6),
                   Row(
                     children: <Widget>[
-                      const Icon(Icons.star_rounded, size: 18, color: Color(0xFFFFC857)),
+                      const Icon(Icons.star_rounded, size: 18, color: Tema.oro),
                       const SizedBox(width: 4),
                       Text('${_anime.nota}%', style: const TextStyle(fontWeight: FontWeight.w800)),
                     ],
@@ -187,7 +187,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                 if (_traduciendo)
                   const Text(
                     'Traduciendo...',
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                    style: TextStyle(color: Tema.textoTenue, fontSize: 12),
                   )
                 else if (_traducida != null)
                   TextButton(

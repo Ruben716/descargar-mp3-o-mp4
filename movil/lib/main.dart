@@ -237,32 +237,41 @@ class _InicioState extends State<Inicio>
         children: <Widget>[
           // Lo que suena acompania siempre, se mire la pestania que se mire.
           const MiniReproductor(),
-          NavigationBar(
-            selectedIndex: _pestana,
-            onDestinationSelected: _irA,
-            destinations: const <NavigationDestination>[
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home_rounded),
-                label: 'Inicio',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.download_outlined),
-                selectedIcon: Icon(Icons.download_rounded),
-                label: 'Descargar',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.library_music_outlined),
-                selectedIcon: Icon(Icons.library_music_rounded),
-                label: 'Biblioteca',
-              ),
-              if (mostrarVer)
+          // La barra es casi del color del fondo: el filete de arriba es lo
+          // que la separa del contenido, sin un bloque de otro color. Va por
+          // delante porque el fondo de la barra lo taparia.
+          DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Tema.contorno)),
+            ),
+            child: NavigationBar(
+              selectedIndex: _pestana,
+              onDestinationSelected: _irA,
+              destinations: const <NavigationDestination>[
                 NavigationDestination(
-                  icon: Icon(Icons.live_tv_outlined),
-                  selectedIcon: Icon(Icons.live_tv_rounded),
-                  label: 'Ver',
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: 'Inicio',
                 ),
-            ],
+                NavigationDestination(
+                  icon: Icon(Icons.download_outlined),
+                  selectedIcon: Icon(Icons.download_rounded),
+                  label: 'Descargar',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.library_music_outlined),
+                  selectedIcon: Icon(Icons.library_music_rounded),
+                  label: 'Biblioteca',
+                ),
+                if (mostrarVer)
+                  NavigationDestination(
+                    icon: Icon(Icons.live_tv_outlined),
+                    selectedIcon: Icon(Icons.live_tv_rounded),
+                    label: 'Ver',
+                  ),
+              ],
+            ),
           ),
         ],
       ),

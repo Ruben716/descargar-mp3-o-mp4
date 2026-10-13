@@ -80,7 +80,7 @@ class _HojaAjustesState extends State<HojaAjustes> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 18),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: Tema.contorno,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -130,7 +130,7 @@ class _HojaAjustesState extends State<HojaAjustes> {
                   : 'Minutos y segundos (2:45), o con horas si es largo '
                       '(1:05:30). Deja uno vacio para ir desde el principio '
                       'o hasta el final.',
-              style: const TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
+              style: const TextStyle(color: Tema.textoTenue, fontSize: 11, height: 1.4),
             ),
             const SizedBox(height: 24),
             BotonDegradado(

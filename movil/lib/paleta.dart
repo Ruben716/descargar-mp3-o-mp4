@@ -20,10 +20,11 @@ class Paleta {
   static final Map<String, Future<ColorScheme>> _enCurso = <String, Future<ColorScheme>>{};
 
   /// La paleta del tema, para cuando la pista no tiene portada.
-  static final ColorScheme neutra = ColorScheme.fromSeed(
-    seedColor: Tema.acento,
-    brightness: Brightness.dark,
-  ).copyWith(surface: Tema.fondo);
+  ///
+  /// Es el esquema de la marca tal cual y no uno sacado de su semilla: asi,
+  /// sin caratula, el reproductor sale con el mismo azul y cian que el resto
+  /// de la app, y no con el pastel y el terciario rosado que da la semilla.
+  static final ColorScheme neutra = Tema.esquema;
 
   static ColorScheme? guardada(String uri) => _memoria[uri];
 
@@ -133,8 +134,8 @@ class VeloDePaleta extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: <Color>[
-            Color.alphaBlend(tono.withValues(alpha: 0.18), const Color(0xCC08070C)),
-            Color.alphaBlend(tono.withValues(alpha: 0.10), const Color(0xF208070C)),
+            Color.alphaBlend(tono.withValues(alpha: 0.18), Tema.veloSuave),
+            Color.alphaBlend(tono.withValues(alpha: 0.10), Tema.veloDenso),
             Tema.fondo,
           ],
         ),
