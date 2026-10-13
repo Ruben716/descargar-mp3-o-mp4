@@ -438,8 +438,8 @@ class Resultado {
   /// De donde salio. Buscando en todas a la vez hace falta saberlo por pista.
   final Fuente? fuente;
 
-  /// La calidad, cuando la fuente ya la dice al buscar (Audius). Lo normal
-  /// es que haga falta comprobarla.
+  /// La calidad, cuando la fuente ya la dice al buscar (Audius, Jamendo, el
+  /// Archive, Commons, ccMixter). Si no, hace falta comprobarla.
   final CalidadAudio? calidad;
 
   Resultado deFuente(Fuente f) => Resultado(
@@ -576,11 +576,14 @@ enum Fuente {
   /// paralelo y junta lo que va llegando.
   todas('todas', 'Todas', 'Busca en todas a la vez y compara la calidad'),
   youtube('youtube', 'YouTube', 'Lo mas y lo mas nuevo'),
+  ytmusic('ytmusic', 'YouTube Music', 'Solo canciones, con artista y caratula oficiales'),
   soundcloud('soundcloud', 'SoundCloud', 'Mezclas y temas propios'),
   audius('audius', 'Audius', 'Artistas que suben a 320 y a veces el original sin perdida'),
   bandcamp('bandcamp', 'Bandcamp', 'Independientes; algunos regalan el FLAC'),
-  archive('archive', 'Archive', 'Conciertos, netlabels y discos de 78, sin perdida'),
+  archive('archive', 'Archive', 'Conciertos y musica libre, sin perdida y a veces en 24 bits'),
   jamendo('jamendo', 'Jamendo', 'Musica libre en FLAC, si el artista la deja bajar'),
+  commons('commons', 'Commons', 'Clasica y dominio publico; el original, a veces sin perdida'),
+  ccmixter('ccmixter', 'ccMixter', 'Remixes, a cappellas e instrumentales libres'),
   hearthis('hearthis', 'hearthis', 'Sesiones de DJ y mezclas, a veces con el original'),
   podcasts('podcasts', 'Podcasts', 'Programas enteros: toca uno y elige episodios');
 
@@ -602,17 +605,25 @@ enum Fuente {
   /// Las que existen de verdad en el nucleo, en el orden en que se ensenian.
   static const List<Fuente> reales = <Fuente>[
     Fuente.youtube,
+    Fuente.ytmusic,
     Fuente.soundcloud,
     Fuente.audius,
     Fuente.bandcamp,
     Fuente.archive,
     Fuente.jamendo,
+    Fuente.commons,
+    Fuente.ccmixter,
     Fuente.hearthis,
     Fuente.podcasts,
   ];
 
   /// Donde se busca con «Todas»: las de musica. Un podcast se busca a
   /// proposito; mezclado con canciones solo estorbaria.
+  ///
+  /// YouTube Music entra aunque suene igual que YouTube: da la misma cancion
+  /// con el artista y la caratula del disco, y a igual calidad lo limpio es
+  /// mejor eleccion que el videoclip. Commons y ccMixter, porque lo que no es
+  /// la cancion buscada se ordena detras y no estorba.
   static List<Fuente> get deMusica => reales.where((Fuente f) => f != Fuente.podcasts).toList();
 }
 
