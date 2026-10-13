@@ -238,7 +238,7 @@ class _FilaEmisora extends StatelessWidget {
             onPressed: alCorazon,
             icon: Icon(
               favorita ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              color: favorita ? Tema.acentoCalido : Colors.white38,
+              color: favorita ? Tema.meGusta : Colors.white38,
             ),
           ),
         ],

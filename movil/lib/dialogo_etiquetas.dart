@@ -104,7 +104,7 @@ class _DialogoEtiquetasState extends State<_DialogoEtiquetas> {
             const SizedBox(height: 10),
             Text(
               _error!,
-              style: const TextStyle(color: Tema.acentoCalido, fontSize: 11),
+              style: const TextStyle(color: Tema.peligro, fontSize: 11),
             ),
           ],
         ],

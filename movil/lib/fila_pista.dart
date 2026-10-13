@@ -22,6 +22,8 @@ class AccionPista {
   final IconData icono;
   final String texto;
   final VoidCallback alElegir;
+
+  /// Pinta el icono en el rojo de peligro: es para lo que borra algo.
   final bool destacada;
 }
 
@@ -218,7 +220,7 @@ class _Menu extends StatelessWidget {
             child: ListTile(
               leading: Icon(
                 accion.icono,
-                color: accion.destacada ? Tema.acentoCalido : null,
+                color: accion.destacada ? Tema.peligro : null,
               ),
               title: Text(accion.texto),
               contentPadding: EdgeInsets.zero,

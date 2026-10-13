@@ -4157,6 +4157,85 @@ void main() {
 
     expect(visto, Paleta.neutra);
   });
+
+  // --- La marca: azul y negro ---------------------------------------------
+
+  test('el esquema de la marca no tiene nada violeta', () {
+    // fromSeed gira el tono del terciario: sin fijarlo, una semilla azul deja
+    // contenedores rosa lila. Todo rol con color tiene que caer en el azul o
+    // el cian; solo el rojo del error va aparte.
+    final ColorScheme e = Tema.esquema;
+    final Map<String, Color> roles = <String, Color>{
+      'primary': e.primary,
+      'onPrimary': e.onPrimary,
+      'primaryContainer': e.primaryContainer,
+      'onPrimaryContainer': e.onPrimaryContainer,
+      'primaryFixed': e.primaryFixed,
+      'primaryFixedDim': e.primaryFixedDim,
+      'secondary': e.secondary,
+      'secondaryContainer': e.secondaryContainer,
+      'onSecondaryContainer': e.onSecondaryContainer,
+      'secondaryFixed': e.secondaryFixed,
+      'tertiary': e.tertiary,
+      'tertiaryContainer': e.tertiaryContainer,
+      'onTertiaryContainer': e.onTertiaryContainer,
+      'tertiaryFixed': e.tertiaryFixed,
+      'tertiaryFixedDim': e.tertiaryFixedDim,
+      'onTertiaryFixed': e.onTertiaryFixed,
+      'onTertiaryFixedVariant': e.onTertiaryFixedVariant,
+      'surface': e.surface,
+      'surfaceBright': e.surfaceBright,
+      'surfaceContainer': e.surfaceContainer,
+      'surfaceContainerHigh': e.surfaceContainerHigh,
+      'surfaceContainerHighest': e.surfaceContainerHighest,
+      'onSurface': e.onSurface,
+      'onSurfaceVariant': e.onSurfaceVariant,
+      'outline': e.outline,
+      'outlineVariant': e.outlineVariant,
+      'inverseSurface': e.inverseSurface,
+      'inversePrimary': e.inversePrimary,
+    };
+    roles.forEach((String rol, Color color) {
+      final double tono = HSLColor.fromColor(color).hue;
+      expect(tono, inInclusiveRange(190, 235), reason: '$rol sale con tono $tono');
+    });
+    expect(Paleta.neutra, same(Tema.esquema));
+  });
+
+  test('el texto y los acentos se leen en todas las superficies', () {
+    double contraste(Color a, Color b) {
+      final double la = a.computeLuminance();
+      final double lb = b.computeLuminance();
+      return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
+    }
+
+    const List<Color> superficies = <Color>[
+      Tema.fondo,
+      Tema.superficie,
+      Tema.superficieAlta,
+      Tema.superficieMaxima,
+    ];
+    for (final Color fondo in superficies) {
+      // 4,5:1 es el minimo de WCAG para texto normal.
+      expect(contraste(Tema.acento, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.textoTenue, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.textoSecundario, fondo), greaterThanOrEqualTo(4.5));
+      expect(contraste(Tema.peligro, fondo), greaterThanOrEqualTo(4.5));
+    }
+    // Encima del acento, del degradado y de los estados va la tinta, nunca
+    // blanco: el blanco sobre el acento o el rojo se queda en 3:1.
+    for (final Color color in <Color>[
+      Tema.acento,
+      Tema.acentoHielo,
+      Tema.azulProfundo,
+      Tema.peligro,
+      Tema.oro,
+      Tema.exito,
+    ]) {
+      expect(contraste(Tema.tinta, color), greaterThanOrEqualTo(4.5));
+    }
+    expect(Tema.esquema.onPrimary, Tema.tinta);
+  });
 }
 
 /// Las mismas tres canciones de _conCanciones, ya como objetos.

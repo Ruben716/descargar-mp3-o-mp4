@@ -485,8 +485,12 @@ class _BotonGrande extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
+          // Secundario y primario, no primario y terciario: Material gira el
+          // tono del terciario, y una portada azul acababa con el boton rosa.
+          // El secundario conserva el tono de la caratula y, sin ella, da el
+          // degradado de marca de cian a azul.
           gradient: LinearGradient(
-            colors: <Color>[colores.primary, colores.tertiary],
+            colors: <Color>[colores.secondary, colores.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -505,7 +509,7 @@ class _BotonGrande extends StatelessWidget {
             sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
             key: ValueKey<bool>(sonando),
             size: 40,
-            color: Colors.black87,
+            color: Tema.tinta,
           ),
         ),
       ),
