@@ -169,7 +169,7 @@ class FilaArtista extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         pistas.length == 1 ? '1 cancion' : '${pistas.length} canciones',
-                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                       ),
                     ],
                   ),
@@ -207,7 +207,7 @@ class _CabeceraDisco extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                 Text(
                   '${pistas.length} canciones  ·  ${formatoTiempo(segundos)}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                 ),
               ],
             ),

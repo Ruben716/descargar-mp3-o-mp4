@@ -98,7 +98,7 @@ class _DialogoEtiquetasState extends State<_DialogoEtiquetas> {
           Text(
             'Se reescribe la etiqueta del archivo y se renombra, asi que '
             'tambien cambia en el resto del telefono.',
-            style: const TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 11, height: 1.4),
           ),
           if (_error != null) ...<Widget>[
             const SizedBox(height: 10),

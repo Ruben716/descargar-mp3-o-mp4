@@ -209,7 +209,7 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
               const SizedBox(height: 8),
               const Text(
                 'Todavia no esta en tu telefono',
-                style: TextStyle(color: Colors.white38, fontSize: 11),
+                style: TextStyle(color: Tema.textoTenue, fontSize: 11),
               ),
             ],
           ),

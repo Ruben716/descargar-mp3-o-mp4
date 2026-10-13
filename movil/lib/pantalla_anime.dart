@@ -187,7 +187,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                 if (_traduciendo)
                   const Text(
                     'Traduciendo...',
-                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                    style: TextStyle(color: Tema.textoTenue, fontSize: 12),
                   )
                 else if (_traducida != null)
                   TextButton(

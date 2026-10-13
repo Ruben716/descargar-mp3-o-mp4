@@ -201,7 +201,7 @@ class SelloCalidad extends StatelessWidget {
       NivelCalidad.sinPerdida => ('SIN PERDIDA · ${calidad.etiqueta.split(' · ').first}', Tema.oro),
       NivelCalidad.alta => (calidad.etiqueta, Tema.exito),
       NivelCalidad.buena => (calidad.etiqueta, Colors.white70),
-      NivelCalidad.basica => (calidad.etiqueta, Colors.white38),
+      NivelCalidad.basica => (calidad.etiqueta, Tema.textoTenue),
     };
     final bool destaca = nivel == NivelCalidad.hiRes || nivel == NivelCalidad.sinPerdida;
     return Container(

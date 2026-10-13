@@ -517,7 +517,7 @@ class _Tarjeta extends StatelessWidget {
                 subtitulo,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
               ),
             ],
           ),

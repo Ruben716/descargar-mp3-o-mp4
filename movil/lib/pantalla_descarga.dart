@@ -875,14 +875,14 @@ class _Nota extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
         child: Row(
           children: <Widget>[
-            Icon(icono, size: 14, color: Colors.white38),
+            Icon(icono, size: 14, color: Tema.textoTenue),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 texto,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
               ),
             ),
           ],
@@ -950,7 +950,7 @@ class _TarjetaResultado extends StatelessWidget {
         children: <Widget>[
           SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 1.5)),
           SizedBox(width: 6),
-          Text('comprobando calidad', style: TextStyle(color: Colors.white38, fontSize: 10)),
+          Text('comprobando calidad', style: TextStyle(color: Tema.textoTenue, fontSize: 10)),
         ],
       );
     }
@@ -1062,7 +1062,7 @@ class _TarjetaResultado extends StatelessWidget {
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: <Widget>[
                           if (fuente case final String f)
-                            Text(f, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                            Text(f, style: const TextStyle(color: Tema.textoTenue, fontSize: 10)),
                           ?_estado(),
                         ],
                       ),

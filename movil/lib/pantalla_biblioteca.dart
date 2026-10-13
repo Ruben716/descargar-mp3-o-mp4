@@ -476,7 +476,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
             resumen(canciones, audio: true),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 12),
           ),
         ],
       ),
@@ -751,7 +751,7 @@ class _FilaLista extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         '${pistas.length} pistas',
-                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                       ),
                     ],
                   ),

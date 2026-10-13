@@ -295,7 +295,7 @@ class _AudioState extends State<_Audio> {
               if (inflado)
                 Text(
                   'guardado en ${extension.toUpperCase()}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                 ),
             ],
           ),
@@ -712,13 +712,13 @@ class _BotonAleatorio extends StatelessWidget {
       icon: Icon(
         Icons.shuffle_rounded,
         size: 20,
-        color: estado.aleatorio ? tono : Colors.white38,
+        color: estado.aleatorio ? tono : Tema.textoTenue,
       ),
       label: Text(
         estado.aleatorio ? 'Aleatorio' : 'En orden',
         style: TextStyle(
           fontSize: 12,
-          color: estado.aleatorio ? tono : Colors.white38,
+          color: estado.aleatorio ? tono : Tema.textoTenue,
         ),
       ),
     );
@@ -744,11 +744,11 @@ class _BotonVelocidad extends StatelessWidget {
       icon: Icon(
         Icons.speed_rounded,
         size: 20,
-        color: normal ? Colors.white38 : tono,
+        color: normal ? Tema.textoTenue : tono,
       ),
       label: Text(
         etiqueta,
-        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : tono),
+        style: TextStyle(fontSize: 12, color: normal ? Tema.textoTenue : tono),
       ),
     );
   }
@@ -779,8 +779,8 @@ class _BotonTramo extends StatelessWidget {
       message: ayuda,
       child: TextButton.icon(
         onPressed: estado.alternarTramo,
-        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Colors.white38),
-        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Colors.white38)),
+        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Tema.textoTenue),
+        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Tema.textoTenue)),
       ),
     );
   }
@@ -803,7 +803,7 @@ class _BotonRepeticion extends StatelessWidget {
             ? Icons.repeat_one_rounded
             : Icons.repeat_rounded,
         size: 20,
-        color: activa ? tono : Colors.white38,
+        color: activa ? tono : Tema.textoTenue,
       ),
       label: Text(
         switch (estado.repeticion) {
@@ -813,7 +813,7 @@ class _BotonRepeticion extends StatelessWidget {
         },
         style: TextStyle(
           fontSize: 12,
-          color: activa ? tono : Colors.white38,
+          color: activa ? tono : Tema.textoTenue,
         ),
       ),
     );
