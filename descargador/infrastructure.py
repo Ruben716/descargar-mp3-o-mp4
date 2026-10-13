@@ -1,6 +1,7 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
 import functools
 import hashlib
+import html
 import http.client
 import json
 import os
@@ -15,6 +16,7 @@ from urllib.parse import quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from .domain import (
+    CODECS_SIN_PERDIDA,
     GUIONES,
     SPONSOR_CATEGORIES,
     AudioQuality,
@@ -525,11 +527,181 @@ def _extractor_jamendo():
     return JamendoDescargaIE
 
 
+#: La API de Wikimedia Commons, el archivo de medios libres de la Wikipedia.
+API_COMMONS = "https://commons.wikimedia.org/w/api.php"
+
+#: Cómo se presenta la app ante Wikimedia.
+#:
+#: Su política con los robots pide un nombre y un enlace de contacto, y a
+#: quien finge ser un navegador le responde 403: el «Mozilla/5.0» que se manda
+#: a las demás fuentes aquí no vale.
+AGENTE_COMMONS = "Tumbao/1.0 (https://github.com/Ruben716/descargar-mp3-o-mp4; proyecto academico)"
+
+#: Las direcciones de un archivo de Commons: «commons.wikimedia.org/wiki/File:...».
+ES_COMMONS = re.compile(r"https?://commons\.wikimedia\.org/wiki/File:[^/#?]+")
+
+#: Lo que delata una pronunciación y no una grabación musical.
+#:
+#: Casi todo el audio de Commons son palabras sueltas (Lingua Libre sube
+#: millones, con nombres como «LL-Q1321 (spa)-...»): sin este filtro, buscar
+#: «agua» daría cien maneras de decirlo.
+ES_PRONUNCIACION = re.compile(r"pronunciation|pronounc|lingua[ _]libre|\bLL-Q\d", re.IGNORECASE)
+
+#: Las licencias que dejan bajar y compartir: dominio público, CC0, CC BY y
+#: CC BY-SA, con su versión detrás. Commons admite otras (la GFDL, el uso
+#: legítimo) que no se ofrecen, igual que una que no se sepa cuál es.
+LICENCIA_LIBRE = re.compile(
+    r"^(?:cc0\b.*|public domain\b.*|pd\b.*|cc[ -]by(?:[ -]sa)?(?:[ -]\d.*)?)$", re.IGNORECASE)
+
+#: Lo que dura menos que esto es un efecto o una muestra, no una pieza.
+DURACION_MINIMA_COMMONS = 30
+
+#: El códec de un archivo de Commons según su extensión.
+#:
+#: Un Ogg puede llevar Vorbis, Opus o hasta FLAC dentro, y la extensión no lo
+#: dice: se llama «ogg», que es lo que se sabe, en vez de adivinar.
+CODEC_COMMONS = {
+    "flac": "flac", "wav": "wav", "mp3": "mp3", "opus": "opus",
+    "ogg": "ogg", "oga": "ogg", "webm": "webm", "m4a": "aac",
+}
+
+
+def texto_plano(valor: object) -> str:
+    """El texto de un campo de Commons, que llega en HTML: «<a href=...>Musopen</a>»."""
+    sin_etiquetas = re.sub(r"<[^>]+>", " ", str(valor or ""))
+    return re.sub(r"\s+", " ", html.unescape(sin_etiquetas)).strip()
+
+
+def kbps_medios(tamano: object, segundos: object) -> float | None:
+    """Los kb/s de media de un archivo entero: lo que pesa entre lo que dura."""
+    try:
+        peso, duracion = float(str(tamano)), float(str(segundos))
+    except ValueError:
+        return None
+    if peso <= 0 or duracion <= 0:
+        return None
+    return float(round(peso * 8 / duracion / 1000))
+
+
+def calidad_commons(nombre: str, tamano: object = None, segundos: object = None) -> AudioQuality:
+    """Lo que da un archivo de Commons, que siempre es el que se subió.
+
+    Sin pérdida si es un FLAC o un WAV (los bits no se saben hasta bajarlo);
+    si no, el códec y los kb/s de media, que salen del tamaño y la duración
+    sin pedir nada más.
+    """
+    extension = Path(nombre).suffix.lower().lstrip(".")
+    codec = CODEC_COMMONS.get(extension, extension or "desconocido")
+    if codec in CODECS_SIN_PERDIDA:
+        return AudioQuality(codec)
+    return AudioQuality(codec, kbps_medios(tamano, segundos))
+
+
+def pagina_commons(nombre: str) -> str:
+    """La dirección de la ficha de un archivo de Commons, por su nombre."""
+    return "https://commons.wikimedia.org/wiki/File:" + quote(nombre.replace(" ", "_"), safe="()_,.-!'")
+
+
+def resultado_commons(pagina: dict) -> VideoInfo | None:
+    """Un resultado de la búsqueda en Commons, o None si no se ofrece.
+
+    Fuera lo que no es audio grabado (un MIDI son notas, no sonido), lo que
+    dura menos de medio minuto, las pronunciaciones y lo que no tiene una
+    licencia libre declarada.
+    """
+    titulo = str(pagina.get("title") or "")
+    info = (pagina.get("imageinfo") or [{}])[0]
+    meta = info.get("extmetadata") or {}
+
+    def campo(nombre: str) -> str:
+        return texto_plano((meta.get(nombre) or {}).get("value"))
+
+    mime = str(info.get("mime") or "")
+    if not titulo or not info.get("url") or "midi" in mime:
+        return None
+    if not (mime.startswith("audio/") or mime == "application/ogg"):
+        return None
+    duracion = info.get("duration")
+    if not isinstance(duracion, (int, float)):
+        duracion = None
+    if duracion is not None and duracion < DURACION_MINIMA_COMMONS:
+        return None
+    if ES_PRONUNCIACION.search(titulo) or ES_PRONUNCIACION.search(campo("Categories")):
+        return None
+    if not LICENCIA_LIBRE.match(campo("LicenseShortName")):
+        return None
+    nombre = titulo.partition(":")[2] or titulo
+    direccion = str(info.get("descriptionurl") or "")
+    autor = campo("Artist")
+    return VideoInfo(
+        title=campo("ObjectName") or Path(nombre).stem,
+        # A veces es una ficha entera de intérpretes y compositor.
+        uploader=(autor[:77] + "...") if len(autor) > 80 else (autor or None),
+        duration=float(duracion) if duracion is not None else None,
+        url=direccion if ES_COMMONS.match(direccion) else pagina_commons(nombre),
+        quality=calidad_commons(nombre, info.get("size"), duracion),
+    )
+
+
+def formatos_commons(formatos: list[dict], segundos: object = None) -> list[dict]:
+    """El original de un audio de Commons, listo para que el motor lo elija.
+
+    El extractor del motor no le pone «vcodec» al original, solo a las copias
+    Ogg que hace Commons, y con «ba» el motor se quedaba con una copia con
+    pérdida en vez del FLAC. Esas copias, además, son recompresiones del mismo
+    archivo y siempre peores que él: se quitan, y así ni pidiendo MP3 se
+    recomprime una recompresión. Un vídeo se deja como viene.
+    """
+    if any((f.get("height") or 0) > 0 or f.get("vcodec") not in (None, "none") for f in formatos):
+        return formatos
+    original = next((f for f in formatos if f.get("format_id") == "source" and f.get("url")), None)
+    if original is None:
+        return formatos
+    extension = Path(urlparse(str(original["url"])).path).suffix.lower().lstrip(".")
+    if not extension:
+        return formatos
+    return [{
+        **original,
+        "ext": extension,
+        "acodec": calidad_commons(f"original.{extension}").codec,
+        "vcodec": "none",
+        "abr": kbps_medios(original.get("filesize"), segundos),
+    }]
+
+
+@functools.cache
+def _extractor_commons():
+    """El extractor de Commons del motor, pero quedándose con el original.
+
+    Los datos (título, autor, licencia) los sigue sacando el del motor, que
+    ya se presenta con un User-Agent propio; solo cambian los formatos.
+    """
+    try:
+        from yt_dlp.extractor.wikimedia import WikimediaIE
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class CommonsOriginalIE(WikimediaIE):
+        IE_NAME = "wikimedia:original"
+
+        def _real_extract(self, url):
+            info = super()._real_extract(url)
+            info["formats"] = formatos_commons(info.get("formats") or [], info.get("duration"))
+            return info
+
+    return CommonsOriginalIE
+
+
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
     if (partes := partir_episodio(url)) is not None:
         return _extraer_episodio(engine, *partes, **opciones)
-    for patron, fabrica in ((ES_AUDIUS, _extractor_audius), (ES_JAMENDO, _extractor_jamendo)):
+    propios = (
+        (ES_AUDIUS, _extractor_audius),
+        (ES_JAMENDO, _extractor_jamendo),
+        (ES_COMMONS, _extractor_commons),
+    )
+    for patron, fabrica in propios:
         if patron.match(url):
             clase = fabrica()
             engine.add_info_extractor(clase())
@@ -773,18 +945,18 @@ class YtDlpDownloader:
         lentisimo. Esta es la unica ruta del adaptador que acepta una lista,
         porque una busqueda es precisamente eso.
         """
-        if query.source == "archive":
-            return self._buscar_en_archive(query)
-        if query.source == "audius":
-            return self._buscar_en_audius(query)
-        if query.source == "bandcamp":
-            return self._buscar_en_bandcamp(query)
-        if query.source == "jamendo":
-            return self._buscar_en_jamendo(query)
-        if query.source == "hearthis":
-            return self._buscar_en_hearthis(query)
-        if query.source == "podcasts":
-            return self._buscar_podcasts(query)
+        # Las que tienen API propia; las demás van por el buscador del motor.
+        propias: dict[str, Callable[[SearchQuery], tuple[VideoInfo, ...]]] = {
+            "archive": self._buscar_en_archive,
+            "audius": self._buscar_en_audius,
+            "bandcamp": self._buscar_en_bandcamp,
+            "jamendo": self._buscar_en_jamendo,
+            "commons": self._buscar_en_commons,
+            "hearthis": self._buscar_en_hearthis,
+            "podcasts": self._buscar_podcasts,
+        }
+        if query.source in propias:
+            return propias[query.source](query)
 
         YoutubeDL, YoutubeDLError, _ = _cargar_motor()
         opciones = {
@@ -900,6 +1072,35 @@ class YtDlpDownloader:
                 thumbnail=pista.get("image") or pista.get("album_image") or "",
                 quality=calidad,
             ))
+        return tuple(resultados[:query.limit])
+
+    @staticmethod
+    def _buscar_en_commons(query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca grabaciones en Wikimedia Commons: clásica, folk, discos antiguos.
+
+        Todo lo de allí lleva su licencia declarada, y se baja el archivo que
+        se subió, que a veces es un FLAC o un WAV. Se piden de más porque casi
+        todo el audio de Commons son pronunciaciones, y esas se descartan.
+        """
+        direccion = API_COMMONS + "?" + urlencode({
+            "action": "query",
+            "format": "json",
+            "formatversion": 2,
+            "generator": "search",
+            # El espacio de nombres de los archivos («File:»).
+            "gsrnamespace": 6,
+            "gsrlimit": min(query.limit * 3, 50),
+            # filesize va en KB: de 300 KB, que menos es un efecto, a 600 MB.
+            "gsrsearch": f"{query.text} filetype:audio filesize:300,600000",
+            "prop": "imageinfo",
+            "iiprop": "url|size|mime|extmetadata",
+            "iiextmetadatafilter": "LicenseShortName|Artist|ObjectName|Categories",
+        })
+        datos = _consultar(direccion, "Commons", cabeceras={"User-Agent": AGENTE_COMMONS})
+        # Con «generator» las páginas no llegan en orden de relevancia: lo dice «index».
+        paginas = sorted((datos.get("query") or {}).get("pages") or [],
+                         key=lambda p: p.get("index") or 0)
+        resultados = [r for r in map(resultado_commons, paginas) if r is not None]
         return tuple(resultados[:query.limit])
 
     @staticmethod

@@ -50,6 +50,7 @@ from descargador.domain import (
 from descargador.infrastructure import (
     ES_AUDIUS,
     INTENTOS_TRANSITORIOS,
+    LICENCIA_LIBRE,
     PLANTILLA_CAPITULO,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
@@ -61,12 +62,14 @@ from descargador.infrastructure import (
     buscar_portada,
     cabecera_sin_perdida,
     calidad_audius,
+    calidad_commons,
     calidad_de,
     calidad_jamendo,
     clave_jamendo,
     codec_legible,
     enlace_de_episodio,
     escribir_etiquetas,
+    formatos_commons,
     formatos_jamendo,
     incrusta_caratula,
     incrustar_portada,
@@ -1574,6 +1577,150 @@ class JamendoTests(unittest.TestCase):
             with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
                 elegido = motor.process_ie_result(dict(info), download=False)
             self.assertEqual(elegido["format_id"], esperado, msg=formato)
+
+
+def _pagina_commons(titulo: str, *, indice: int = 1, mime: str = "audio/x-flac",
+                    duracion: float = 300.0, licencia: str = "Public domain",
+                    categorias: str = "Musopen", tamano: int = 40_000_000) -> dict:
+    """Una página como las que da la búsqueda de Commons con «generator»."""
+    nombre = titulo.partition(":")[2].replace(" ", "_")
+    return {
+        "pageid": indice, "ns": 6, "title": titulo, "index": indice,
+        "imageinfo": [{
+            "size": tamano, "width": 0, "height": 0, "duration": duracion, "mime": mime,
+            "url": f"https://upload.wikimedia.org/wikipedia/commons/a/ab/{nombre}",
+            "descriptionurl": f"https://commons.wikimedia.org/wiki/File:{nombre}",
+            "extmetadata": {
+                "LicenseShortName": {"value": licencia},
+                "Artist": {"value": '<a href="//commons.wikimedia.org/wiki/User:M">Musopen</a>'},
+                "ObjectName": {"value": Path(titulo.partition(":")[2]).stem},
+                "Categories": {"value": categorias},
+            },
+        }],
+    }
+
+
+class CommonsTests(unittest.TestCase):
+    """Wikimedia Commons: el original que se subió, solo con licencia libre."""
+
+    FLAC = _pagina_commons("File:Beethoven - Symphony No. 5 - I. Allegro con brio.flac", indice=2)
+    MP3 = _pagina_commons("File:Gymnopedie No 1.mp3", indice=1, mime="audio/mpeg",
+                          duracion=200, licencia="CC BY-SA 4.0", tamano=4_800_000)
+
+    def _buscar(self, *paginas, limite=10):
+        respuesta = _Json({"batchcomplete": True, "query": {"pages": list(paginas)}})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_commons(
+                SearchQuery("beethoven", limit=limite, source="commons"))
+        return resultados, red.call_args.args[0]
+
+    def test_trae_el_original_con_su_calidad_y_en_orden_de_relevancia(self):
+        resultados, _ = self._buscar(self.FLAC, self.MP3)
+        # Con «generator» llegan desordenadas: manda «index».
+        self.assertEqual([r.title for r in resultados],
+                         ["Gymnopedie No 1", "Beethoven - Symphony No. 5 - I. Allegro con brio"])
+        mp3, flac = resultados
+        self.assertEqual(flac.quality, AudioQuality("flac"))
+        # 4,8 MB en 200 s son 192 kb/s de media.
+        self.assertEqual(mp3.quality, AudioQuality("mp3", 192.0))
+        self.assertEqual(flac.url, "https://commons.wikimedia.org/wiki/File:"
+                                   "Beethoven_-_Symphony_No._5_-_I._Allegro_con_brio.flac")
+        self.assertEqual(flac.uploader, "Musopen", msg="sin el HTML del campo")
+        self.assertEqual(flac.duration, 300.0)
+
+    def test_fuera_pronunciaciones_efectos_midis_y_licencias_que_no_dejan(self):
+        descartadas = (
+            _pagina_commons("File:LL-Q1321 (spa)-Rodelar-agua.wav", mime="audio/wav", duracion=40),
+            _pagina_commons("File:Agua.ogg", mime="application/ogg",
+                            categorias="Spanish pronunciation|Lingua Libre"),
+            _pagina_commons("File:Trueno.flac", duracion=12),
+            _pagina_commons("File:Fuga.mid", mime="audio/midi"),
+            _pagina_commons("File:Himno.ogg", mime="application/ogg", licencia="GFDL"),
+            _pagina_commons("File:Logo sonoro.ogg", mime="application/ogg", licencia="Fair use"),
+            _pagina_commons("File:Sin licencia.flac", licencia=""),
+        )
+        resultados, _ = self._buscar(*descartadas, self.FLAC)
+        self.assertEqual([r.title for r in resultados],
+                         ["Beethoven - Symphony No. 5 - I. Allegro con brio"])
+
+    def test_las_licencias_que_dejan_bajar_y_compartir(self):
+        for nombre in ("CC0", "CC0 1.0", "Public domain", "PD-old", "CC BY 4.0", "CC BY-SA 3.0",
+                       "CC-BY-SA-2.5", "CC BY-SA 3.0 de"):
+            self.assertTrue(LICENCIA_LIBRE.match(nombre), msg=nombre)
+        for nombre in ("GFDL", "Fair use", "CC BY-NC 4.0", "CC BY-ND 4.0", "", "Copyrighted"):
+            self.assertFalse(LICENCIA_LIBRE.match(nombre), msg=nombre)
+
+    def test_se_presenta_con_su_nombre_y_no_como_un_navegador(self):
+        _, peticion = self._buscar(self.FLAC)
+        agente = peticion.get_header("User-agent")
+        self.assertNotIn("Mozilla", agente, msg="fingir un navegador da 403")
+        self.assertIn("github.com", agente)
+        consulta = peticion.full_url
+        self.assertIn("filetype%3Aaudio", consulta)
+        self.assertIn("gsrnamespace=6", consulta)
+        self.assertIn("extmetadata", consulta)
+
+    def test_no_se_ensenian_mas_de_las_pedidas(self):
+        muchas = [_pagina_commons(f"File:Tema {i}.flac", indice=i) for i in range(1, 20)]
+        resultados, peticion = self._buscar(*muchas, limite=5)
+        self.assertEqual(len(resultados), 5)
+        self.assertIn("gsrlimit=15", peticion.full_url, msg="se piden de más por lo que se descarta")
+
+    def test_un_ogg_dice_su_contenedor_y_no_un_codec_adivinado(self):
+        calidad = calidad_commons("Canción.ogg", 6_000_000, 200)
+        self.assertEqual(calidad, AudioQuality("ogg", 240.0))
+        self.assertEqual(calidad_commons("Toma.wav"), AudioQuality("wav"))
+        self.assertTrue(calidad_commons("Toma.wav").lossless)
+
+    #: Lo que da el extractor del motor para un FLAC: el original sin
+    #: «vcodec» y las copias de Commons, que sí lo traen.
+    DEL_MOTOR: ClassVar[list] = [
+        {"url": "https://upload.wikimedia.org/wikipedia/commons/a/ab/Tema.flac", "format_id": "source",
+         "quality": 10, "width": 0, "height": 0, "filesize": 30_000_000},
+        {"url": "https://upload.wikimedia.org/transcoded/a/ab/Tema.flac/Tema.flac.ogg", "tbr": 112,
+         "ext": "ogg", "vcodec": "none", "acodec": "vorbis"},
+        {"url": "https://upload.wikimedia.org/transcoded/a/ab/Tema.flac/Tema.flac.mp3", "tbr": 128,
+         "ext": "mp3"},
+    ]
+
+    def test_se_queda_solo_con_el_original_y_es_audio(self):
+        formatos = formatos_commons([dict(f) for f in self.DEL_MOTOR], 240)
+        self.assertEqual(len(formatos), 1, msg="las copias son recompresiones del mismo archivo")
+        original = formatos[0]
+        self.assertEqual((original["ext"], original["acodec"], original["vcodec"]), ("flac", "flac", "none"))
+        self.assertEqual(original["abr"], 1000.0)
+
+    def test_el_motor_baja_el_original_pida_lo_que_se_pida(self):
+        """Con el extractor tal cual, «ba/b» elegía la copia Ogg: medido en local."""
+        from yt_dlp import YoutubeDL
+
+        info = {"id": "1", "title": "t", "formats": formatos_commons([dict(f) for f in self.DEL_MOTOR]),
+                "extractor": "wikimedia.org", "extractor_key": "Wikimedia", "webpage_url": "https://x"}
+        for formato in ("flac", "mp3", "best"):
+            seleccion = YtDlpDownloader._seleccion_formato(
+                DownloadOptions(audio_only=True, audio_format=formato))
+            with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
+                elegido = motor.process_ie_result(dict(info), download=False)
+            self.assertEqual(elegido["format_id"], "source", msg=formato)
+            self.assertEqual(calidad_de(elegido).codec, "flac")
+
+    def test_un_video_de_commons_se_deja_como_viene(self):
+        video = [
+            {"url": "https://upload.wikimedia.org/a/b/Clip.webm", "format_id": "source",
+             "width": 1280, "height": 720},
+            {"url": "https://upload.wikimedia.org/t/Clip.webm.480p.vp9.webm", "height": 480,
+             "vcodec": "vp9", "acodec": "opus"},
+        ]
+        self.assertEqual(formatos_commons(video), video)
+
+    def test_sus_enlaces_van_por_el_extractor_que_baja_el_original(self):
+        motor = Mock()
+        _extraer(motor, "https://commons.wikimedia.org/wiki/File:Tema.flac", download=False)
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "CommonsOriginal")
+
+    def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
+        self.assertEqual(SearchQuery("algo", source="commons").source, "commons")
+        self.assertNotIn("commons", FUENTES_DE_LISTAS)
 
 
 class CapitulosTests(unittest.TestCase):

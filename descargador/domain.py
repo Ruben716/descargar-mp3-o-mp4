@@ -23,7 +23,14 @@ AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "
 #: hearthis.at son sesiones de DJ y temas propios, a veces con el archivo
 #: original para bajar; los podcasts salen del directorio de Apple, que da el
 #: RSS de cada programa, y el RSS lo abre el motor como una lista más.
-FUENTES = ("youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "hearthis", "podcasts")
+#:
+#: Wikimedia Commons («commons») guarda clásica, folk y discos antiguos de
+#: dominio público o con licencia libre, y da el archivo que se subió: a veces
+#: un FLAC o un WAV, si no un Ogg o un MP3.
+FUENTES = (
+    "youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "commons",
+    "hearthis", "podcasts",
+)
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
 #:
