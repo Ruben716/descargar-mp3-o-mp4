@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Fondo de los iconos de los atajos: el mismo morado de la app. -->
-    <color name="atajo_fondo">#2A2140</color>
-    <color name="atajo_fondo_me_gusta">#3A1C28</color>
+    <!-- El negro azulado de la app (Tema.fondo). Lo usa la ventana mientras
+         arranca Flutter: sin el, con el telefono en modo claro, se veia un
+         fogonazo blanco antes del primer fotograma. -->
+    <color name="fondo">#05070D</color>
+    <!-- Fondo de los iconos de los atajos: un azul noche de la misma familia,
+         para que el glifo azul destaque sin salirse de la marca. -->
+    <color name="atajo_fondo">#13213D</color>
+    <color name="atajo_fondo_me_gusta">#0B2A3D</color>
 </resources>

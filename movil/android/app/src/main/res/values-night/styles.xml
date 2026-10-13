@@ -13,6 +13,7 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- El fondo de la app y no el del sistema, que en modo claro es blanco. -->
+        <item name="android:windowBackground">@color/fondo</item>
     </style>
 </resources>
