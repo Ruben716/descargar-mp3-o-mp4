@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/ritmos.dart';
+import 'package:descargador_movil/pantalla_pidele.dart';
 import 'package:descargador_movil/dj.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
@@ -3042,6 +3043,49 @@ void main() {
       await tester.tap(find.text('Al compas (modo DJ)'));
       await tester.pumpAndSettle();
       expect(EstadoReproductor.instancia.alCompas, isTrue);
+    });
+  });
+
+  group('pidele en pantalla', () {
+    Future<void> abrirPidele(WidgetTester tester, String frase) async {
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaPidele(frase: frase)));
+      // La biblioteca y el catalogo responden con el reloj de verdad.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('un nombre que no es una peticion se busca en la biblioteca', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'bailando');
+      expect(find.text('1 cancion  ·  1:40'), findsOneWidget);
+      expect(find.text('Reproducir'), findsOneWidget);
+    });
+
+    testWidgets('lo que no hay en el telefono se busca en internet', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'house');
+      expect(find.text('House'), findsOneWidget, reason: 'lo entendido sale en una ficha');
+      expect(find.text('En tu telefono no hay nada que encaje.'), findsOneWidget);
+      await tester.tap(find.text('Buscar en internet'));
+      await tester.pumpAndSettle();
+      expect(Nucleo.enlaceCompartido.value, 'house');
+    });
+
+    testWidgets('quitar una ficha rehace la cola', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'canciones cortas');
+      expect(find.text('1 cancion  ·  1:40'), findsOneWidget, reason: 'solo la de 100 s');
+      await tester.tap(find.byTooltip('Quitar Cortas (-3 min)'));
+      await tester.pumpAndSettle();
+      expect(find.text('3 canciones  ·  10:00'), findsOneWidget, reason: 'sin el filtro, todas');
+    });
+
+    testWidgets('sin escribir ensenia ejemplos que se pueden tocar', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, '');
+      expect(find.text('lo que mas escucho'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
     });
   });
 

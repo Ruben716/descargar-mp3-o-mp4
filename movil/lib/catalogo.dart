@@ -407,6 +407,20 @@ class Catalogo {
     return <String>{for (final Map<String, Object?> f in filas) f['uri']! as String};
   }
 
+  /// La calidad de origen de todo lo que la sabe, de una vez.
+  Future<Map<String, CalidadAudio>> calidades() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(_tablaCalidades);
+    return <String, CalidadAudio>{
+      for (final Map<String, Object?> f in filas)
+        f['uri']! as String: CalidadAudio(
+          codec: f['codec']! as String,
+          kbps: (f['kbps'] as num?)?.toDouble(),
+          hz: (f['hz'] as num?)?.toInt(),
+          bits: (f['bits'] as num?)?.toInt(),
+        ),
+    };
+  }
+
   /// Lo que se bajo sin perdida (FLAC, WAV...), segun la calidad de origen.
   Future<List<String>> sinPerdida() async {
     final List<Map<String, Object?>> filas = await (await _abierta).query(
