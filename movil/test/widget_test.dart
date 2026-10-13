@@ -4,6 +4,14 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/dj.dart';
+import 'package:descargador_movil/hecho_para_ti.dart';
+import 'package:descargador_movil/navegacion.dart';
+import 'package:descargador_movil/pantalla_explorar.dart';
+import 'package:descargador_movil/pantalla_mix.dart';
+import 'package:descargador_movil/pantalla_pidele.dart';
+import 'package:descargador_movil/secciones_inicio.dart';
+import 'package:descargador_movil/ritmos.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
@@ -145,6 +153,7 @@ void main() {
     Listas.instancia.reiniciar();
     Favoritas.instancia.reiniciar();
     VolumenParejo.instancia.reiniciar();
+    Ritmos.instancia.reiniciar();
     tareasDeFondo = false;
     Suscripciones.instancia.reiniciar();
     AutoEq.olvidar();
@@ -1164,7 +1173,7 @@ void main() {
     try {
       // Salta cinco versiones de una vez, que es lo que le pasa a quien no
       // actualizo la app en un tiempo.
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       final List<Map<String, Object?>> filas = await nueva.query('descargas');
       expect(filas.length, 1, reason: 'lo descargado no se toca');
       expect(filas.first['uri'], 'content://audio/7');
@@ -1713,7 +1722,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       final List<Map<String, Object?>> filas = await nueva.query('calidades');
       expect(filas.single['codec'], 'opus', reason: 'lo anotado no se pierde');
       expect(filas.single.containsKey('bits'), isTrue, reason: 'y la columna nueva ya esta');
@@ -1751,7 +1760,7 @@ void main() {
 
     final Database nueva = await Catalogo.abrirEn(ruta);
     try {
-      expect(await nueva.getVersion(), 8);
+      expect(await nueva.getVersion(), Catalogo.version);
       expect((await nueva.query('descargas')).length, 1, reason: 'lo descargado no se toca');
       // Las letras si se tiran, y a proposito: las guardadas antes se
       // eligieron sin comprobar que la cancion fuera la pedida, asi que
@@ -2961,6 +2970,127 @@ void main() {
       await tester.pumpAndSettle();
       expect(EstadoReproductor.instancia.fundido, const Duration(seconds: 4));
       expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '4 s')).selected, isTrue);
+    });
+  });
+
+  group('dj en el reproductor', () {
+    /// Seis canciones con artista distinto y energia creciente al reves.
+    final List<Elemento> seis = <Elemento>[
+      for (int i = 0; i < 6; i++)
+        Elemento(nombre: 'Grupo$i - Tema$i.mp3', uri: 'content://audio/$i', duracion: 200, tamano: 1, audio: true),
+    ];
+    final Map<String, Rasgos> rasgos = <String, Rasgos>{
+      for (int i = 0; i < 6; i++)
+        'content://audio/$i': Rasgos(
+          bpm: 120,
+          confianza: .5,
+          energia: 1 - i / 6,
+          pulsoInicioMs: 1000,
+          pulsoFinMs: 190000,
+        ),
+    };
+
+    testWidgets('una mezcla subiendo suena de lo suave a lo movido', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(rasgos);
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() => estado.reproducirDj(seis, modo: ModoDj.subir));
+      expect(estado.cola.map((Elemento e) => e.uri).toList(), <String>[
+        for (int i = 5; i >= 0; i--) 'content://audio/$i',
+      ]);
+      expect(estado.modoDj, ModoDj.subir);
+      expect(estado.motor.audioSources.whereType<ClippingAudioSource>(), isEmpty,
+          reason: 'sin el modo al compas no se recorta nada');
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('al compas, lo analizado se recorta en el pulso', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(<String, Rasgos>{
+        'content://audio/0': rasgos['content://audio/0']!,
+      });
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() async {
+        await estado.ponerFundido(const Duration(seconds: 8));
+        await estado.ponerAlCompas(true);
+        await estado.reproducirLista(seis.take(2).toList(), 0);
+      });
+      final List<AudioSource> fuentes = estado.motor.audioSources;
+      expect(fuentes.first, isA<ClippingAudioSource>());
+      final ClippingAudioSource recortada = fuentes.first as ClippingAudioSource;
+      expect(recortada.start, const Duration(milliseconds: 980));
+      expect(recortada.end, const Duration(milliseconds: 190500));
+      expect(fuentes.last, isNot(isA<ClippingAudioSource>()), reason: 'la sin analizar suena entera');
+      expect((await SharedPreferences.getInstance()).getBool(EstadoReproductor.claveAlCompas), isTrue);
+
+      // Al quitarlo se rehace la cola y vuelve a sonar entera.
+      await tester.runAsync(() => estado.ponerAlCompas(false));
+      expect(estado.motor.audioSources.whereType<ClippingAudioSource>(), isEmpty);
+      expect(estado.actual?.elemento?.uri, 'content://audio/0');
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('ordenar la cola como DJ deja delante la que suena', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(rasgos);
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() async {
+        await estado.reproducirLista(seis, 2);
+        await estado.ordenarColaDj(ModoDj.bajar);
+      });
+      final List<String> cola = estado.cola.map((Elemento e) => e.uri).toList();
+      expect(cola.first, 'content://audio/2');
+      expect(cola.toSet().length, 6);
+      expect(estado.modoDj, ModoDj.bajar);
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('la hoja de fundido tiene el interruptor al compas', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const Scaffold(body: HojaFundido())));
+      expect(find.text('Apagado'), findsOneWidget, reason: 'sin otra ficha Apagado');
+      await tester.tap(find.text('Al compas (modo DJ)'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.alCompas, isTrue);
+    });
+  });
+
+  group('pidele en pantalla', () {
+    Future<void> abrirPidele(WidgetTester tester, String frase) async {
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaPidele(frase: frase)));
+      // La biblioteca y el catalogo responden con el reloj de verdad.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('un nombre que no es una peticion se busca en la biblioteca', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'bailando');
+      expect(find.text('1 cancion  ·  1:40'), findsOneWidget);
+      expect(find.text('Reproducir'), findsOneWidget);
+    });
+
+    testWidgets('lo que no hay en el telefono se busca en internet', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'house');
+      expect(find.text('House'), findsOneWidget, reason: 'lo entendido sale en una ficha');
+      expect(find.text('En tu telefono no hay nada que encaje.'), findsOneWidget);
+      await tester.tap(find.text('Buscar en internet'));
+      await tester.pumpAndSettle();
+      expect(Nucleo.enlaceCompartido.value, 'house');
+    });
+
+    testWidgets('quitar una ficha rehace la cola', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, 'canciones cortas');
+      expect(find.text('1 cancion  ·  1:40'), findsOneWidget, reason: 'solo la de 100 s');
+      await tester.tap(find.byTooltip('Quitar Cortas (-3 min)'));
+      await tester.pumpAndSettle();
+      expect(find.text('3 canciones  ·  10:00'), findsOneWidget, reason: 'sin el filtro, todas');
+    });
+
+    testWidgets('sin escribir ensenia ejemplos que se pueden tocar', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirPidele(tester, '');
+      expect(find.text('lo que mas escucho'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
     });
   });
 
@@ -4310,6 +4440,387 @@ void main() {
       expect(contraste(Tema.tinta, color), greaterThanOrEqualTo(4.5));
     }
     expect(Tema.esquema.onPrimary, Tema.tinta);
+  });
+
+  // --- Inicio nuevo y Explorar ----------------------------------------------
+
+  /// Una cancion de [artista] (o sin artista, si va vacio) que dura [segundos].
+  Elemento cancionDe(String artista, int n, {double segundos = 200}) => Elemento(
+        nombre: artista.isEmpty ? 'Suelta $n [s$n].mp3' : '$artista - Tema $n [${artista.toLowerCase()}$n].mp3',
+        uri: 'content://audio/${artista.isEmpty ? 'suelta' : artista.toLowerCase()}$n',
+        duracion: segundos,
+        tamano: 1,
+        audio: true,
+      );
+
+  /// Doce canciones: cinco de Ana, cuatro de Beto, dos de Coco y una suelta.
+  final List<Elemento> doce = <Elemento>[
+    for (int i = 1; i <= 5; i++) cancionDe('Ana', i),
+    for (int i = 1; i <= 4; i++) cancionDe('Beto', i),
+    for (int i = 1; i <= 2; i++) cancionDe('Coco', i),
+    cancionDe('', 1),
+  ];
+
+  /// Lo que el canal responderia con esas canciones.
+  String comoBiblioteca(List<Elemento> pistas) => jsonEncode(<String, Object>{
+        'ok': true,
+        'elementos': <Map<String, Object>>[
+          for (final Elemento p in pistas)
+            <String, Object>{'nombre': p.nombre, 'uri': p.uri, 'duracion': p.duracion, 'tamano': 1, 'audio': true},
+        ],
+      });
+
+  group('inicio nuevo', () {
+    final DateTime hoy = DateTime(2026, 10, 13, 12);
+    int hace(int dias) => hoy.subtract(Duration(days: dias)).millisecondsSinceEpoch;
+    String uri(String artista, int n) => cancionDe(artista, n).uri;
+
+    setUp(() {
+      RadiosFavoritas.instancia.reiniciar();
+      Navegacion.busquedaPedida.value = null;
+    });
+
+    test('con menos de ocho canciones no hay nada hecho para ti', () {
+      expect(HechoParaTi.armar(_biblioteca3, escuchas: const <String, Escucha>{}, ahora: hoy), isEmpty);
+    });
+
+    test('los mix diarios reparten a los artistas y no cambian en el mismo dia', () {
+      final Map<String, Escucha> escuchas = <String, Escucha>{
+        uri('Ana', 1): (veces: 10, ultima: hace(1)),
+        uri('Beto', 1): (veces: 5, ultima: hace(1)),
+        uri('Coco', 1): (veces: 1, ultima: hace(1)),
+      };
+      List<Mix> armar() => HechoParaTi.armar(
+            doce,
+            escuchas: escuchas,
+            ahora: hoy,
+            azar: Random(HechoParaTi.semillaDelDia(hoy)),
+          );
+      final List<Mix> mixes = armar();
+      final List<Mix> diarios = mixes.where((Mix m) => m.clase == ClaseMix.diario).toList();
+
+      expect(diarios.map((Mix m) => m.titulo), <String>['Mix diario 1', 'Mix diario 2', 'Mix diario 3']);
+      // Cada uno empieza por lo mas oido de su artista: el sorteo es por escuchas.
+      expect(diarios.map((Mix m) => m.pistas.first.uri), <String>[uri('Ana', 1), uri('Beto', 1), uri('Coco', 1)]);
+      expect(diarios.first.subtitulo, 'Ana y mas');
+      for (final Mix m in diarios) {
+        expect(m.pistas.map((Elemento e) => e.uri).toSet(), hasLength(m.pistas.length), reason: 'sin repetir');
+      }
+      // La misma semilla, el mismo dia: los mismos mixes en el mismo orden.
+      expect(
+        armar().map((Mix m) => m.pistas.map((Elemento e) => e.uri).toList()).toList(),
+        mixes.map((Mix m) => m.pistas.map((Elemento e) => e.uri).toList()).toList(),
+      );
+      expect(HechoParaTi.semillaDelDia(hoy), isNot(HechoParaTi.semillaDelDia(hoy.add(const Duration(days: 1)))));
+    });
+
+    test('redescubre trae lo que gustaba y lleva mas de un mes sin sonar', () {
+      final Map<String, Escucha> escuchas = <String, Escucha>{
+        uri('Ana', 1): (veces: 5, ultima: hace(40)),
+        uri('Ana', 2): (veces: 5, ultima: hace(5)),
+        uri('Beto', 1): (veces: 1, ultima: hace(60)),
+        uri('Beto', 2): (veces: 1, ultima: hace(60)),
+        uri('Coco', 1): (veces: 10, ultima: 0),
+      };
+      final List<Elemento> olvidadas = HechoParaTi.redescubre(
+        doce,
+        escuchas: escuchas,
+        favoritas: <String>{uri('Beto', 1)},
+        ahora: hoy,
+      );
+      // La favorita delante; la reciente, la poco oida y la sin fecha, fuera.
+      expect(olvidadas.map((Elemento e) => e.uri), <String>[uri('Beto', 1), uri('Ana', 1)]);
+    });
+
+    test('sin escuchar y tu repeticion salen de las escuchas', () {
+      final Map<String, Escucha> escuchas = <String, Escucha>{
+        uri('Ana', 1): (veces: 9, ultima: hace(40)),
+        uri('Ana', 2): (veces: 5, ultima: hace(5)),
+        uri('Beto', 3): (veces: 9, ultima: hace(1)),
+        uri('Beto', 4): (veces: 1, ultima: hace(1)),
+      };
+      expect(HechoParaTi.sinEscuchar(doce, escuchas), hasLength(doce.length - 4));
+      expect(
+        HechoParaTi.tuRepeticion(doce, escuchas: escuchas, ahora: hoy).map((Elemento e) => e.uri),
+        <String>[uri('Beto', 3), uri('Ana', 2)],
+        reason: 'lo de hace mas de un mes y lo oido una vez no es repeticion',
+      );
+    });
+
+    test('hay mix de cada artista con tres canciones o mas, del mas oido al menos', () {
+      final List<Mix> mixes = HechoParaTi.mixesDeArtista(
+        doce,
+        escuchas: <String, Escucha>{uri('Beto', 2): (veces: 9, ultima: hace(1))},
+        azar: Random(7),
+      );
+      expect(mixes.map((Mix m) => m.titulo), <String>['Mix de Beto', 'Mix de Ana']);
+      final Mix beto = mixes.first;
+      expect(beto.pistas.first.uri, uri('Beto', 2), reason: 'lo suyo, de lo mas oido a lo menos');
+      expect(beto.pistas.where((Elemento e) => e.artista == 'Beto'), hasLength(4));
+      expect(beto.pistas, hasLength(6), reason: 'y una de otro por cada dos suyas');
+    });
+
+    test('los mixes de animo salen de la energia y los pequenios no se ensenian', () {
+      final List<Elemento> pistas = <Elemento>[
+        for (int i = 0; i < 12; i++) cancionDe('Dj', i),
+        cancionDe('Dj', 99, segundos: 1800),
+      ];
+      final Map<String, double> percentiles = <String, double>{
+        for (int i = 0; i < 12; i++) pistas[i].uri: i / 11,
+        pistas.last.uri: 1,
+      };
+      final List<Mix> mixes = HechoParaTi.mixesPorAnimo(
+        pistas,
+        percentil: (String u) => percentiles[u],
+        // Una tranquila pero con pulso rapido: tambien es para moverse.
+        rasgos: (String u) => u == pistas[2].uri ? const Rasgos(bpm: 124, confianza: 0.8, energia: 0.2) : null,
+        azar: Random(1),
+      );
+      expect(mixes.map((Mix m) => m.titulo), <String>['Para moverse', 'Sesion DJ'],
+          reason: 'Tranqui y Para concentrarte se quedan en menos de cinco');
+      expect(mixes.first.pistas.map((Elemento e) => e.uri),
+          unorderedEquals(<String>[for (final int i in <int>[2, 8, 9, 10, 11]) pistas[i].uri]));
+      final Mix sesion = mixes.last;
+      expect(sesion.comoDj, isTrue);
+      expect(sesion.modoDj, ModoDj.arco);
+      expect(sesion.pistas, hasLength(12), reason: 'lo de media hora no entra en una mezcla');
+    });
+
+    test('la llegada se dice en dias y lo de hace mucho no se dice', () {
+      final int ahora = hoy.millisecondsSinceEpoch ~/ 1000;
+      expect(cuandoLlego(0, hoy), isNull);
+      expect(cuandoLlego(ahora, hoy), 'hoy');
+      expect(cuandoLlego(ahora - 86400, hoy), 'ayer');
+      expect(cuandoLlego(ahora - 3 * 86400, hoy), 'hace 3 dias');
+      expect(cuandoLlego(ahora - 30 * 86400, hoy), isNull);
+    });
+
+    test('los ejemplos de Pidele cambian con la hora', () {
+      expect(PastillaPidele.ejemplos(3), isNot(PastillaPidele.ejemplos(14)));
+      expect(PastillaPidele.ejemplos(14), contains('salsa para cocinar'));
+    });
+
+    test('los audios a medias se leen de lo ultimo a lo primero', () async {
+      await Posiciones.audio.guardar('a', const Duration(minutes: 5), const Duration(minutes: 40));
+      await Posiciones.audio.guardar('b', const Duration(minutes: 9), const Duration(minutes: 60));
+      final Map<String, Duration> todas = await Posiciones.audio.todas();
+      expect(todas.keys, <String>['b', 'a']);
+      expect(todas['a'], const Duration(minutes: 5));
+    });
+
+    testWidgets('con una biblioteca pequenia las secciones nuevas no salen', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirInicio(tester);
+      // El catalogo es una base de datos de verdad: necesita tiempo real.
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pidele a Tumbao'), findsOneWidget);
+      expect(find.text('Recien descargado'), findsOneWidget);
+      expect(find.text('Anadido recientemente'), findsNothing);
+      expect(find.byTooltip('Explorar'), findsOneWidget);
+      expect(find.byTooltip('Ajustes'), findsOneWidget);
+      for (final String seccion in <String>[
+        'Hecho para ti',
+        'Tus mixes',
+        'Radio favorita',
+        'Sin perdida',
+        'Episodios a medias',
+        'Tus me gusta',
+      ]) {
+        expect(find.text(seccion), findsNothing, reason: seccion);
+      }
+    });
+
+    testWidgets('con biblioteca grande salen hecho para ti y tus mixes, y el mix se mezcla como DJ',
+        (WidgetTester tester) async {
+      biblioteca = comoBiblioteca(doce);
+      Ritmos.instancia.ponerParaPruebas(<String, Rasgos>{
+        for (int i = 0; i < doce.length; i++)
+          doce[i].uri: Rasgos(bpm: 100.0 + 3 * i, confianza: 0.8, energia: i / 11),
+      });
+      await abrirInicio(tester);
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await tester.pumpAndSettle();
+
+      final Finder lista = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(find.text('Hecho para ti'), 200, scrollable: lista);
+      expect(find.text('Mix diario 1'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Tus mixes'), 200, scrollable: lista);
+      await tester.scrollUntilVisible(find.text('Mix de Ana'), 200, scrollable: lista);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Mix de Ana'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PantallaMix), findsOneWidget);
+      expect(find.text('Reproducir'), findsOneWidget);
+      final Mix mix = tester.widget<PantallaMix>(find.byType(PantallaMix)).mix;
+      expect(mix.pistas.where((Elemento e) => e.artista == 'Ana'), hasLength(5));
+
+      await tester.tap(find.text('Mezcla DJ'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.cola.map((Elemento e) => e.uri),
+          unorderedEquals(mix.pistas.map((Elemento e) => e.uri)));
+    });
+
+    testWidgets('la Sesion DJ mezcla con su boton grande', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      final Mix sesion = Mix(
+        titulo: 'Sesion DJ',
+        subtitulo: 'Todo lo analizado',
+        pistas: doce.take(8).toList(),
+        clase: ClaseMix.sesionDj,
+        modoDj: ModoDj.arco,
+      );
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: PantallaMix(mix: sesion)));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(FilledButton, 'Mezcla DJ'), findsOneWidget);
+      expect(find.text('Reproducir'), findsOneWidget, reason: 'en orden sigue a mano');
+      await tester.tap(find.widgetWithText(FilledButton, 'Mezcla DJ'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.cola, hasLength(8));
+    });
+
+    testWidgets('el artista tiene su boton Mix', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: Tema.construir(),
+        home: PantallaArtista(artista: 'Ana', pistas: doce.take(5).toList()),
+      ));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Mix'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mix de Ana'), findsOneWidget);
+      await tester.tap(find.text('Reproducir'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.cola, hasLength(5));
+    });
+
+    testWidgets('un ejemplo de Pidele se abre ya escrito', (WidgetTester tester) async {
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(
+        theme: Tema.construir(),
+        home: const Scaffold(body: PastillaPidele(hora: 14)),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byType(TextField), findsNothing, reason: 'parece un campo, pero no lo es');
+
+      await tester.tap(find.text('salsa para cocinar'));
+      // Sin pumpAndSettle: lo que haga Pidele por dentro no es cosa de esta prueba.
+      for (int i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(tester.widget<PantallaPidele>(find.byType(PantallaPidele)).frase, 'salsa para cocinar');
+    });
+  });
+
+  group('explorar', () {
+    final List<Uri> pedidas = <Uri>[];
+
+    setUp(() {
+      pedidas.clear();
+      RadioMundial.transporte = (Uri u) async {
+        pedidas.add(u);
+        return '[]';
+      };
+      RadiosFavoritas.instancia.reiniciar();
+      Navegacion.busquedaPedida.value = null;
+    });
+
+    testWidgets('se abre desde Inicio sin tocar la red', (WidgetTester tester) async {
+      biblioteca = _conCanciones;
+      await abrirInicio(tester);
+      await tester.tap(find.byTooltip('Explorar'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PantallaExplorar), findsOneWidget);
+      for (final String ficha in <String>[
+        'Radio en vivo',
+        'Podcasts',
+        'Sin perdida',
+        'Sesiones de DJ',
+        'Conciertos',
+        'YouTube Music',
+        'Salsa',
+      ]) {
+        expect(find.text(ficha), findsOneWidget, reason: ficha);
+      }
+      expect(find.text('Pidele a Tumbao'), findsOneWidget);
+      expect(pedidas, isEmpty, reason: 'la radio solo se pide al tocarla');
+      expect(llamadas.where((MethodCall c) => c.method == 'buscar'), isEmpty);
+    });
+
+    testWidgets('una ficha con fuente lleva a Descargar y busca alli', (WidgetTester tester) async {
+      await abrirInicio(tester);
+      await tester.tap(find.byTooltip('Explorar'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Sesiones de DJ'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sesiones de DJ'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PantallaExplorar), findsNothing);
+      expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex, 1);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, 'dj set');
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'hearthis')).selected, isTrue);
+      final MethodCall busqueda = llamadas.lastWhere((MethodCall c) => c.method == 'buscar');
+      expect((busqueda.arguments as Map<dynamic, dynamic>)['fuente'], 'hearthis');
+      expect(Navegacion.busquedaPedida.value, isNull, reason: 'atendida una sola vez');
+    });
+
+    testWidgets('desde Descargar vacio se explora y se vuelve con la fuente puesta',
+        (WidgetTester tester) async {
+      await abrir(tester);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Musica'), findsNothing);
+
+      await tester.ensureVisible(find.text('Explorar todo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Explorar todo'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Podcasts'));
+      await tester.pumpAndSettle();
+
+      expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex, 1);
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Podcasts')).selected, isTrue);
+      expect(llamadas.where((MethodCall c) => c.method == 'buscar'), isEmpty,
+          reason: 'sin texto solo se elige la fuente');
+    });
+
+    testWidgets('sin perdida ofrece sus vias y la radio se abre en FLAC', (WidgetTester tester) async {
+      await abrirInicio(tester);
+      await tester.tap(find.byTooltip('Explorar'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Sin perdida'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Radios en FLAC'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PantallaRadio), findsOneWidget);
+      expect(pedidas.single.queryParameters['codec'], 'FLAC');
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Sin perdida')).selected, isTrue);
+    });
+
+    testWidgets('la radio se abre con el atajo que se le pida', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeData.dark(),
+        home: PantallaRadio(inicial: PantallaRadio.filtroDe('Salsa')),
+      ));
+      await tester.pumpAndSettle();
+      expect(pedidas.single.queryParameters['tag'], 'salsa');
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Salsa')).selected, isTrue);
+
+      // Sin atajo, como siempre: las mas votadas.
+      pedidas.clear();
+      await tester.pumpWidget(MaterialApp(theme: ThemeData.dark(), home: PantallaRadio(key: UniqueKey())));
+      await tester.pumpAndSettle();
+      expect(pedidas.single.queryParameters.containsKey('tag'), isFalse);
+      expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Populares')).selected, isTrue);
+    });
   });
 }
 

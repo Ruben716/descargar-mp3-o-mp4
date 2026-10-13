@@ -20,9 +20,14 @@ class Catalogo {
   static const String _tablaCalidades = 'calidades';
   static const String _tablaFavoritas = 'favoritas';
   static const String _tablaVolumenes = 'volumenes';
+  static const String _tablaRitmos = 'ritmos';
 
   /// Version actual del esquema. Subirla exige atender [_migrar].
-  static const int _version = 8;
+  static const int _version = 9;
+
+  /// La que espera esta version de la app, para las pruebas de migracion.
+  @visibleForTesting
+  static const int version = _version;
 
   static const String _esquema = '''
     CREATE TABLE descargas (
@@ -95,6 +100,32 @@ class Catalogo {
     )
   ''';
 
+  /// El pulso y la energia de cada cancion, para el DJ automatico y «Pidele».
+  ///
+  /// Analizarla cuesta unos segundos de FFmpeg: se hace una vez y se guarda.
+  /// `version` es la del algoritmo; si cambia, se vuelve a analizar.
+  static const String _esquemaRitmos = '''
+    CREATE TABLE ritmos (
+      uri TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
+      bpm REAL,
+      confianza REAL NOT NULL,
+      energia REAL NOT NULL,
+      golpes REAL NOT NULL,
+      brillo REAL NOT NULL,
+      graves REAL NOT NULL,
+      lra REAL,
+      inicio_ms INTEGER NOT NULL,
+      fin_ms INTEGER NOT NULL,
+      pulso_inicio_ms INTEGER,
+      pulso_fin_ms INTEGER,
+      camelot TEXT,
+      genero TEXT NOT NULL DEFAULT '',
+      anio INTEGER,
+      fecha INTEGER NOT NULL
+    )
+  ''';
+
   static Future<void> _crear(Database bd) async {
     await bd.execute(_esquema);
     await bd.execute(_esquemaLetras);
@@ -102,6 +133,7 @@ class Catalogo {
     await bd.execute(_esquemaCalidades);
     await bd.execute(_esquemaFavoritas);
     await bd.execute(_esquemaVolumenes);
+    await bd.execute(_esquemaRitmos);
   }
 
   static Future<void> _migrar(Database bd, int desde, int hasta) async {
@@ -130,6 +162,7 @@ class Catalogo {
     // Solo se anade una tabla: lo que ya habia no se toca.
     if (desde < 7) await bd.execute(_esquemaFavoritas);
     if (desde < 8) await bd.execute(_esquemaVolumenes);
+    if (desde < 9) await bd.execute(_esquemaRitmos);
   }
 
   /// Apunta de que calidad llego una descarga.
@@ -249,6 +282,7 @@ class Catalogo {
     await bd.delete(_tablaCalidades, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaFavoritas, where: 'uri = ?', whereArgs: <Object>[uri]);
     await bd.delete(_tablaVolumenes, where: 'uri = ?', whereArgs: <Object>[uri]);
+    await bd.delete(_tablaRitmos, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
   Future<int> cuantas() async {
@@ -355,11 +389,36 @@ class Catalogo {
     return <String>[for (final Map<String, Object?> f in filas) f['uri']! as String];
   }
 
+  /// Cuantas veces y cuando fue la ultima, de todo lo escuchado.
+  ///
+  /// Para «Hecho para ti»: lo muy oido que lleva tiempo sin sonar, o el top.
+  Future<Map<String, ({int veces, int ultima})>> escuchasConFecha() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(_tablaEscuchas);
+    return <String, ({int veces, int ultima})>{
+      for (final Map<String, Object?> f in filas)
+        f['uri']! as String: (veces: f['veces'] as int? ?? 0, ultima: f['ultima'] as int? ?? 0),
+    };
+  }
+
   /// Todo lo que se ha escuchado alguna vez, para saber lo que no.
   Future<Set<String>> escuchadas() async {
     final List<Map<String, Object?>> filas =
         await (await _abierta).query(_tablaEscuchas, columns: <String>['uri']);
     return <String>{for (final Map<String, Object?> f in filas) f['uri']! as String};
+  }
+
+  /// La calidad de origen de todo lo que la sabe, de una vez.
+  Future<Map<String, CalidadAudio>> calidades() async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(_tablaCalidades);
+    return <String, CalidadAudio>{
+      for (final Map<String, Object?> f in filas)
+        f['uri']! as String: CalidadAudio(
+          codec: f['codec']! as String,
+          kbps: (f['kbps'] as num?)?.toDouble(),
+          hz: (f['hz'] as num?)?.toInt(),
+          bits: (f['bits'] as num?)?.toInt(),
+        ),
+    };
   }
 
   /// Lo que se bajo sin perdida (FLAC, WAV...), segun la calidad de origen.
@@ -410,6 +469,7 @@ class Catalogo {
     await (await _abierta).delete(_tablaCalidades);
     await (await _abierta).delete(_tablaFavoritas);
     await (await _abierta).delete(_tablaVolumenes);
+    await (await _abierta).delete(_tablaRitmos);
   }
 
   // --- Volumen de cada cancion ---------------------------------------------
@@ -434,6 +494,20 @@ class Catalogo {
     };
   }
 
+  // --- Ritmo de cada cancion (DJ) ------------------------------------------
+
+  /// Guarda el analisis de [uri] tal cual lo da [Rasgos.aFila].
+  Future<void> anotarRitmo(String uri, Map<String, Object?> fila) async {
+    await (await _abierta).insert(
+      _tablaRitmos,
+      <String, Object?>{...fila, 'uri': uri, 'fecha': DateTime.now().millisecondsSinceEpoch},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Todos los analisis de una vez, como [volumenes].
+  Future<List<Map<String, Object?>>> ritmos() async => (await _abierta).query(_tablaRitmos);
+
   // --- Copia de seguridad -------------------------------------------------
 
   /// Las tablas que viajan en la copia. Todas cuelgan de un URI salvo las
@@ -445,6 +519,8 @@ class Catalogo {
     _tablaFavoritas,
     _tablaVolumenes,
     _tablaLetras,
+    // Viaja para no tener que volver a analizar en el telefono nuevo.
+    _tablaRitmos,
   ];
 
   /// Todo el catalogo, tabla por tabla, tal cual.

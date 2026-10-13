@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:convert';
 
@@ -8,12 +9,14 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'catalogo.dart';
+import 'dj.dart';
 import 'ecualizador.dart';
 import 'formato.dart';
 import 'nucleo.dart';
 import 'orden_aleatorio.dart';
 import 'posiciones.dart';
 import 'radio_mundial.dart';
+import 'ritmos.dart';
 import 'volumen_parejo.dart';
 
 /// Lo que esta sonando: un archivo de la biblioteca o una vista previa.
@@ -487,6 +490,7 @@ class EstadoReproductor extends ChangeNotifier {
     if (elementos.isEmpty) return;
     final int ordenes = ++_ordenes;
     _quitarTramo();
+    _modoDj = null;
     // Desde el mismo momento en que cambia la cola: a partir de aqui, un
     // aviso del motor (que aun suena con la vieja) se traduciria mal.
     _cargasEnCurso++;
@@ -568,16 +572,48 @@ class EstadoReproductor extends ChangeNotifier {
     return _artes[uri] = await Nucleo.caratulaArchivo(uri);
   }
 
-  AudioSource _fuente(Elemento elemento, Uri? arte) => AudioSource.uri(
-    Uri.parse(elemento.uri),
-    tag: MediaItem(
+  AudioSource _fuente(Elemento elemento, Uri? arte) {
+    final MediaItem etiqueta = MediaItem(
       id: elemento.uri,
       title: elemento.tema,
       artist: elemento.artista.isEmpty ? null : elemento.artista,
       album: 'Tumbao',
       artUri: arte,
-    ),
-  );
+    );
+    final CorteAlCompas? corte = corteDe(elemento);
+    if (corte == null) {
+      _recortadas.remove(elemento.uri);
+      return AudioSource.uri(Uri.parse(elemento.uri), tag: etiqueta);
+    }
+    // El corte lo hace ExoPlayer, al milisegundo: el aviso de posicion llega
+    // cada 200 ms, y cortar desde aqui se notaria fuera de tiempo.
+    _recortadas.add(elemento.uri);
+    return ClippingAudioSource(
+      child: AudioSource.uri(Uri.parse(elemento.uri)),
+      start: corte.inicio,
+      end: corte.fin,
+      tag: etiqueta,
+    );
+  }
+
+  /// Las canciones cuya fuente se cargo recortada al compas.
+  ///
+  /// El fundido solo usa el corte en esas: una que se analizo despues de
+  /// cargar la cola suena entera, y su final no cae donde dice el corte.
+  final Set<String> _recortadas = <String>{};
+
+  /// Donde se corta [e] al compas, o null si no toca: el modo apagado, una
+  /// cancion sin analizar o sin pulso, o una sesion larga.
+  CorteAlCompas? corteDe(Elemento? e) {
+    if (!_alCompas || e == null || e.duracion > Dj.largoMaximo.inSeconds) return null;
+    final Rasgos? r = Ritmos.instancia.rasgosDe(e.uri);
+    if (r == null) return null;
+    return CorteAlCompas.calcular(
+      r,
+      fundido: _fundido,
+      total: Duration(milliseconds: (e.duracion * 1000).round()),
+    );
+  }
 
   /// La anterior de verdad, sin volver al principio de la que suena.
   ///
@@ -625,6 +661,92 @@ class EstadoReproductor extends ChangeNotifier {
     if (elementos.isEmpty) return;
     if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
     await reproducirLista(elementos, 0);
+  }
+
+  /// Una mezcla DJ: se ordena para que fluya y suena en ese orden.
+  ///
+  /// Lo que falte por analizar se pide con prioridad y entra igual, con coste
+  /// neutro: nada se pierde por no estar analizado.
+  Future<void> reproducirDj(
+    List<Elemento> elementos, {
+    ModoDj modo = ModoDj.flujo,
+    Elemento? primera,
+  }) async {
+    if (elementos.isEmpty) return;
+    final Ritmos ritmos = Ritmos.instancia;
+    ritmos.analizarTodas(elementos.map((Elemento e) => e.uri), urgente: true);
+    final List<Elemento> orden = await ordenarComoDj(
+      elementos,
+      rasgos: ritmos.todos,
+      modo: modo,
+      primera: primera?.uri,
+    );
+    if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
+    await reproducirLista(orden, 0);
+    _modoDj = modo;
+    notifyListeners();
+  }
+
+  /// Reordena lo que queda por sonar como lo haria un DJ, sin cortar la que
+  /// suena: se queda delante y lo demas se mueve detras de ella.
+  Future<void> ordenarColaDj(ModoDj modo) async {
+    final int? indice = motor.currentIndex;
+    if (_cola.length < 3 || indice == null) return;
+    if (motor.shuffleModeEnabled) await motor.setShuffleModeEnabled(false);
+    final Elemento actual = _cola[indice];
+    Ritmos.instancia.analizarTodas(_cola.map((Elemento e) => e.uri), urgente: true);
+    final List<Elemento> orden = await ordenarComoDj(
+      _cola,
+      rasgos: Ritmos.instancia.todos,
+      modo: modo,
+      primera: actual.uri,
+    );
+    // Las que el DJ deja fuera (las muy largas) siguen al final.
+    final Set<String> dentro = <String>{for (final Elemento e in orden) e.uri};
+    final List<Elemento> deseado = <Elemento>[
+      ...orden,
+      for (final Elemento e in _cola)
+        if (!dentro.contains(e.uri)) e,
+    ];
+    // La que suena primero; despues, una a una a su sitio, con el motor.
+    await moverEnCola(indice, 0);
+    for (int destino = 1; destino < deseado.length; destino++) {
+      // Por URI: si se ordeno en otro isolate, llegan copias.
+      final int desde = _cola.indexWhere(
+        (Elemento e) => e.uri == deseado[destino].uri,
+        destino,
+      );
+      if (desde > destino) await moverEnCola(desde, destino);
+    }
+    _modoDj = modo;
+    notifyListeners();
+  }
+
+  /// Con que modo se ordeno la cola, o null si no es una mezcla DJ.
+  ModoDj? _modoDj;
+  ModoDj? get modoDj => _modoDj;
+
+  /// Ordena fuera del hilo de la pantalla cuando son muchas: con 500 canciones
+  /// el 2-opt tarda unos cientos de milisegundos.
+  @visibleForTesting
+  static Future<List<Elemento>> ordenarComoDj(
+    List<Elemento> elementos, {
+    required Map<String, Rasgos> rasgos,
+    ModoDj modo = ModoDj.flujo,
+    String? primera,
+  }) async {
+    List<Elemento> ordenar() => Dj.ordenarElementos(
+          elementos,
+          rasgos: (String uri) => rasgos[uri],
+          modo: modo,
+          primera: primera,
+        );
+    if (elementos.length <= 150) return ordenar();
+    try {
+      return await Isolate.run(ordenar);
+    } catch (_) {
+      return ordenar();
+    }
   }
 
   /// Todo en orden aleatorio, empezando por una cualquiera.
@@ -791,11 +913,20 @@ class EstadoReproductor extends ChangeNotifier {
   Duration _posicionAnterior = Duration.zero;
   double _volumen = 1;
 
+  /// Donde se guarda si el fundido va al compas (modo DJ).
+  static const String claveAlCompas = 'fundido_compas';
+
+  bool _alCompas = false;
+
+  /// Si se corta en el ultimo pulso y la siguiente entra en su primer golpe.
+  bool get alCompas => _alCompas;
+
   /// Recupera el fundido elegido la ultima vez.
   Future<void> recuperarFundido() async {
     try {
       final SharedPreferences memoria = await SharedPreferences.getInstance();
       _fundido = Duration(seconds: memoria.getInt(claveFundido) ?? 0);
+      _alCompas = memoria.getBool(claveAlCompas) ?? false;
       notifyListeners();
     } catch (_) {
       // Sin preferencias se queda apagado, que es como venia.
@@ -819,6 +950,62 @@ class EstadoReproductor extends ChangeNotifier {
     }
   }
 
+  /// Pone o quita el fundido al compas y rehace la cola para que se note ya.
+  Future<void> ponerAlCompas(bool activo) async {
+    if (activo == _alCompas) return;
+    final int? indice = motor.currentIndex;
+    final Elemento? suena =
+        indice != null && indice < _cola.length && _actual?.enVivo == null ? _cola[indice] : null;
+    // Donde va de verdad en el archivo, para seguir en el mismo sitio.
+    Duration recorte(Elemento? e) =>
+        e != null && _recortadas.contains(e.uri) ? corteDe(e)?.inicio ?? Duration.zero : Duration.zero;
+    final Duration absoluta = motor.position + recorte(suena);
+    _alCompas = activo;
+    _entrando = false;
+    notifyListeners();
+    // Saltar silencios quita trozos del audio y descuadra los pulsos.
+    _silenciosPuestos = null;
+    unawaited(aplicarSaltarSilencios(VolumenParejo.instancia.saltarSilencios));
+    try {
+      final SharedPreferences memoria = await SharedPreferences.getInstance();
+      await memoria.setBool(claveAlCompas, activo);
+    } catch (_) {
+      // Dura hasta cerrar la app.
+    }
+    if (suena == null) return;
+    final CorteAlCompas? nuevo = corteDe(suena);
+    await _recargarFuentes(indice!, absoluta - (nuevo?.inicio ?? Duration.zero));
+  }
+
+  /// Vuelve a cargar la misma cola con las fuentes de ahora, sin cambiar de
+  /// cancion ni de punto.
+  Future<void> _recargarFuentes(int indice, Duration posicion) async {
+    final List<Elemento> cola = List<Elemento>.of(_cola);
+    final bool sonaba = motor.playing;
+    final int ordenes = ++_ordenes;
+    _cargasEnCurso++;
+    try {
+      try {
+        final List<AudioSource> fuentes = await _fuentes(cola, abandonar: () => _ordenes != ordenes);
+        if (_ordenes != ordenes || fuentes.isEmpty) return;
+        await _cargarEnMotor(
+          () => motor.setAudioSources(
+            fuentes,
+            initialIndex: indice,
+            initialPosition: posicion < Duration.zero ? Duration.zero : posicion,
+          ),
+          ordenes,
+        );
+        if (motor.shuffleModeEnabled) await motor.shuffle();
+      } finally {
+        _cargasEnCurso--;
+      }
+      if (sonaba) await motor.play();
+    } catch (error) {
+      _fallo(error, ordenes);
+    }
+  }
+
   /// El volumen que toca en este punto de la pista, de 0 a 1.
   ///
   /// No es un fundido cruzado de verdad (dos canciones sonando a la vez): eso
@@ -828,21 +1015,35 @@ class EstadoReproductor extends ChangeNotifier {
   /// nada de lo demas.
   ///
   /// Las pistas muy cortas no se apagan al final: se irian casi enteras.
+  ///
+  /// Al compas, [salida] y [entrada] vienen del corte de la cancion (multiplos
+  /// del pulso) y la curva no baja a cero: se queda en [piso] justo en el
+  /// corte y la siguiente arranca en [arranque]. Asi suena a corte de DJ en el
+  /// golpe, sin un valle de silencio en medio. Sin ellos, la recta de siempre.
   static double volumenConFundido({
     required Duration posicion,
     required Duration? total,
     required Duration fundido,
     required bool entrando,
+    Duration? salida,
+    Duration? entrada,
+    double piso = 0,
+    double arranque = 0,
   }) {
-    if (fundido <= Duration.zero) return 1;
-    final int ms = fundido.inMilliseconds;
+    final Duration fuera = salida ?? fundido;
+    final Duration dentro = entrada ?? fundido;
+    if (fuera <= Duration.zero && dentro <= Duration.zero) return 1;
     double volumen = 1;
-    if (entrando && posicion < fundido) {
-      volumen = posicion.inMilliseconds / ms;
+    if (entrando && dentro > Duration.zero && posicion < dentro) {
+      final double y = posicion.inMilliseconds / dentro.inMilliseconds;
+      volumen = arranque == 0 ? y : arranque + (1 - arranque) * sin(y * pi / 2);
     }
-    if (total != null && total > fundido * 2) {
+    if (total != null && fuera > Duration.zero && total > fuera * 2) {
       final Duration resta = total - posicion;
-      if (resta < fundido) volumen = min(volumen, resta.inMilliseconds / ms);
+      if (resta < fuera) {
+        final double queda = resta.inMilliseconds / fuera.inMilliseconds;
+        volumen = min(volumen, piso == 0 ? queda : piso + (1 - piso) * cos((1 - queda) * pi / 2));
+      }
     }
     return volumen.clamp(0.0, 1.0);
   }
@@ -852,15 +1053,23 @@ class EstadoReproductor extends ChangeNotifier {
     _posicionAnterior = posicion;
     double componente = 1;
     if (_fundido != Duration.zero) {
+      final Elemento? suena = _actual?.elemento;
+      final CorteAlCompas? corte =
+          suena != null && _recortadas.contains(suena.uri) ? corteDe(suena) : null;
+      final Duration dentro = corte?.entrada ?? _fundido;
       // Un salto hacia atras con el volumen bajado es una pista que empieza
       // tras apagarse la otra (o la misma al repetir): sube desde ahi, sin golpe.
       if (posicion + const Duration(seconds: 2) < antes && _ultimoFundido < 0.98) _entrando = true;
-      if (_entrando && posicion >= _fundido) _entrando = false;
+      if (_entrando && posicion >= dentro) _entrando = false;
       componente = volumenConFundido(
         posicion: posicion,
         total: motor.duration,
         fundido: _fundido,
         entrando: _entrando,
+        salida: corte?.salida,
+        entrada: corte?.entrada,
+        piso: corte == null ? 0 : 0.25,
+        arranque: corte == null ? 0 : 0.6,
       );
     }
     _ultimoFundido = componente;
@@ -887,7 +1096,15 @@ class EstadoReproductor extends ChangeNotifier {
     _factorNormal = c.factor;
     unawaited(_ponerVolumen(_ultimoFundido * _factorNormal));
     unawaited(_ponerExtra(c.extraDb));
-    if (uri != null) VolumenParejo.instancia.pedirSiFalta(uri);
+    if (uri == null) return;
+    // Lo que suena se analiza para el DJ, y esa pasada da tambien el volumen:
+    // asi no se lee el archivo dos veces. Si el DJ ya lo intento, solo volumen.
+    final Ritmos ritmos = Ritmos.instancia;
+    if (ritmos.listo && ritmos.rasgosDe(uri) == null && !ritmos.yaIntentada(uri)) {
+      ritmos.pedirSiFalta(uri);
+    } else {
+      VolumenParejo.instancia.pedirSiFalta(uri);
+    }
   }
 
   Future<void> _ponerExtra(double decibelios) async {
@@ -901,7 +1118,10 @@ class EstadoReproductor extends ChangeNotifier {
   bool? _silenciosPuestos;
 
   /// Quitar los silencios largos (inicio, final, pausas) al reproducir.
-  Future<void> aplicarSaltarSilencios(bool saltar) async {
+  Future<void> aplicarSaltarSilencios(bool pedido) async {
+    // Al compas no: quitaria trozos y los pulsos dejarian de cuadrar. El
+    // recorte ya quita el silencio de los extremos.
+    final bool saltar = pedido && !_alCompas;
     if (_silenciosPuestos == saltar) return;
     _silenciosPuestos = saltar;
     try {
@@ -1115,6 +1335,8 @@ class EstadoReproductor extends ChangeNotifier {
     _sesionRestaurada = false;
     _restaurando = null;
     _fundido = Duration.zero;
+    _alCompas = false;
+    _recortadas.clear();
     _entrando = false;
     _posicionAnterior = Duration.zero;
     _volumen = 1;
@@ -1123,6 +1345,7 @@ class EstadoReproductor extends ChangeNotifier {
     _uriNormalizada = null;
     _silenciosPuestos = null;
     _ordenes = 0;
+    _modoDj = null;
     _artes.clear();
     _relojSuenio?.cancel();
     _relojSuenio = null;

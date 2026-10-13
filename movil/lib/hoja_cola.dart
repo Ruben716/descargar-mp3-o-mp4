@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'dj.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'nucleo.dart';
@@ -108,6 +109,27 @@ class _Cabecera extends StatelessWidget {
                   ],
                 ),
               ),
+              if (estado.cola.length >= 3)
+                PopupMenuButton<ModoDj>(
+                  tooltip: 'Ordenar como DJ',
+                  color: Tema.superficieAlta,
+                  icon: Icon(
+                    Icons.queue_music_rounded,
+                    color: estado.modoDj == null ? Colors.white38 : Tema.acentoHielo,
+                  ),
+                  onSelected: (ModoDj modo) => estado.ordenarColaDj(modo),
+                  itemBuilder: (BuildContext context) => <PopupMenuEntry<ModoDj>>[
+                    for (final ModoDj modo in ModoDj.values)
+                      PopupMenuItem<ModoDj>(
+                        value: modo,
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('Mezcla DJ: ${modo.titulo.toLowerCase()}'),
+                          subtitle: Text(modo.pista),
+                        ),
+                      ),
+                  ],
+                ),
               IconButton(
                 onPressed: estado.alternarAleatorio,
                 tooltip: estado.aleatorio ? 'Quitar aleatorio' : 'Aleatorio',

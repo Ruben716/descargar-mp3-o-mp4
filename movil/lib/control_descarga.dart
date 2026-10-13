@@ -9,6 +9,7 @@ import 'catalogo.dart';
 import 'volumen_parejo.dart';
 import 'listas.dart';
 import 'nucleo.dart';
+import 'ritmos.dart';
 
 /// Estado de la descarga, compartido por las pantallas.
 ///
@@ -232,7 +233,11 @@ class ControlDescarga extends ChangeNotifier {
           for (final String uri in nuevos) {
             await Catalogo.instancia.registrar(url, audio: usados.soloAudio, uri: uri);
             // Se mide cuanto suena en cuanto llega, para el volumen parejo.
-            if (usados.soloAudio) VolumenParejo.instancia.pedirSiFalta(uri);
+            if (usados.soloAudio) {
+              VolumenParejo.instancia.pedirSiFalta(uri);
+              // Y su pulso para el DJ, cuando acabe el lote: va despues.
+              Ritmos.instancia.pedirSiFalta(uri);
+            }
             // Para poder decir despues, sin inventar, de donde salio el sonido.
             final CalidadAudio? origen = bajada.origen;
             if (origen != null) await Catalogo.instancia.anotarCalidad(uri, origen);

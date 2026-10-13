@@ -1,0 +1,80 @@
+import 'dart:math';
+import 'lib/dj.dart';
+import 'lib/pidele.dart';
+
+void comprobar(bool c, String m) { if (!c) throw StateError('FALLA: $m'); print('ok  $m'); }
+
+void main() {
+  // --- DJ
+  comprobar(Dj.distanciaTempo(87, 174) < 0.05, '87 y 174 casan a medio tiempo');
+  comprobar(Dj.costeTempo(const Rasgos(bpm: 128, confianza: .5), const Rasgos(bpm: 126, confianza: .5)) < 0.1, '128->126 casi gratis');
+  comprobar(Dj.costeTempo(const Rasgos(bpm: 128, confianza: .5), const Rasgos(bpm: 100, confianza: .5)) == 1, '128->100 caro');
+  comprobar(Dj.costeTono('8A', '9A') == 0.1 && Dj.costeTono('8A', '8B') == 0.1 && Dj.costeTono('8A', '3B') == 1 && Dj.costeTono('12A', '1A') == 0.1, 'rueda Camelot');
+  final Random r = Random(7);
+  final List<PistaDj> lista = <PistaDj>[
+    for (int i = 0; i < 40; i++)
+      PistaDj('p$i', 'a${i % 7}', Rasgos(bpm: <double>[90, 95, 100, 120, 124, 128, 140, 174][i % 8] + r.nextDouble() * 2, confianza: .4, energia: r.nextDouble())),
+    const PistaDj('sin', 'x', null),
+  ];
+  final List<PistaDj> barajada = List<PistaDj>.of(lista)..shuffle(Random(3));
+  final List<PistaDj> ordenada = Dj.ordenar(barajada, azar: Random(1));
+  comprobar(ordenada.length == lista.length && ordenada.toSet().length == lista.length, 'no pierde ni repite');
+  comprobar(Dj.costeRuta(ordenada) < Dj.costeRuta(barajada) * 0.5, 'la ruta cuesta menos de la mitad que al azar (${Dj.costeRuta(ordenada).toStringAsFixed(2)} vs ${Dj.costeRuta(barajada).toStringAsFixed(2)})');
+  final List<PistaDj> conPrimera = Dj.ordenar(barajada, primera: 'p5', azar: Random(1));
+  comprobar(conPrimera.first.id == 'p5', 'la elegida va primera');
+  final List<PistaDj> sube = Dj.ordenar(barajada, modo: ModoDj.subir, azar: Random(1));
+  final Map<String, double> e = Dj.percentiles(barajada);
+  final List<double> curva = <double>[for (final PistaDj p in sube) e[p.id] ?? .5];
+  double rho() {
+    final int n = curva.length; double s = 0;
+    final List<int> rango = List<int>.generate(n, (int i) => i)..sort((int a, int b) => curva[a].compareTo(curva[b]));
+    final List<int> rk = List<int>.filled(n, 0); for (int i = 0; i < n; i++) { rk[rango[i]] = i; }
+    for (int i = 0; i < n; i++) { s += pow(rk[i] - i, 2).toDouble(); }
+    return 1 - 6 * s / (n * (n * n - 1));
+  }
+  print(curva.map((double x) => x.toStringAsFixed(2)).join(" "));
+  comprobar(rho() > 0.9, 'subir: la energia crece con la posicion (rho=${rho().toStringAsFixed(2)})');
+  final List<PistaDj> arco = Dj.ordenar(barajada, modo: ModoDj.arco, azar: Random(1));
+  final List<double> ca = <double>[for (final PistaDj p in arco) e[p.id] ?? .5];
+  final int pico = ca.indexOf(ca.reduce(max));
+  print(ca.map((double x) => x.toStringAsFixed(2)).join(' '));
+  comprobar(pico > arco.length * 0.55 && pico < arco.length * 0.85 && arco.length == barajada.length, 'arco: el pico cae hacia el 70 % (pos $pico de ${arco.length})');
+  final Stopwatch reloj = Stopwatch()..start();
+  final List<PistaDj> grande = <PistaDj>[for (int i = 0; i < 500; i++) PistaDj('g$i', 'a${i % 50}', Rasgos(bpm: 80 + r.nextDouble() * 90, confianza: .4, energia: r.nextDouble()))];
+  Dj.ordenar(grande, azar: Random(1));
+  comprobar(reloj.elapsedMilliseconds < 2000, '500 canciones en ${reloj.elapsedMilliseconds} ms');
+
+  // Fundido al compas
+  final CorteAlCompas? c = CorteAlCompas.calcular(const Rasgos(bpm: 128, confianza: .5, pulsoInicioMs: 2000, pulsoFinMs: 200000),
+      fundido: const Duration(seconds: 8), total: const Duration(seconds: 205));
+  comprobar(c != null && c.inicio.inMilliseconds == 1980, 'empieza 20 ms antes del primer golpe');
+  comprobar(c!.fin.inMilliseconds == 200469, 'corta donde caeria el pulso siguiente (200000 + 469)');
+  comprobar(c.salida.inMilliseconds == 7500, '8 s a 128 BPM -> 16 pulsos = 7,5 s');
+  comprobar(CorteAlCompas.calcular(const Rasgos(bpm: 128, confianza: .05, pulsoInicioMs: 0, pulsoFinMs: 100000), fundido: const Duration(seconds: 8), total: const Duration(seconds: 120)) == null, 'sin pulso fiable: fundido de siempre');
+
+  // --- Pidele
+  final Set<String> artistas = <String>{'bad bunny', 'karol g', 'hector lavoe', 'grupo 5'};
+  Peticion q(String f) { final Peticion p = interpretar(f, artistas: artistas); print('     "$f" -> ${p.entendido}'); return p; }
+  Peticion p = q('algo tranquilo para dormir');
+  comprobar(p.energiaMax == .25 && p.orden == Orden.bajar && p.bpmMax == 100, 'tranquilo para dormir');
+  p = q('Reggaetón pa entrenar');
+  comprobar(p.generos.contains('reggaeton') && p.energiaMin == .65 && p.orden == Orden.subir, 'reggaeton para entrenar');
+  p = q('lo que más escucho de Bad Bunny');
+  comprobar(p.artistas.contains('bad bunny') && p.orden == Orden.masEscuchadas && p.minEscuchas == 2, 'lo que mas escucho de bad bunny');
+  p = q('canciones largas');
+  comprobar(p.duracionMin == 360, 'canciones largas');
+  p = q('sin pérdida');
+  comprobar(p.calidad == Calidad.sinPerdida && p.sinArtistas.isEmpty, 'sin perdida no es una negacion');
+  p = q('fiesta sin bad bunny ni reggaeton');
+  comprobar(p.sinArtistas.contains('bad bunny') && p.sinGeneros.contains('reggaeton') && p.generos.isEmpty && p.orden == Orden.arco, 'fiesta sin bad bunny ni reggaeton');
+  p = q('salsa de hector lavoe');
+  comprobar(p.artistas.contains('hector lavoe') && p.generos.contains('salsa'), 'salsa de hector lavoe');
+  p = q('una hora de cumbia para el tono');
+  comprobar(p.minutos == 60 && p.generos.contains('cumbia') && p.energiaMin == .6, 'una hora de cumbia para el tono');
+  p = q('20 canciones a 128 bpm');
+  comprobar(p.limite == 20 && (p.bpmMin! - 124.16).abs() < .01, '20 canciones a 128 bpm');
+  p = q('baladas de los 80');
+  comprobar(p.anioMin == 1980 && p.anioMax == 1989 && p.generos.contains('balada'), 'baladas de los 80');
+  p = q('nada de trap, algo para estudiar');
+  comprobar(p.sinGeneros.contains('trap') && p.energiaMax == .5, 'nada de trap');
+}

@@ -1,9 +1,11 @@
 import 'dart:math';
 
 import 'catalogo.dart';
+import 'dj.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
 import 'nucleo.dart';
+import 'ritmos.dart';
 
 /// Radio a partir de una cancion, con lo que ya hay en el telefono.
 ///
@@ -23,9 +25,11 @@ class Emisora {
     List<Elemento> biblioteca, {
     Set<String> favoritas = const <String>{},
     Map<String, int> escuchas = const <String, int>{},
+    Rasgos? Function(String uri)? rasgos,
     Random? azar,
   }) {
     final Random suerte = azar ?? Random();
+    final Rasgos? deLaSemilla = rasgos?.call(semilla.uri);
     final String artista = _clave(semilla.partes.artista);
     final int masOida = escuchas.values.fold(1, max);
     final List<({Elemento e, double puntos})> candidatas = <({Elemento e, double puntos})>[
@@ -36,6 +40,8 @@ class Emisora {
             puntos: (artista.isNotEmpty && _clave(e.partes.artista) == artista ? 3 : 0) +
                 (favoritas.contains(e.uri) ? 2 : 0) +
                 2 * (escuchas[e.uri] ?? 0) / masOida +
+                // Con el analisis del DJ, lo que suena parecido sube.
+                (rasgos == null ? 0 : 2 * (1 - Dj.diferencia(deLaSemilla, rasgos(e.uri)))) +
                 // El azar pesa como el corazon: mueve el orden, no lo decide.
                 suerte.nextDouble() * 2,
           ),
@@ -63,7 +69,13 @@ class Emisora {
         if (Favoritas.instancia.contiene(e.uri)) e.uri,
     };
     await EstadoReproductor.instancia.reproducirLista(
-      mezcla(semilla, biblioteca, favoritas: favoritas, escuchas: escuchas),
+      mezcla(
+        semilla,
+        biblioteca,
+        favoritas: favoritas,
+        escuchas: escuchas,
+        rasgos: Ritmos.instancia.rasgosDe,
+      ),
       0,
     );
   }

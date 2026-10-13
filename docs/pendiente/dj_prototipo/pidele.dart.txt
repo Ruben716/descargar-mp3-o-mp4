@@ -1,0 +1,280 @@
+/// «Pidele a Tumbao»: una frase en castellano -> filtros sobre la biblioteca.
+///
+/// Sin red y sin IA: reglas. Se busca la frase mas larga primero y lo que no
+/// se entiende se ignora, pero lo entendido se ensenia en chips para que se
+/// pueda corregir.
+library;
+
+const Map<String, String> _tildes = <String, String>{
+  'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u', 'ñ': 'n',
+};
+
+String normalizar(String frase) {
+  String t = frase.toLowerCase().split('').map((String c) => _tildes[c] ?? c).join();
+  t = t.replaceAll(RegExp(r"\bpa'?l\b"), 'para el').replaceAll(RegExp(r"\bpa'?\s"), 'para ');
+  t = t.replaceAll(RegExp(r"[^a-z0-9\s]"), ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+  return ' $t ';
+}
+
+enum Orden { tal, dj, subir, bajar, arco, masEscuchadas, recientes, aleatorio }
+
+enum Calidad { alta, sinPerdida, hiRes }
+
+class Peticion {
+  double? energiaMin, energiaMax; // percentiles de la biblioteca, 0..1
+  double? bpmMin, bpmMax;
+  final Set<String> artistas = <String>{};
+  final Set<String> sinArtistas = <String>{};
+  final Set<String> generos = <String>{};
+  final Set<String> sinGeneros = <String>{};
+  bool favoritas = false, sinEscuchar = false, olvidadas = false;
+  int? minEscuchas;
+  Calidad? calidad;
+  int? duracionMin, duracionMax; // segundos
+  int? dias; // descargada hace como mucho
+  int? anioMin, anioMax;
+  int? limite, minutos;
+  Orden orden = Orden.tal;
+  final List<String> entendido = <String>[];
+
+  void energia(double? mn, double? mx) {
+    if (mn != null) energiaMin = energiaMin == null ? mn : (mn > energiaMin! ? mn : energiaMin);
+    if (mx != null) energiaMax = energiaMax == null ? mx : (mx < energiaMax! ? mx : energiaMax);
+  }
+
+  void ordenSiNoHay(Orden o) {
+    if (orden == Orden.tal) orden = o;
+  }
+
+  @override
+  String toString() => entendido.join(' · ');
+}
+
+typedef Regla = void Function(Peticion p);
+
+/// Palabras y frases -> lo que significan. La clave va ya normalizada.
+final Map<String, (String, Regla)> reglas = <String, (String, Regla)>{
+  // Ambiente y actividad
+  'para dormir': ('Para dormir', (Peticion p) { p.energia(null, .25); p.bpmMax ??= 100; p.ordenSiNoHay(Orden.bajar); p.minutos ??= 45; }),
+  'dormir': ('Para dormir', (Peticion p) { p.energia(null, .25); p.ordenSiNoHay(Orden.bajar); }),
+  'tranquilo': ('Tranquila', (Peticion p) => p.energia(null, .4)),
+  'tranquila': ('Tranquila', (Peticion p) => p.energia(null, .4)),
+  'tranquilas': ('Tranquila', (Peticion p) => p.energia(null, .4)),
+  'tranqui': ('Tranquila', (Peticion p) => p.energia(null, .4)),
+  'relajado': ('Relajada', (Peticion p) => p.energia(null, .4)),
+  'relajarme': ('Relajada', (Peticion p) => p.energia(null, .4)),
+  'relax': ('Relajada', (Peticion p) => p.energia(null, .4)),
+  'chill': ('Chill', (Peticion p) => p.energia(null, .45)),
+  'suave': ('Suave', (Peticion p) => p.energia(null, .45)),
+  'suavecito': ('Suave', (Peticion p) => p.energia(null, .45)),
+  'lento': ('Lenta', (Peticion p) { p.bpmMax ??= 95; p.energia(null, .5); }),
+  'lentas': ('Lenta', (Peticion p) { p.bpmMax ??= 95; p.energia(null, .5); }),
+  'triste': ('Bajon', (Peticion p) => p.energia(null, .4)),
+  'tristes': ('Bajon', (Peticion p) => p.energia(null, .4)),
+  'bajon': ('Bajon', (Peticion p) => p.energia(null, .4)),
+  'despecho': ('Despecho', (Peticion p) => p.energia(null, .55)),
+  'estudiar': ('Para estudiar', (Peticion p) { p.energia(.1, .5); p.ordenSiNoHay(Orden.dj); }),
+  'concentrarme': ('Para concentrarse', (Peticion p) { p.energia(.1, .5); p.ordenSiNoHay(Orden.dj); }),
+  'trabajar': ('Para trabajar', (Peticion p) { p.energia(.2, .6); p.ordenSiNoHay(Orden.dj); }),
+  'leer': ('Para leer', (Peticion p) => p.energia(null, .35)),
+  'cocinar': ('Para cocinar', (Peticion p) { p.energia(.35, .8); p.ordenSiNoHay(Orden.dj); }),
+  'manejar': ('Para manejar', (Peticion p) { p.energia(.4, .85); p.ordenSiNoHay(Orden.dj); }),
+  'viaje': ('De viaje', (Peticion p) { p.energia(.3, .85); p.ordenSiNoHay(Orden.dj); }),
+  'entrenar': ('Para entrenar', (Peticion p) { p.energia(.65, null); p.ordenSiNoHay(Orden.subir); }),
+  'gym': ('Para entrenar', (Peticion p) { p.energia(.65, null); p.ordenSiNoHay(Orden.subir); }),
+  'gimnasio': ('Para entrenar', (Peticion p) { p.energia(.65, null); p.ordenSiNoHay(Orden.subir); }),
+  'cardio': ('Cardio', (Peticion p) { p.energia(.7, null); p.bpmMin ??= 120; p.ordenSiNoHay(Orden.subir); }),
+  'correr': ('Para correr', (Peticion p) { p.energia(.6, null); p.bpmMin ??= 150; p.bpmMax ??= 185; p.ordenSiNoHay(Orden.dj); }),
+  'fiesta': ('Fiesta', (Peticion p) { p.energia(.6, null); p.ordenSiNoHay(Orden.arco); }),
+  'tono': ('Fiesta', (Peticion p) { p.energia(.6, null); p.ordenSiNoHay(Orden.arco); }),
+  'juerga': ('Fiesta', (Peticion p) { p.energia(.6, null); p.ordenSiNoHay(Orden.arco); }),
+  'previa': ('Previa', (Peticion p) { p.energia(.5, null); p.ordenSiNoHay(Orden.subir); }),
+  'bailar': ('Para bailar', (Peticion p) { p.energia(.55, null); p.ordenSiNoHay(Orden.dj); }),
+  'bailable': ('Para bailar', (Peticion p) { p.energia(.55, null); p.ordenSiNoHay(Orden.dj); }),
+  'perreo': ('Perreo', (Peticion p) { p.generos.add('reggaeton'); p.energia(.55, null); p.ordenSiNoHay(Orden.dj); }),
+  'animado': ('Animada', (Peticion p) => p.energia(.6, null)),
+  'animada': ('Animada', (Peticion p) => p.energia(.6, null)),
+  'movidas': ('Movida', (Peticion p) => p.energia(.6, null)),
+  'movida': ('Movida', (Peticion p) => p.energia(.6, null)),
+  'rapidas': ('Rapida', (Peticion p) { p.bpmMin ??= 120; p.energia(.5, null); }),
+  'rapido': ('Rapida', (Peticion p) { p.bpmMin ??= 120; p.energia(.5, null); }),
+  'con todo': ('A tope', (Peticion p) => p.energia(.8, null)),
+  'a tope': ('A tope', (Peticion p) => p.energia(.8, null)),
+  // Orden
+  'que vaya subiendo': ('Subiendo', (Peticion p) => p.orden = Orden.subir),
+  'de menos a mas': ('Subiendo', (Peticion p) => p.orden = Orden.subir),
+  'subiendo': ('Subiendo', (Peticion p) => p.orden = Orden.subir),
+  'de mas a menos': ('Bajando', (Peticion p) => p.orden = Orden.bajar),
+  'bajando': ('Bajando', (Peticion p) => p.orden = Orden.bajar),
+  'mezcla': ('Mezcla DJ', (Peticion p) => p.orden = Orden.dj),
+  'mezcladas': ('Mezcla DJ', (Peticion p) => p.orden = Orden.dj),
+  'estilo dj': ('Mezcla DJ', (Peticion p) => p.orden = Orden.dj),
+  'sin cortes': ('Mezcla DJ', (Peticion p) => p.orden = Orden.dj),
+  'aleatorio': ('Aleatorio', (Peticion p) => p.orden = Orden.aleatorio),
+  'random': ('Aleatorio', (Peticion p) => p.orden = Orden.aleatorio),
+  // Lo que se escucha
+  'lo que mas escucho': ('Lo mas escuchado', (Peticion p) { p.minEscuchas = 2; p.orden = Orden.masEscuchadas; }),
+  'lo mas escuchado': ('Lo mas escuchado', (Peticion p) { p.minEscuchas = 2; p.orden = Orden.masEscuchadas; }),
+  'mas escuchadas': ('Lo mas escuchado', (Peticion p) { p.minEscuchas = 2; p.orden = Orden.masEscuchadas; }),
+  'mi top': ('Lo mas escuchado', (Peticion p) { p.minEscuchas = 2; p.orden = Orden.masEscuchadas; }),
+  'top': ('Lo mas escuchado', (Peticion p) { p.minEscuchas = 2; p.orden = Orden.masEscuchadas; }),
+  'favoritas': ('Me gusta', (Peticion p) => p.favoritas = true),
+  'me gusta': ('Me gusta', (Peticion p) => p.favoritas = true),
+  'me gustan': ('Me gusta', (Peticion p) => p.favoritas = true),
+  'con corazon': ('Me gusta', (Peticion p) => p.favoritas = true),
+  'nunca escuche': ('Sin escuchar', (Peticion p) => p.sinEscuchar = true),
+  'sin escuchar': ('Sin escuchar', (Peticion p) => p.sinEscuchar = true),
+  'no he escuchado': ('Sin escuchar', (Peticion p) => p.sinEscuchar = true),
+  'olvidadas': ('Olvidadas', (Peticion p) { p.olvidadas = true; p.minEscuchas = 2; }),
+  'hace tiempo': ('Olvidadas', (Peticion p) { p.olvidadas = true; p.minEscuchas = 2; }),
+  // Calidad
+  'sin perdida': ('Sin perdida', (Peticion p) => p.calidad = Calidad.sinPerdida),
+  'flac': ('Sin perdida', (Peticion p) => p.calidad = Calidad.sinPerdida),
+  'lossless': ('Sin perdida', (Peticion p) => p.calidad = Calidad.sinPerdida),
+  'hi res': ('Hi-Res', (Peticion p) => p.calidad = Calidad.hiRes),
+  'hires': ('Hi-Res', (Peticion p) => p.calidad = Calidad.hiRes),
+  'alta resolucion': ('Hi-Res', (Peticion p) => p.calidad = Calidad.hiRes),
+  'alta calidad': ('Alta calidad', (Peticion p) => p.calidad ??= Calidad.alta),
+  'buena calidad': ('Alta calidad', (Peticion p) => p.calidad ??= Calidad.alta),
+  // Duracion y fecha
+  'largas': ('Largas (+6 min)', (Peticion p) => p.duracionMin = 360),
+  'largos': ('Largas (+6 min)', (Peticion p) => p.duracionMin = 360),
+  'cortas': ('Cortas (-3 min)', (Peticion p) => p.duracionMax = 180),
+  'cortitas': ('Cortas (-3 min)', (Peticion p) => p.duracionMax = 180),
+  'recien bajadas': ('Recien bajadas', (Peticion p) { p.dias = 14; p.orden = Orden.recientes; }),
+  'lo ultimo que baje': ('Recien bajadas', (Peticion p) { p.dias = 14; p.orden = Orden.recientes; }),
+  'nuevas': ('Recien bajadas', (Peticion p) { p.dias = 14; p.orden = Orden.recientes; }),
+  'de hoy': ('De hoy', (Peticion p) => p.dias = 1),
+  'esta semana': ('Esta semana', (Peticion p) => p.dias = 7),
+  'este mes': ('Este mes', (Peticion p) => p.dias = 31),
+};
+
+/// Generos: sinonimos -> nombre, con su pista de tempo por si no hay etiqueta.
+const Map<String, (String, double, double)> generos = <String, (String, double, double)>{
+  'reggaeton': ('reggaeton', 85, 105), 'regueton': ('reggaeton', 85, 105), 'reguetón': ('reggaeton', 85, 105),
+  'dembow': ('reggaeton', 85, 130), 'trap': ('trap', 130, 160), 'salsa': ('salsa', 160, 220),
+  'cumbia': ('cumbia', 85, 115), 'chicha': ('cumbia', 85, 115), 'bachata': ('bachata', 120, 145),
+  'merengue': ('merengue', 130, 170), 'huayno': ('huayno', 100, 140), 'criolla': ('criolla', 80, 200),
+  'rock': ('rock', 100, 160), 'metal': ('metal', 100, 200), 'electronica': ('electronica', 118, 140),
+  'house': ('house', 118, 130), 'techno': ('techno', 125, 150), 'drum and bass': ('drum and bass', 160, 180),
+  'lofi': ('lofi', 60, 95), 'lo fi': ('lofi', 60, 95), 'rap': ('hip hop', 80, 100), 'hip hop': ('hip hop', 80, 100),
+  'pop': ('pop', 90, 130), 'balada': ('balada', 60, 90), 'baladas': ('balada', 60, 90),
+  'romanticas': ('balada', 60, 100), 'clasica': ('clasica', 0, 999), 'jazz': ('jazz', 0, 999),
+  'kpop': ('kpop', 90, 140), 'k pop': ('kpop', 90, 140), 'anime': ('anime', 0, 999),
+};
+
+const List<String> negaciones = <String>['sin', 'nada de', 'menos', 'excepto', 'que no sea', 'no', 'ni'];
+
+final Map<RegExp, (String Function(Match), Regla Function(Match))> patrones = <RegExp, (String Function(Match), Regla Function(Match))>{
+  RegExp(r' entre (\d{2,3}) y (\d{2,3}) bpm '): (
+    (Match m) => '${m[1]}-${m[2]} BPM',
+    (Match m) => (Peticion p) { p.bpmMin = double.parse(m[1]!); p.bpmMax = double.parse(m[2]!); },
+  ),
+  RegExp(r' (?:a )?(\d{2,3}) bpm '): (
+    (Match m) => '${m[1]} BPM',
+    (Match m) => (Peticion p) { final double b = double.parse(m[1]!); p.bpmMin = b * .97; p.bpmMax = b * 1.03; },
+  ),
+  RegExp(r' mas de (\d{1,2}) min(?:utos)? '): (
+    (Match m) => '+${m[1]} min',
+    (Match m) => (Peticion p) => p.duracionMin = int.parse(m[1]!) * 60,
+  ),
+  RegExp(r' menos de (\d{1,2}) min(?:utos)? '): (
+    (Match m) => '-${m[1]} min',
+    (Match m) => (Peticion p) => p.duracionMax = int.parse(m[1]!) * 60,
+  ),
+  RegExp(r' (\d{1,3}) (?:canciones|temas|rolas) '): (
+    (Match m) => '${m[1]} canciones',
+    (Match m) => (Peticion p) => p.limite = int.parse(m[1]!),
+  ),
+  RegExp(r' (una|1|2|dos|media) horas? '): (
+    (Match m) => m[1] == 'media' ? '30 min' : '${m[1] == 'una' || m[1] == '1' ? 1 : 2} h',
+    (Match m) => (Peticion p) => p.minutos = m[1] == 'media' ? 30 : (m[1] == 'una' || m[1] == '1' ? 60 : 120),
+  ),
+  RegExp(r' (?:de los|anos|los) (?:19)?([5-9]0)s? '): (
+    (Match m) => 'Anos ${m[1]}',
+    (Match m) => (Peticion p) { p.anioMin = 1900 + int.parse(m[1]!); p.anioMax = p.anioMin! + 9; },
+  ),
+  RegExp(r' (?:de los|anos) (2000|2010|2020)s? '): (
+    (Match m) => 'Anos ${m[1]}',
+    (Match m) => (Peticion p) { p.anioMin = int.parse(m[1]!); p.anioMax = p.anioMin! + 9; },
+  ),
+  RegExp(r' del (19[5-9]\d|20[0-3]\d) '): (
+    (Match m) => 'Del ${m[1]}',
+    (Match m) => (Peticion p) { p.anioMin = int.parse(m[1]!); p.anioMax = p.anioMin; },
+  ),
+};
+
+/// Entiende [frase]. [artistas] son los artistas de la biblioteca, ya normalizados.
+Peticion interpretar(String frase, {Set<String> artistas = const <String>{}}) {
+  final Peticion p = Peticion();
+  String t = normalizar(frase);
+
+  void quitar(int inicio, int fin) => t = '${t.substring(0, inicio)} ${t.substring(fin)}';
+
+  bool negado(int inicio) {
+    final String antes = t.substring(0, inicio).trimRight();
+    return negaciones.any((String n) => antes.endsWith(' $n') || antes == n);
+  }
+
+  void quitarNegacion(int inicio) {
+    final String antes = t.substring(0, inicio).trimRight();
+    for (final String n in negaciones) {
+      if (antes.endsWith(' $n')) {
+        t = '${antes.substring(0, antes.length - n.length)} ${t.substring(inicio)}';
+        return;
+      }
+    }
+  }
+
+  // 1. Numeros (bpm, minutos, cuantas, anios): antes que nada.
+  for (final MapEntry<RegExp, (String Function(Match), Regla Function(Match))> e in patrones.entries) {
+    Match? m;
+    while ((m = e.key.firstMatch(t)) != null) {
+      e.value.$2(m!)(p);
+      p.entendido.add(e.value.$1(m));
+      quitar(m.start, m.end - 1);
+    }
+  }
+  // 2. Artistas de la biblioteca, el nombre mas largo primero.
+  final List<String> porLargo = artistas.where((String a) => a.length >= 3).toList()
+    ..sort((String a, String b) => b.length.compareTo(a.length));
+  for (final String a in porLargo) {
+    final int i = t.indexOf(' $a ');
+    if (i < 0) continue;
+    if (negado(i)) {
+      p.sinArtistas.add(a);
+      p.entendido.add('Sin $a');
+      quitar(i, i + a.length + 1);
+      quitarNegacion(i);
+    } else {
+      p.artistas.add(a);
+      p.entendido.add('De $a');
+      quitar(i, i + a.length + 1);
+    }
+  }
+  // 3. Frases fijas, de la mas larga a la mas corta («sin perdida» antes que «sin»).
+  final List<String> claves = <String>[...reglas.keys, ...generos.keys]
+    ..sort((String a, String b) => b.length.compareTo(a.length));
+  for (final String c in claves) {
+    final int i = t.indexOf(' $c ');
+    if (i < 0) continue;
+    if (generos.containsKey(c)) {
+      final String g = generos[c]!.$1;
+      if (negado(i)) {
+        p.sinGeneros.add(g);
+        p.entendido.add('Sin $g');
+        quitarNegacion(i);
+      } else {
+        p.generos.add(g);
+        p.entendido.add(g[0].toUpperCase() + g.substring(1));
+      }
+    } else {
+      final (String etiqueta, Regla regla) = reglas[c]!;
+      regla(p);
+      if (!p.entendido.contains(etiqueta)) p.entendido.add(etiqueta);
+    }
+    final int j = t.indexOf(' $c ');
+    if (j >= 0) quitar(j, j + c.length + 1);
+  }
+  return p;
+}

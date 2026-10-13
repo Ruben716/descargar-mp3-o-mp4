@@ -17,6 +17,7 @@ import 'pantalla_biblioteca.dart';
 import 'pantalla_descarga.dart';
 import 'pantalla_inicio.dart';
 import 'pantalla_ver.dart';
+import 'ritmos.dart';
 import 'suscripciones.dart';
 import 'tema.dart';
 import 'volumen_parejo.dart';
@@ -69,6 +70,8 @@ Future<void> main() async {
     }),
   );
   unawaited(Favoritas.instancia.cargar());
+  // El pulso y la energia de lo ya analizado, para el DJ y «Pidele».
+  unawaited(Ritmos.instancia.cargar());
   // Como se bajo lo ultimo, para no tener que elegirlo otra vez.
   unawaited(ControlDescarga.instancia.recuperarAjustes());
   // Sin esperarla: deja la cola como estaba, parada, mientras la app abre.
@@ -129,6 +132,8 @@ class _InicioState extends State<Inicio>
     Nucleo.enlaceCompartido.addListener(_alRecibirEnlace);
     Nucleo.recogerCompartido();
     Navegacion.pestanaPedida.addListener(_alPedirPestana);
+    // Una busqueda pedida desde Explorar tambien lleva a Descargar.
+    Navegacion.busquedaPedida.addListener(_alPedirBusqueda);
     unawaited(_atenderAtajo());
     // Lo de fondo, cuando la app ya esta abierta y no le roba tiempo al arranque.
     if (tareasDeFondo) {
@@ -152,6 +157,10 @@ class _InicioState extends State<Inicio>
     if (pestana != null && mounted) _irA(pestana);
   }
 
+  void _alPedirBusqueda() {
+    if (Navegacion.busquedaPedida.value != null && mounted) _irA(Navegacion.descargar);
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Con la app ya abierta, lo compartido llega al volver a primer plano.
@@ -172,6 +181,7 @@ class _InicioState extends State<Inicio>
     WidgetsBinding.instance.removeObserver(this);
     Nucleo.enlaceCompartido.removeListener(_alRecibirEnlace);
     Navegacion.pestanaPedida.removeListener(_alPedirPestana);
+    Navegacion.busquedaPedida.removeListener(_alPedirBusqueda);
     _cambio.dispose();
     super.dispose();
   }

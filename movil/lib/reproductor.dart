@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import 'calidad.dart';
 import 'catalogo.dart';
+import 'dj.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'gestos.dart';
@@ -22,6 +23,7 @@ import 'portadas.dart';
 import 'hoja_fundido.dart';
 import 'hoja_mejor_calidad.dart';
 import 'posiciones.dart';
+import 'ritmos.dart';
 import 'tema.dart';
 import 'video_pro.dart';
 
@@ -306,6 +308,29 @@ class _AudioState extends State<_Audio> {
     );
   }
 
+  /// El tempo de lo que suena y si va en una mezcla DJ. Nada si no se sabe.
+  Widget _ritmo() {
+    return ListenableBuilder(
+      listenable: Ritmos.instancia,
+      builder: (BuildContext context, _) {
+        final String? bpm = Ritmos.instancia.rasgosDe(widget.elemento.uri)?.textoBpm;
+        final ModoDj? modo = _estado.modoDj;
+        if (bpm == null && modo == null) return const SizedBox.shrink();
+        final String alCompas = _estado.alCompas ? ' · al compas' : '';
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            <String>[
+              if (modo != null) 'Mezcla DJ ${modo.titulo.toLowerCase()}$alCompas',
+              ?bpm,
+            ].join('  ·  '),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 11, letterSpacing: 0.3),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AudioPlayer motor = _estado.motor;
@@ -369,6 +394,7 @@ class _AudioState extends State<_Audio> {
                     ),
                   ],
                   _sello(widget.elemento.nombre),
+                  _ritmo(),
                   const SizedBox(height: 18),
           StreamBuilder<Duration>(
             stream: motor.positionStream,

@@ -76,6 +76,14 @@ class _PantallaListaAutoState extends State<PantallaListaAuto> {
                         style: const TextStyle(color: Colors.white54, fontSize: 12),
                       ),
                     ),
+                    if (pistas.length >= 3) ...<Widget>[
+                      IconButton.filledTonal(
+                        tooltip: 'Mezcla DJ',
+                        onPressed: () => EstadoReproductor.instancia.reproducirDj(pistas),
+                        icon: const Icon(Icons.queue_music_rounded),
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                     IconButton.filledTonal(
                       tooltip: 'Aleatorio',
                       onPressed: () => EstadoReproductor.instancia.reproducirAleatorio(pistas),

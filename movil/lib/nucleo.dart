@@ -123,6 +123,18 @@ class Nucleo {
     }
   }
 
+  /// Pulso, energia y sonoridad de una cancion, en una pasada de FFmpeg.
+  ///
+  /// null si no se pudo: la cancion se queda sin analizar y se usa el
+  /// fundido de siempre.
+  static Future<Map<String, dynamic>?> analizarAudio(String uri) async {
+    try {
+      return await _pedir('analizarAudio', <String, dynamic>{'uri': uri});
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Guarda la copia de seguridad en Descargas/Tumbao. Devuelve donde quedo.
   static Future<String> guardarCopia(String nombre, String contenido) async {
     final Map<String, dynamic> datos = await _pedir(

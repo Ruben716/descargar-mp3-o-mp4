@@ -214,6 +214,10 @@ class MainActivity : AudioServiceActivity() {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> medirVolumen(puente, uri) }
                     }
+                    "analizarAudio" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        enHilo(respuesta) { puente -> analizarAudio(puente, uri) }
+                    }
                     "guardarCopia" -> {
                         val nombre = llamada.argument<String>("nombre").orEmpty()
                         val contenido = llamada.argument<String>("contenido").orEmpty()
@@ -432,6 +436,30 @@ class MainActivity : AudioServiceActivity() {
             puente.callAttr("medir_volumen", copia.absolutePath).toString()
         } catch (error: Exception) {
             fallo("No se pudo medir: ${error.message}")
+        } finally {
+            copia.delete()
+        }
+    }
+
+    /**
+     * Pulso, energia y sonoridad de una cancion, para el DJ automatico.
+     *
+     * Como [medirVolumen], sobre una copia en la cache, pero con otro nombre:
+     * las dos colas pueden coincidir y no deben pisarse el archivo. El hilo va
+     * con prioridad de fondo, que la musica que suena no se entrecorte.
+     */
+    private fun analizarAudio(puente: PyObject, uri: String): String {
+        if (uri.isEmpty()) return fallo("Falta la cancion.")
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        val copia = File(cacheDir, "analizar_audio.tmp")
+        return try {
+            val entrada = contentResolver.openInputStream(Uri.parse(uri))
+                ?: return fallo("No se pudo abrir la cancion.")
+            entrada.use { origen -> copia.outputStream().use { destino -> origen.copyTo(destino) } }
+            asegurarFfmpeg(puente)
+            puente.callAttr("analizar_audio", copia.absolutePath).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo analizar: ${error.message}")
         } finally {
             copia.delete()
         }
