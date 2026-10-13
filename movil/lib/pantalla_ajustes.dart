@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import 'copia_seguridad.dart';
 import 'dialogos.dart';
 import 'hoja_ecualizador.dart';
+import 'hoja_dj.dart';
 import 'hoja_fundido.dart';
 import 'nucleo.dart';
 import 'suscripciones.dart';
+import 'ritmos.dart';
 import 'tema.dart';
 import 'volumen_parejo.dart';
 
@@ -186,6 +188,20 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
             title: const Text('Fundido entre canciones'),
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => abrirFundido(context),
+          ),
+          ListenableBuilder(
+            listenable: Ritmos.instancia,
+            builder: (BuildContext context, _) => ListTile(
+              leading: const Icon(Icons.queue_music_rounded),
+              title: const Text('DJ automatico'),
+              subtitle: Text(
+                'Mezclas que fluyen y fundido al compas. '
+                '${Ritmos.instancia.analizadas} analizadas'
+                '${Ritmos.instancia.pendientes > 0 ? ' · analizando ${Ritmos.instancia.pendientes}...' : ''}',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => abrirDj(context),
+            ),
           ),
           const _Titulo('LISTAS QUE SIGUES'),
           ListenableBuilder(listenable: _suscripciones, builder: (BuildContext context, _) => _listasQueSigues()),

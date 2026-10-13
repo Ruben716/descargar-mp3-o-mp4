@@ -73,6 +73,13 @@ class Dj {
     return 1;
   }
 
+  /// Cuanto se diferencian dos canciones, de 0 (iguales) a 1, en tempo y en
+  /// energia bruta. Sin analizar, 0,5: ni se parecen ni dejan de parecerse.
+  static double diferencia(Rasgos? a, Rasgos? b) {
+    if (a == null || b == null) return 0.5;
+    return (0.6 * costeTempo(a, b) + 0.4 * (a.energia - b.energia).abs()).clamp(0.0, 1.0);
+  }
+
   /// Percentil de energia de cada cancion dentro de la lista (0..1).
   static Map<String, double> percentiles(List<PistaDj> pistas) {
     final List<PistaDj> medidas = pistas.where((PistaDj p) => p.rasgos != null).toList()

@@ -355,6 +355,26 @@ def medir_volumen(ruta: str) -> str:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
+def analizar_audio(ruta: str) -> str:
+    """Pulso, energia y sonoridad de una cancion, para el DJ automatico.
+
+    Una sola pasada de FFmpeg (ver ritmo.py) que da tambien los LUFS: el
+    volumen parejo los aprovecha y no hace falta medir dos veces.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return _respuesta({"ok": False, "error": "FFmpeg no esta disponible."})
+    try:
+        import ritmo
+
+        datos = ritmo.analizar(ruta, ffmpeg=ffmpeg)
+        return _respuesta({"ok": True, **datos})
+    except subprocess.TimeoutExpired:
+        return _respuesta({"ok": False, "error": "El analisis tardo demasiado."})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
 def etiquetar(origen: str, destino: str, titulo: str, artista: str, nombre: str) -> str:
     """Reescribe titulo y artista de un audio ya descargado.
 

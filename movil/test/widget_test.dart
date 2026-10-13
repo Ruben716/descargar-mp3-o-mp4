@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
 import 'package:descargador_movil/ritmos.dart';
+import 'package:descargador_movil/dj.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
@@ -2963,6 +2964,84 @@ void main() {
       await tester.pumpAndSettle();
       expect(EstadoReproductor.instancia.fundido, const Duration(seconds: 4));
       expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, '4 s')).selected, isTrue);
+    });
+  });
+
+  group('dj en el reproductor', () {
+    /// Seis canciones con artista distinto y energia creciente al reves.
+    final List<Elemento> seis = <Elemento>[
+      for (int i = 0; i < 6; i++)
+        Elemento(nombre: 'Grupo$i - Tema$i.mp3', uri: 'content://audio/$i', duracion: 200, tamano: 1, audio: true),
+    ];
+    final Map<String, Rasgos> rasgos = <String, Rasgos>{
+      for (int i = 0; i < 6; i++)
+        'content://audio/$i': Rasgos(
+          bpm: 120,
+          confianza: .5,
+          energia: 1 - i / 6,
+          pulsoInicioMs: 1000,
+          pulsoFinMs: 190000,
+        ),
+    };
+
+    testWidgets('una mezcla subiendo suena de lo suave a lo movido', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(rasgos);
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() => estado.reproducirDj(seis, modo: ModoDj.subir));
+      expect(estado.cola.map((Elemento e) => e.uri).toList(), <String>[
+        for (int i = 5; i >= 0; i--) 'content://audio/$i',
+      ]);
+      expect(estado.modoDj, ModoDj.subir);
+      expect(estado.motor.audioSources.whereType<ClippingAudioSource>(), isEmpty,
+          reason: 'sin el modo al compas no se recorta nada');
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('al compas, lo analizado se recorta en el pulso', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(<String, Rasgos>{
+        'content://audio/0': rasgos['content://audio/0']!,
+      });
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() async {
+        await estado.ponerFundido(const Duration(seconds: 8));
+        await estado.ponerAlCompas(true);
+        await estado.reproducirLista(seis.take(2).toList(), 0);
+      });
+      final List<AudioSource> fuentes = estado.motor.audioSources;
+      expect(fuentes.first, isA<ClippingAudioSource>());
+      final ClippingAudioSource recortada = fuentes.first as ClippingAudioSource;
+      expect(recortada.start, const Duration(milliseconds: 980));
+      expect(recortada.end, const Duration(milliseconds: 190500));
+      expect(fuentes.last, isNot(isA<ClippingAudioSource>()), reason: 'la sin analizar suena entera');
+      expect((await SharedPreferences.getInstance()).getBool(EstadoReproductor.claveAlCompas), isTrue);
+
+      // Al quitarlo se rehace la cola y vuelve a sonar entera.
+      await tester.runAsync(() => estado.ponerAlCompas(false));
+      expect(estado.motor.audioSources.whereType<ClippingAudioSource>(), isEmpty);
+      expect(estado.actual?.elemento?.uri, 'content://audio/0');
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('ordenar la cola como DJ deja delante la que suena', (WidgetTester tester) async {
+      Ritmos.instancia.ponerParaPruebas(rasgos);
+      final EstadoReproductor estado = EstadoReproductor.instancia;
+      await tester.runAsync(() async {
+        await estado.reproducirLista(seis, 2);
+        await estado.ordenarColaDj(ModoDj.bajar);
+      });
+      final List<String> cola = estado.cola.map((Elemento e) => e.uri).toList();
+      expect(cola.first, 'content://audio/2');
+      expect(cola.toSet().length, 6);
+      expect(estado.modoDj, ModoDj.bajar);
+      await tester.runAsync(estado.motor.pause);
+    });
+
+    testWidgets('la hoja de fundido tiene el interruptor al compas', (WidgetTester tester) async {
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const Scaffold(body: HojaFundido())));
+      expect(find.text('Apagado'), findsOneWidget, reason: 'sin otra ficha Apagado');
+      await tester.tap(find.text('Al compas (modo DJ)'));
+      await tester.pumpAndSettle();
+      expect(EstadoReproductor.instancia.alCompas, isTrue);
     });
   });
 

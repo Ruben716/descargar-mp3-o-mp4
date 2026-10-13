@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'estado_reproductor.dart';
+import 'nucleo.dart';
+import 'ritmos.dart';
 import 'tema.dart';
 
 /// Elegir cuanto se funde una cancion con la siguiente.
@@ -25,9 +27,11 @@ class HojaFundido extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
         child: ListenableBuilder(
-          listenable: estado,
+          listenable: Listenable.merge(<Listenable>[estado, Ritmos.instancia]),
           builder: (BuildContext context, _) {
             final int elegido = estado.fundido.inSeconds;
+            final List<String> cola = <String>[for (final Elemento e in estado.cola) e.uri];
+            final int faltan = Ritmos.instancia.faltanDe(cola);
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -56,6 +60,33 @@ class HojaFundido extends StatelessWidget {
                       ),
                   ],
                 ),
+                const SizedBox(height: 10),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: estado.alCompas,
+                  onChanged: estado.ponerAlCompas,
+                  title: const Text('Al compas (modo DJ)'),
+                  subtitle: const Text(
+                    'Corta en el ultimo pulso y la siguiente entra con su primer '
+                    'golpe. Necesita canciones analizadas.',
+                    style: TextStyle(color: Tema.textoTenue, height: 1.3),
+                  ),
+                ),
+                if (estado.alCompas && faltan > 0)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: Ritmos.instancia.trabajando
+                          ? null
+                          : () => Ritmos.instancia.analizarTodas(cola, urgente: true),
+                      icon: const Icon(Icons.graphic_eq_rounded),
+                      label: Text(
+                        Ritmos.instancia.trabajando
+                            ? 'Analizando, quedan ${Ritmos.instancia.pendientes}'
+                            : 'Analizar la cola ($faltan sin analizar)',
+                      ),
+                    ),
+                  ),
               ],
             );
           },
