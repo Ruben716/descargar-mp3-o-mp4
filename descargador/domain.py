@@ -202,7 +202,9 @@ class AudioQuality:
     codec: str
     kbps: float | None = None
     hz: int | None = None
-    #: Bits por muestra. Solo se sabe leyendo el archivo sin pérdida ya bajado.
+    #: Bits por muestra. Casi siempre solo se sabe leyendo el archivo sin
+    #: pérdida ya bajado; el Archive es la excepción, porque llama «24bit Flac»
+    #: a ese formato y lo dice al buscar.
     bits: int | None = None
 
     @property

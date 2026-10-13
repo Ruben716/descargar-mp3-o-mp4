@@ -107,8 +107,40 @@ PREFIJOS_BUSQUEDA = {"youtube": "ytsearch", "soundcloud": "scsearch"}
 #: «etree» son conciertos que los grupos dejan compartir; «netlabels», sellos
 #: que publican gratis (mucha electrónica); «georgeblood», el Great 78
 #: Project, discos de pizarra de 1900 a 1960 digitalizados. Solo se piden
-#: fichas con FLAC: lo demás que se puede buscar ya llega comprimido.
+#: fichas sin pérdida: lo demás que se puede buscar ya llega comprimido.
 COLECCIONES_ARCHIVE = ("etree", "netlabels", "georgeblood")
+
+#: Fuera de esas colecciones, lo que declara una licencia libre en «licenseurl».
+#:
+#: Así entran Musopen, las Open Goldberg y los netlabels que no cuelgan de
+#: «netlabels», y se quedan fuera las colecciones de derechos dudosos, que no
+#: declaran ninguna. Van con comodines y sin «/», porque con una barra dentro
+#: del comodín su buscador da error (medido por orbitape).
+LICENCIAS_ARCHIVE = ("creativecommons", "publicdomain")
+
+#: Los formatos sin pérdida que se buscan, como los nombra el Archive.
+#:
+#: «24bit Flac» se pide con «24bit*» y no entre comillas: el comodín cubre ese
+#: nombre lo trate el buscador como palabras sueltas o como una sola.
+FORMATOS_ARCHIVE = ("FLAC", "24bit*", "WAVE")
+
+
+def calidad_archive(formatos: object) -> AudioQuality | None:
+    """La calidad de una ficha del Archive según los formatos que dice tener.
+
+    Es la única fuente que dice los bits antes de bajar nada: al FLAC de 24
+    bits lo llama «24bit Flac», con ese nombre oficial. El motor baja el
+    original, que es ese cuando lo hay.
+    """
+    lista = formatos if isinstance(formatos, list) else [formatos]
+    nombres = {str(f).strip().lower() for f in lista if f}
+    if "24bit flac" in nombres:
+        return AudioQuality("flac", bits=24)
+    if "flac" in nombres:
+        return AudioQuality("flac")
+    if "wave" in nombres:
+        return AudioQuality("wav")
+    return None
 
 #: La API pública de Jamendo: música con licencia Creative Commons.
 JAMENDO_API = "https://api.jamendo.com/v3.0"
@@ -741,8 +773,9 @@ def _consultar(direccion: str, fuente: str, cuerpo: bytes | None = None,
 def cabecera_sin_perdida(ruta: Path) -> tuple[int, int] | None:
     """Frecuencia y bits reales de un FLAC o un WAV, leídos de su cabecera.
 
-    Es lo que separa un CD (16 bits, 44,1 kHz) de un Hi-Res de verdad, y no
-    lo dice ninguna web al buscar: solo el archivo, una vez bajado.
+    Es lo que separa un CD (16 bits, 44,1 kHz) de un Hi-Res de verdad, y casi
+    ninguna web lo dice al buscar (el Archive sí, con su «24bit Flac»): lo
+    dice el archivo, una vez bajado.
     """
     try:
         with open(ruta, "rb") as archivo:
@@ -1164,34 +1197,34 @@ class YtDlpDownloader:
         if not texto:
             raise DownloadError("Escribe algo que buscar en el Archive.")
         colecciones = " OR ".join(COLECCIONES_ARCHIVE)
+        licencias = " OR ".join(f"licenseurl:*{licencia}*" for licencia in LICENCIAS_ARCHIVE)
+        formatos = " OR ".join(f"format:{formato}" for formato in FORMATOS_ARCHIVE)
         consulta = (
-            f"collection:({colecciones}) AND format:FLAC "
+            # Los conciertos de «etree» no son «audio» para el Archive, sino
+            # «etree»: sin nombrarlo, se quedaría fuera la colección entera.
+            f"mediatype:(audio OR etree) AND ({formatos}) "
+            f"AND (collection:({colecciones}) OR {licencias}) "
             f"AND (title:({texto}) OR creator:({texto}))"
         )
         direccion = "https://archive.org/advancedsearch.php?" + urlencode(
             {
                 "q": consulta,
-                # doseq para que los tres campos viajen como «fl[]» repetido,
-                # que es como los pide su API.
-                "fl[]": ["identifier", "title", "creator"],
+                # doseq para que los campos viajen como «fl[]» repetido, que
+                # es como los pide su API. «format» dice si hay 24 bits.
+                "fl[]": ["identifier", "title", "creator", "format"],
                 "rows": query.limit,
                 "output": "json",
             },
             doseq=True,
         )
-        try:
-            peticion = Request(direccion, headers={"User-Agent": "descargador"})
-            with urlopen(peticion, timeout=30) as respuesta:
-                datos = json.loads(respuesta.read().decode("utf-8"))
-            documentos = datos.get("response", {}).get("docs", [])
-        except (OSError, ValueError) as exc:
-            raise DownloadError(f"No se pudo buscar en el Archive: {exc}") from exc
-
+        datos = _consultar(direccion, "el Archive", cabeceras={"User-Agent": "descargador"})
+        documentos = (datos.get("response") or {}).get("docs") or []
         return tuple(
             VideoInfo(
                 title=str(doc.get("title") or doc["identifier"]),
                 uploader=str(doc.get("creator") or ""),
                 url=f"https://archive.org/details/{doc['identifier']}",
+                quality=calidad_archive(doc.get("format")),
             )
             for doc in documentos
             if doc.get("identifier")

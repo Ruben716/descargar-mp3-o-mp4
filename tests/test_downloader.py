@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import Mock, patch
+from urllib.parse import unquote_plus
 
 from descargador.application import (
     CheckQuality,
@@ -1577,6 +1578,47 @@ class JamendoTests(unittest.TestCase):
             with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
                 elegido = motor.process_ie_result(dict(info), download=False)
             self.assertEqual(elegido["format_id"], esperado, msg=formato)
+
+
+class ArchiveAmpliadoTests(unittest.TestCase):
+    """El Archive: todo lo de licencia libre, y los 24 bits dichos al buscar."""
+
+    def _buscar(self, *documentos):
+        respuesta = _Json({"response": {"docs": list(documentos)}})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_archive(SearchQuery("bach", source="archive"))
+        return resultados, unquote_plus(red.call_args.args[0].full_url)
+
+    def test_los_24_bits_se_saben_antes_de_bajar(self):
+        resultados, _ = self._buscar(
+            {"identifier": "hires", "title": "Goldberg", "creator": "Ishizaka",
+             "format": ["24bit Flac", "Flac", "VBR MP3", "Metadata"]},
+            {"identifier": "cd", "title": "Partita", "format": ["Flac", "Ogg Vorbis"]},
+            {"identifier": "wav", "title": "Toma", "format": "WAVE"},
+        )
+        self.assertEqual([r.quality for r in resultados],
+                         [AudioQuality("flac", bits=24), AudioQuality("flac"), AudioQuality("wav")])
+        self.assertEqual(resultados[0].url, "https://archive.org/details/hires")
+
+    def test_entra_lo_que_declara_una_licencia_libre_ademas_de_las_colecciones(self):
+        _, consulta = self._buscar()
+        self.assertIn("licenseurl:*creativecommons*", consulta)
+        self.assertIn("licenseurl:*publicdomain*", consulta)
+        # Con una barra dentro del comodín su buscador da error.
+        self.assertNotIn("licenseurl:*/", consulta)
+        self.assertIn("collection:(etree OR netlabels OR georgeblood)", consulta)
+        # Los conciertos de etree no son «audio» para el Archive.
+        self.assertIn("mediatype:(audio OR etree)", consulta)
+        self.assertIn("format:24bit*", consulta)
+        self.assertIn("fl[]=format", consulta, msg="sin el formato no se sabrían los 24 bits")
+
+    def test_un_fallo_de_red_se_sigue_contando(self):
+        with (
+            patch("descargador.infrastructure.urlopen", side_effect=OSError("sin red")),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_archive(SearchQuery("bach", source="archive"))
+        self.assertIn("No se pudo buscar en el Archive", str(fallo.exception))
 
 
 def _pagina_commons(titulo: str, *, indice: int = 1, mime: str = "audio/x-flac",
