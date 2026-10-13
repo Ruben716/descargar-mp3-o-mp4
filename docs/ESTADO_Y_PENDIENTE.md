@@ -91,45 +91,18 @@ Datos medidos en `docs/investigacion/portadas.json`. Lo que hay que cambiar en
 - **Para incrustar** en el audio: limitar a **1400-1600 px** en JPEG (unos 300-600 KB). La grande, para la pantalla
   del reproductor. Un PNG de 1400 px pesa 2-3,5 MB, así que conviene recomprimir a JPEG.
 
-### 3.2 Nuevas secciones y mejor distribución
-Plan completo en `docs/investigacion/secciones.json`. Lo esencial:
-
-**Inicio, de arriba abajo:**
-1. Cabecera igual que hoy, más un icono «Explorar».
-2. Barra **«Pídele a Tumbao»**, con un ejemplo que cambia con la hora.
-3. **Accesos rápidos** en rejilla de 2×3: Me gusta, Lo más escuchado, Sin pérdida, la última lista, Tu radio y el
-   Mix del artista más oído.
-4. Continuar escuchando (igual).
-5. **Hecho para ti**: Mix diario 1 a 3 (semilla = fecha del día), Redescubre (favoritas que no suenan desde hace
-   30 días), Sin escuchar todavía.
-6. **Recién descargado**, con el sello de calidad.
-7. **Tus mixes**: «Mix de <artista>» y, cuando el DJ haya analizado la biblioteca, Para moverse / Tranqui /
-   Para concentrarte.
-8. **Radio favorita** + tarjeta Radio en vivo.
-9. Lo que más oyes, **Sin pérdida**, **Episodios a medias** y Tus listas.
-10. Tarjeta final «Explora radio, podcasts y música libre».
-
-**Pantalla Explorar** (`pantalla_explorar.dart`), que se abre con `Navigator.push` y **no** como pestaña, para no
-romper pruebas: categorías de colores para Radio, Podcasts, Sin pérdida, Música libre (Jamendo, Commons, ccMixter),
-Sesiones de DJ, Conciertos (Archive), YouTube Music y géneros.
-
-**Cuidado con las pruebas** (`movil/test/widget_test.dart`): 57 abren la app entera. Las etiquetas «Inicio»,
-«Descargar» y «Biblioteca» y los índices 0, 1 y 2 **no se pueden cambiar**: el ayudante `abrir()` busca
-`find.text('Descargar').last`. Y en la pantalla Descargar no puede aparecer un texto exacto «Biblioteca».
-
-### 3.3 DJ automático y «Pídele a Tumbao» (sin coste)
-Investigado y con un **prototipo que funciona**: `docs/pendiente/dj_prototipo/` (`ritmo2.py.txt`, con sus pruebas en
-`test_ritmo.py.txt`; llevan `.txt` para que ruff no los revise hasta integrarlos), y el diseño completo en `docs/investigacion/dj.json` (con su crítica en `critica_dj.json`).
-Medido en un PC: unos 3 s por canción de 4 minutos. En un móvil se estiman 4-6 s en gama media y 12-20 s en gama
-baja, así que conviene analizar en segundo plano y por lotes. El plan:
-- **BPM y energía de cada canción en el propio teléfono, sin numpy**: FFmpeg decodifica a mono y a pocos hercios;
-  Python calcula la energía cada 10 ms, el flujo de ataques y la autocorrelación entre 60 y 200 BPM, corrigiendo
-  el doble o la mitad. Se guarda en el catálogo SQLite (subir a la versión 9) y se calcula en segundo plano.
-- **Orden DJ**: ordenar la cola para que el tempo y la energía fluyan, con la opción de subir la energía.
-- **Fundido al compás**: alinear el fundido que ya existe (`_aplicarFundido` en `estado_reproductor.dart`) con el pulso.
-- **Pídele a Tumbao offline**: frases en castellano convertidas en filtros sobre la biblioteca («algo tranquilo para
-  dormir», «reggaetón para entrenar», «lo que más escucho de X», «canciones largas», «sin pérdida»).
-- Pruebas sin red, con audio sintético generado con `ffmpeg -f lavfi`.
+### 3.2 y 3.3 Inicio nuevo, Explorar, DJ automático y «Pídele a Tumbao»: HECHO
+Integrado el 13 de octubre de 2026 (ver CLAUDE.md, «Trampas conocidas»):
+- **Inicio**: pastilla Pídele, accesos rápidos, Hecho para ti (Mix diario, Redescubre, Sin escuchar, Tu repetición),
+  Recién descargado, Tus mixes (por artista y por ánimo cuando hay análisis), Radio favorita, Sin pérdida,
+  Episodios a medias y tarjeta Explorar (`pantalla_inicio.dart`, `secciones_inicio.dart`, `hecho_para_ti.dart`,
+  `pantalla_mix.dart`). **Explorar** (`pantalla_explorar.dart`) se abre encima, no es pestaña.
+- **DJ**: `ritmo.py` + `analizar_audio` (puente) + `analizarAudio` (Kotlin) + `ritmos.dart` (catálogo v9) +
+  `dj.dart` (orden y corte al compás) + `hoja_dj.dart`. Mezcla DJ en la cola, las listas y los mixes.
+- **Pídele**: `pidele.dart` (reglas, sin red) y `pantalla_pidele.dart`.
+- **Falta comprobar en un teléfono de verdad**: el corte al compás (`ClippingAudioSource`) y cuánto tarda el
+  análisis por canción en cada modelo. La tonalidad (Camelot) sigue sin calcularse: el orden la acepta si algún
+  día se guarda.
 
 ### 3.4 Otras ideas que quedaron fuera
 - **Android Auto**: exige pasar de `just_audio_background` a `audio_service`, con un árbol navegable. Mucho trabajo
