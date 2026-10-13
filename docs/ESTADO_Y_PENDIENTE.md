@@ -39,72 +39,44 @@ El APK de prueba se publica solo en
 
 ---
 
-## 2. A medias: hecho por los agentes pero todavía SIN juntar
+## 2. Recién integrado (rediseño azul y proveedores nuevos)
 
-Dos agentes trabajaron en copias aisladas del código. Su trabajo está guardado como parches en
-`docs/pendiente/`, porque esas copias viven en el contenedor y se pierden si se cierra la sesión.
+Lo construyeron dos agentes en paralelo, lo revisó un tercero que buscaba fallos, y luego se juntó, se corrigió
+lo que encontró el revisor y se probó contra internet real con la **Prueba de red**.
 
-| Parche | Qué trae | Estado |
-|---|---|---|
-| `docs/pendiente/diseno_commits.patch` | Rediseño azul y negro (7 commits) | Listo para aplicar y revisar |
-| `docs/pendiente/proveedores_commits.patch` | Fuentes nuevas de alta calidad (10 commits, con la Prueba de red y CLAUDE.md al día) | Listo para aplicar y revisar |
+### 2.1 Rediseño azul y negro
+- Paleta nueva fijada en `movil/lib/tema.dart`: fondo `#05070D`, superficie `#0C1322`, acento azul eléctrico
+  `#4D94FF`, cian hielo `#45C8FF`, tinta `#040814`, oro `#FFC857` para los sellos de sin pérdida. Nada sale violeta,
+  y una prueba lo comprueba.
+- Contrastes WCAG comprobados por otra prueba: el texto tenue pasa de 3,5:1 a 4,7:1 o más.
+- **Logo nuevo**: degradado azul #45C8FF → #3A7BFF → #2563FF con la figura en tinta. Se regenera con
+  `python movil/herramientas/generar_icono.py` y `dart run flutter_launcher_icons`.
+- Resplandor azul en las cabeceras, cifras tabulares, barra de navegación con filete, y atajos, widget y pantalla de
+  arranque de Android en azul. En Android 12 o superior ya no sale el fogonazo blanco (`values-v31`).
+- Arreglos del revisor:
+  - botón grande del reproductor con dos tonos de la carátula;
+  - corazón de «Me gusta» que se distingue del sin marcar;
+  - pista de los deslizadores al 3:1;
+  - fichas que siguen el tinte de la carátula.
 
-### Cómo aplicarlos
-
-```bash
-git checkout claude/music-listening-features-srfqv4
-git pull
-git am docs/pendiente/proveedores_commits.patch   # primero el núcleo
-git am docs/pendiente/diseno_commits.patch        # luego la app
-# Si «git am» choca en un archivo: arreglar el conflicto, «git add» y «git am --continue».
-```
-
-Después hay que pasar todas las comprobaciones (sección 6) y, para las fuentes nuevas, la **Prueba de red**.
-
-### 2.1 Rediseño azul y negro (`diseno_commits.patch`)
-Commits, del primero al último:
-1. Tema azul y negro con el esquema de color fijado, para que nada salga violeta.
-2. Los colores sueltos pasan a los tokens del tema.
-3. El texto pequeño de apoyo se lee con el gris tenue (contraste WCAG AA).
-4. Cifras tabulares en el contador y en el sello de calidad.
-5. Resplandor azul detrás de la cabecera de Inicio y Biblioteca.
-6. Atajos, widget y arranque de Android en azul y negro.
-7. El icono pasa al degradado azul de la marca (#45C8FF → #3A7BFF → #2563FF, figura en tinta #040814).
-
-La paleta completa, con su hex y su uso, está en `docs/investigacion/diseno.json`. Principales tokens:
-fondo `#05070D`, superficie `#0C1322`, superficieAlta `#152036`, acento `#4D94FF`, acentoHielo `#45C8FF`,
-tinta `#040814`, oro `#FFC857` (sellos de sin pérdida), peligro `#FF5D5D` y exito `#57D9A3`.
-
-**Revisar al aplicarlo.** El crítico encontró esto antes de que se construyera; ver
-`docs/investigacion/critica_diseno.json`:
-- **No** cambiar `_BotonGrande` de `reproductor.dart` a `[secondary, primary]`: con portadas azules sale casi gris.
-  Mantener `[primary, tertiary]`.
-- Arranque de Android 12 o superior: faltan `values-v31/styles.xml` y `values-night-v31/styles.xml`
-  (`android:windowSplashScreenBackground` = `#05070D`). Sin ellos sigue saliendo un fogonazo blanco al abrir.
-- `generar_icono.py`: nada de varias sentencias en una línea con `;`, porque ruff da E702 y rompe el CI.
-- Los colores que usa `ListaAuto` tienen que ser `static const` en `Tema` (`meGusta`, `exito`, `oro`…).
-- El botón «Eliminar» del diálogo de borrado de `pantalla_biblioteca.dart` debe ir en `Tema.peligro`.
-- Los `ChoiceChip` que fijan `selectedColor` a mano (biblioteca, hoja_ajustes, descarga) hay que cambiarlos ahí.
-
-### 2.2 Proveedores nuevos (`proveedores_commits.patch`)
-1. Los fallos de `http.client` también salen como `DownloadError` (antes una cabecera enorme rompía la app).
-2. Escuchar antes de bajar acepta formatos sin protocolo declarado.
-3. **Wikimedia Commons** (`commons`): FLAC y WAV con licencia libre, bajando el original y no la copia Ogg.
-4. **Internet Archive** busca todo lo de licencia libre y dice si es FLAC de 24 bits.
-5. **ccMixter** (`ccmixter`), con un extractor propio.
-6. **YouTube Music** (`ytmusic`): solo canciones, con título, artista y carátula oficiales.
-7. Las tres fuentes nuevas aparecen en el buscador de la app.
-8. La Prueba de red comprueba Commons, el Archive, ccMixter y YouTube Music.
-9. CLAUDE.md recoge las trampas de las cuatro.
-10. El puente dice qué fuentes traen la calidad ya al buscar.
-
-**Antes de darlas por buenas**, lanzar la **Prueba de red** en GitHub Actions. El agente añadió las comprobaciones
-a `.github/prueba_red.py`. Trampas ya conocidas (en `docs/investigacion/proveedores.json`, campo `notas`):
-- **Commons** da 403 si se finge ser un navegador: hay que usar un User-Agent propio.
-- **ccMixter**: su cabecera X-JSON pasa de 64 KB (`http.client.LineTooLong`). Su JSON trae ceros a la izquierda
-  (`strict=False`) y hay que mandar `Referer: https://ccmixter.org/`.
-
----
+### 2.2 Proveedores nuevos (probados contra la red)
+- **Wikimedia Commons** (`commons`): audio con licencia libre, bajando el original. Con «Beethoven» bajó un OGG; el
+  FLAC sale cuando el original lo es.
+- **Internet Archive ampliado**: todo lo de licencia libre, y **dice al buscar si es FLAC de 24 bits** (lo detectó
+  en The Open Goldberg Variations y en un concierto de Grateful Dead).
+- **ccMixter** (`ccmixter`): MP3 a 320 kb/s con a cappellas e instrumentales. Se salvan su cabecera gigante, su JSON
+  roto y su protección de enlaces.
+- **YouTube Music** (`ytmusic`): solo canciones, con título, artista y carátula oficiales. Desde los servidores de
+  GitHub YouTube pide verificación; desde un teléfono no debería.
+- Arreglos encontrados al probar contra la red:
+  - **cada pista de un álbum del Archive apuntaba al álbum entero** y no se podía bajar suelta (venía de antes);
+  - los fallos de `http.client` se escapaban sin `DownloadError`.
+- Arreglos del revisor:
+  - «Buscar mejor calidad» ya no ofrece un disco entero como la misma canción;
+  - los MIDI de Commons siguen sonando;
+  - un error de la API de Commons se dice en vez de «no hay nada»;
+  - los errores de YouTube Music llegan en castellano;
+  - a igual calidad gana YouTube Music frente al videoclip.
 
 ## 3. Pendiente: investigado, falta construir
 
@@ -185,9 +157,9 @@ Detalle y fuentes en `docs/investigacion/proveedores.json`:
 
 Abrir una sesión de Claude Code sobre este repositorio y pedirle, por ejemplo:
 
-> Lee docs/ESTADO_Y_PENDIENTE.md. Aplica los parches de docs/pendiente con las correcciones de la sección 2.1, pasa
-> todas las comprobaciones, lanza la Prueba de red para las fuentes nuevas y, si todo sale bien, abre el pull request
-> hacia movil. Después sigue con la sección 3 en este orden: portadas, Inicio + Explorar y DJ + Pídele.
+> Lee docs/ESTADO_Y_PENDIENTE.md y sigue con la sección 3 en este orden: portadas en alta resolución, Inicio nuevo
+> con Explorar, y DJ automático con Pídele a Tumbao (parte del prototipo de docs/pendiente/dj_prototipo). Pasa todas
+> las comprobaciones de la sección 6 antes de abrir el pull request hacia movil.
 
 Las investigaciones completas (con enlaces, medidas y trampas) están en `docs/investigacion/*.json`.
 
