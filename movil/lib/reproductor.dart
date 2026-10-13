@@ -385,15 +385,19 @@ class _AudioState extends State<_Audio> {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // Cifras tabulares: todas del mismo ancho, asi el
+                      // contador no baila a cada segundo que pasa.
                       children: <Widget>[
                         Text(formatoTiempo(actual.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                         Text(formatoTiempo(total.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                       ],
                     ),
                   ),

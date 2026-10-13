@@ -230,6 +230,9 @@ class SelloCalidad extends StatelessWidget {
                 fontSize: grande ? 11 : 9.5,
                 fontWeight: FontWeight.w800,
                 letterSpacing: destaca ? 0.6 : 0.2,
+                // «24 bit · 96 kHz» con cifras del mismo ancho: los sellos de
+                // una lista quedan alineados y tienen el aire tecnico que toca.
+                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
               ),
             ),
           ),
