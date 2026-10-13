@@ -57,6 +57,7 @@ from descargador.infrastructure import (
     YtDlpDownloader,
     _consultar,
     _extractor_ccmixter,
+    _extractor_ytmusic,
     _extraer,
     _portada_deezer,
     _portada_itunes,
@@ -70,6 +71,7 @@ from descargador.infrastructure import (
     calidad_jamendo,
     clave_jamendo,
     codec_legible,
+    datos_ytmusic,
     enlace_de_episodio,
     escribir_etiquetas,
     formatos_commons,
@@ -1891,6 +1893,94 @@ class CcMixterTests(unittest.TestCase):
     def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
         self.assertEqual(SearchQuery("algo", source="ccmixter").source, "ccmixter")
         self.assertNotIn("ccmixter", FUENTES_DE_LISTAS)
+
+
+def _enlace_ytmusic(tipo: str, ident: str) -> dict:
+    """A dónde lleva un trozo de texto de una fila de YouTube Music."""
+    return {"browseEndpoint": {"browseId": ident, "browseEndpointContextSupportedConfigs": {
+        "browseEndpointContextMusicConfig": {"pageType": f"MUSIC_PAGE_TYPE_{tipo}"}}}}
+
+
+class YoutubeMusicTests(unittest.TestCase):
+    """YouTube Music: solo canciones, con artista y carátula oficiales."""
+
+    PUNTO = " " + chr(0x2022) + " "
+
+    #: Una fila de la sección de canciones, como la sirve su web.
+    FILA: ClassVar[dict] = {
+        "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+            {"url": "https://lh3.googleusercontent.com/abc=w60-h60-l90-rj", "width": 60, "height": 60},
+            {"url": "https://lh3.googleusercontent.com/abc=w120-h120-l90-rj", "width": 120, "height": 120},
+        ]}}},
+        "flexColumns": [
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Despacito"}]}}},
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                {"text": "Luis Fonsi", "navigationEndpoint": _enlace_ytmusic("ARTIST", "UC1")},
+                {"text": " & "},
+                {"text": "Daddy Yankee", "navigationEndpoint": _enlace_ytmusic("ARTIST", "UC2")},
+                {"text": PUNTO},
+                {"text": "VIDA", "navigationEndpoint": _enlace_ytmusic("ALBUM", "MPREb_1")},
+                {"text": PUNTO},
+                {"text": "3:48"},
+            ]}}},
+        ],
+        "playlistItemData": {"videoId": "kJQP7kiw5Fk"},
+    }
+
+    def test_de_la_fila_salen_artista_album_duracion_y_caratula_grande(self):
+        datos = datos_ytmusic(self.FILA)
+        self.assertEqual(datos["artist"], "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(datos["uploader"], "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(datos["album"], "VIDA")
+        self.assertEqual(datos["duration"], 228)
+        self.assertEqual(datos["thumbnails"][0]["url"],
+                         "https://lh3.googleusercontent.com/abc=w544-h544-l90-rj")
+
+    def test_un_artista_sin_pagina_propia_tambien_sale(self):
+        fila = json.loads(json.dumps(self.FILA))
+        trozos = fila["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+        fila["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"] = [
+            {"text": "Grupo Local"}, *trozos[3:]]
+        self.assertEqual(datos_ytmusic(fila)["artist"], "Grupo Local")
+        # Y una fila rara no rompe nada: solo no aporta.
+        self.assertEqual(datos_ytmusic({}), {})
+
+    def test_el_resultado_lleva_lo_oficial(self):
+        entrada = _extractor_ytmusic()()._music_reponsive_list_entry(self.FILA)
+        r = YtDlpDownloader._resultado(entrada)
+        self.assertEqual(r.title, "Despacito")
+        self.assertEqual(r.uploader, "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(r.url, "https://music.youtube.com/watch?v=kJQP7kiw5Fk")
+        self.assertEqual(r.duration, 228)
+        self.assertIn("w544-h544", r.thumbnail)
+
+    def test_se_busca_en_la_seccion_de_canciones_y_solo_las_pedidas(self):
+        entrada = _extractor_ytmusic()()._music_reponsive_list_entry(self.FILA)
+        with patch("yt_dlp.YoutubeDL") as clase:
+            motor = clase.return_value.__enter__.return_value
+            motor.extract_info.return_value = {"entries": [entrada, None, entrada]}
+            resultados = YtDlpDownloader().search(SearchQuery("bad bunny", limit=2, source="ytmusic"))
+        self.assertEqual(motor.extract_info.call_args.args[0],
+                         "https://music.youtube.com/search?q=bad+bunny#songs")
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "YoutubeMusicCanciones")
+        opciones = clase.call_args.args[0]
+        self.assertEqual(opciones["playlistend"], 2)
+        self.assertEqual(opciones["extract_flat"], "in_playlist")
+        self.assertEqual([r.title for r in resultados], ["Despacito", "Despacito"])
+
+    def test_un_fallo_del_motor_se_cuenta(self):
+        from yt_dlp.utils import ExtractorError
+
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.side_effect = ExtractorError("caido")
+            with self.assertRaises(DownloadError) as fallo:
+                YtDlpDownloader().search(SearchQuery("algo", source="ytmusic"))
+        self.assertIn("YouTube Music", str(fallo.exception))
+
+    def test_la_fuente_se_acepta_y_su_portada_se_trata_como_la_de_youtube(self):
+        self.assertEqual(SearchQuery("algo", source="ytmusic").source, "ytmusic")
+        self.assertNotIn("ytmusic", PREFIJOS_BUSQUEDA)
+        self.assertTrue(necesita_portada_oficial("https://music.youtube.com/watch?v=kJQP7kiw5Fk"))
 
 
 class CapitulosTests(unittest.TestCase):

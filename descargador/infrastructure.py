@@ -902,6 +902,109 @@ def _extractor_ccmixter():
     return CcMixterIE
 
 
+#: El buscador de YouTube Music. «#songs» es su sección de canciones, que el
+#: motor traduce al filtro que usa la web; sin cuenta.
+BUSCADOR_YTMUSIC = "https://music.youtube.com/search"
+
+#: Lo que separa artistas, álbum y duración en una fila de YouTube Music. Va
+#: por su código porque a simple vista se confunde con otros puntos.
+PUNTO_YTMUSIC = chr(0x2022)
+
+#: La duración como la escribe YouTube Music: «3:45» o «1:02:03».
+DURACION_YTMUSIC = re.compile(r"^(?:\d+:)?\d{1,2}:\d{2}$")
+
+#: El lado de la carátula que se pide: el mismo que usa su web.
+LADO_CARATULA_YTMUSIC = 544
+
+
+def _pagina_ytmusic(trozo: dict) -> str:
+    """Qué abre un trozo de texto de la fila: un artista, un álbum o nada."""
+    destino = (trozo.get("navigationEndpoint") or {}).get("browseEndpoint") or {}
+    musica = ((destino.get("browseEndpointContextSupportedConfigs") or {})
+              .get("browseEndpointContextMusicConfig") or {})
+    tipo = str(musica.get("pageType") or "")
+    if not tipo and str(destino.get("browseId") or "").startswith("MPRE"):
+        return "MUSIC_PAGE_TYPE_ALBUM"
+    return tipo
+
+
+def datos_ytmusic(fila: dict) -> dict:
+    """Artista, álbum, duración y carátula de una fila de canciones de YouTube Music.
+
+    El motor solo saca de cada fila el título y el enlace. Lo demás está en la
+    segunda columna, en trozos separados por «•»: los artistas (unidos por
+    «&» o comas), el álbum y la duración. La carátula es la del disco,
+    cuadrada, y se pide más grande cambiando la medida de su dirección.
+    """
+    columnas = fila.get("flexColumns") or []
+    trozos: list = []
+    if len(columnas) > 1:
+        columna = (columnas[1] or {}).get("musicResponsiveListItemFlexColumnRenderer") or {}
+        trozos = (columna.get("text") or {}).get("runs") or []
+    grupos: list[list[dict]] = [[]]
+    for trozo in trozos:
+        if str(trozo.get("text") or "").strip() == PUNTO_YTMUSIC:
+            grupos.append([])
+        else:
+            grupos[-1].append(trozo)
+    datos: dict = {}
+    sin_enlace: list[str] = []
+    for grupo in grupos:
+        texto = "".join(str(t.get("text") or "") for t in grupo).strip()
+        paginas = {_pagina_ytmusic(t) for t in grupo}
+        if not texto:
+            continue
+        if "MUSIC_PAGE_TYPE_ALBUM" in paginas:
+            datos.setdefault("album", texto)
+        elif DURACION_YTMUSIC.match(texto):
+            datos["duration"] = parse_timestamp(texto)
+        elif "MUSIC_PAGE_TYPE_ARTIST" in paginas:
+            datos.setdefault("artist", texto)
+        else:
+            sin_enlace.append(texto)
+    # Hay artistas sin página propia: entonces son el primer trozo suelto.
+    if "artist" not in datos and sin_enlace:
+        datos["artist"] = sin_enlace[0]
+    if "artist" in datos:
+        datos["uploader"] = datos["artist"]
+    miniaturas = (((fila.get("thumbnail") or {}).get("musicThumbnailRenderer") or {})
+                  .get("thumbnail") or {}).get("thumbnails") or []
+    validas = [m for m in miniaturas if isinstance(m, dict) and m.get("url")]
+    if validas:
+        mayor = max(validas, key=lambda m: m.get("width") or 0)
+        lado = LADO_CARATULA_YTMUSIC
+        grande = re.sub(r"=w\d+-h\d+", f"=w{lado}-h{lado}", str(mayor["url"]))
+        datos["thumbnails"] = [{"url": grande, "width": lado, "height": lado}
+                               if grande != mayor["url"] else mayor]
+    return datos
+
+
+@functools.cache
+def _extractor_ytmusic():
+    """El buscador de canciones de YouTube Music del motor, con artista y carátula.
+
+    El del motor ya sabe pedir la sección de canciones sin cuenta; aquí solo
+    se le añade a cada resultado lo que su web enseña y él no recoge. Si el
+    motor cambiara el nombre del método (lleva una errata, «reponsive»), los
+    resultados seguirían saliendo, solo que sin artista ni carátula.
+    """
+    try:
+        from yt_dlp.extractor.youtube import YoutubeMusicSearchURLIE
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class YoutubeMusicCancionesIE(YoutubeMusicSearchURLIE):
+        IE_NAME = "youtube:music:canciones"
+
+        def _music_reponsive_list_entry(self, renderer):
+            entrada = super()._music_reponsive_list_entry(renderer)
+            if entrada and entrada.get("ie_key") == "Youtube":
+                entrada.update(datos_ytmusic(renderer))
+            return entrada
+
+    return YoutubeMusicCancionesIE
+
+
 def _extraer(engine, url: str, **opciones):
     """extract_info, pero con el extractor propio donde hace falta."""
     if (partes := partir_episodio(url)) is not None:
@@ -1159,6 +1262,7 @@ class YtDlpDownloader:
         """
         # Las que tienen API propia; las demás van por el buscador del motor.
         propias: dict[str, Callable[[SearchQuery], tuple[VideoInfo, ...]]] = {
+            "ytmusic": self._buscar_en_ytmusic,
             "archive": self._buscar_en_archive,
             "audius": self._buscar_en_audius,
             "bandcamp": self._buscar_en_bandcamp,
@@ -1189,6 +1293,36 @@ class YtDlpDownloader:
             return tuple(self._resultado(e) for e in entradas if e)
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo buscar: {exc}") from exc
+
+    def _buscar_en_ytmusic(self, query: SearchQuery) -> tuple[VideoInfo, ...]:
+        """Busca solo canciones en YouTube Music, sin cuenta.
+
+        Son las pistas oficiales del catálogo: título limpio, el artista de
+        verdad y la carátula cuadrada del disco, en vez de un vídeo con el
+        título lleno de coletillas. El sonido es el mismo que en YouTube.
+        """
+        YoutubeDL, YoutubeDLError, _ = _cargar_motor()
+        clase = _extractor_ytmusic()
+        opciones = {
+            "quiet": True,
+            "no_warnings": True,
+            "color": "no_color",
+            "socket_timeout": 30,
+            "js_runtimes": _runtimes_js(),
+            "extract_flat": "in_playlist",
+            # Los resultados llegan por páginas; con esto se piden solo las
+            # que hacen falta.
+            "playlistend": query.limit,
+        }
+        direccion = f"{BUSCADOR_YTMUSIC}?{urlencode({'q': query.text})}#songs"
+        try:
+            with YoutubeDL(opciones) as engine:
+                engine.add_info_extractor(clase())
+                info = engine.extract_info(direccion, ie_key=clase.ie_key(), download=False)
+            entradas = (info or {}).get("entries") or []
+            return tuple(self._resultado(e) for e in entradas if e)[:query.limit]
+        except (YoutubeDLError, OSError, RuntimeError) as exc:
+            raise DownloadError(f"No se pudo buscar en YouTube Music: {exc}") from exc
 
     @staticmethod
     def _buscar_en_audius(query: SearchQuery) -> tuple[VideoInfo, ...]:

@@ -28,9 +28,12 @@ AUDIO_FORMATS = ("mp3", "m4a", "opus", "vorbis", "flac", "wav", "aac", "alac", "
 #: dominio público o con licencia libre, y da el archivo que se subió: a veces
 #: un FLAC o un WAV, si no un Ogg o un MP3. ccMixter son remixes, a cappellas
 #: e instrumentales con licencia Creative Commons, en MP3 de 192 a 320 kb/s.
+#:
+#: YouTube Music («ytmusic») suena igual que YouTube, porque es el mismo, pero
+#: solo da canciones del catálogo, con su artista y su carátula oficiales.
 FUENTES = (
-    "youtube", "soundcloud", "audius", "bandcamp", "archive", "jamendo", "commons",
-    "ccmixter", "hearthis", "podcasts",
+    "youtube", "ytmusic", "soundcloud", "audius", "bandcamp", "archive", "jamendo",
+    "commons", "ccmixter", "hearthis", "podcasts",
 )
 
 #: Cuáles devuelven grabaciones completas en vez de canciones sueltas.
