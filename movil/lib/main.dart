@@ -18,6 +18,7 @@ import 'pantalla_descarga.dart';
 import 'pantalla_inicio.dart';
 import 'pantalla_ver.dart';
 import 'ritmos.dart';
+import 'salida_audio.dart';
 import 'suscripciones.dart';
 import 'tema.dart';
 import 'volumen_parejo.dart';
@@ -45,6 +46,8 @@ Future<void> main() async {
     androidStopForegroundOnPause: true,
   );
   Nucleo.escucharVentanaFlotante();
+  // Por donde suena (altavoz, cable, Bluetooth): cada salida tiene su ecualizador.
+  unawaited(SalidasDeAudio.instancia.empezar());
   // Cerrar la app desde recientes con la musica en pausa la cierra de verdad.
   Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararSiNoSuena;
   // El widget de la pantalla de inicio: sus botones y lo que ensenia.

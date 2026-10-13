@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'calidad.dart';
 import 'formato.dart';
+import 'salida_audio.dart';
 
 /// Acceso al nucleo Python, el mismo que usa la version de consola.
 ///
@@ -260,8 +261,23 @@ class Nucleo {
       }
       if (llamada.method == 'tareaCerrada') await alCerrarTarea?.call();
       if (llamada.method == 'widget') await alPulsarWidget?.call('${llamada.arguments}');
+      final Object? salida = llamada.arguments;
+      if (llamada.method == 'salidaCambio' && salida is Map) await alCambiarSalida?.call(salida);
       return null;
     });
+  }
+
+  /// Android avisa de que se conecto o se quito un aparato de audio.
+  static Future<void> Function(Map<dynamic, dynamic> salida)? alCambiarSalida;
+
+  /// Por donde suena la musica ahora. null si no se pudo saber.
+  static Future<SalidaAudio?> salidaDeAudio() async {
+    try {
+      final Map<dynamic, dynamic>? datos = await _canal.invokeMethod<Map<dynamic, dynamic>>('salidaDeAudio');
+      return datos == null ? null : SalidaAudio.desdeMapa(datos);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Un boton del widget de la pantalla de inicio: anterior, alternar o siguiente.

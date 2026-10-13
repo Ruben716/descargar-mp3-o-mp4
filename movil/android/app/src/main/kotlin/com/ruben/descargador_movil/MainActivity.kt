@@ -11,12 +11,16 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.RingtoneManager
 import android.net.ConnectivityManager
 import android.os.Environment
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Base64
@@ -114,6 +118,7 @@ class MainActivity : AudioServiceActivity() {
         // mientras viva, el widget le manda sus botones por este canal.
         WidgetTumbao.canalVivo = canalFlutter
         flutterEngine.addEngineLifecycleListener(vigiaDelMotor(applicationContext))
+        vigilarSalidaDeAudio(applicationContext, canalFlutter!!)
         canalFlutter!!.setMethodCallHandler { llamada, respuesta ->
                 when (llamada.method) {
                     "diagnostico" -> enHilo(respuesta) { puente ->
@@ -172,6 +177,8 @@ class MainActivity : AudioServiceActivity() {
                         val actual = window.attributes.screenBrightness
                         respuesta.success(if (actual < 0) -1.0 else actual.toDouble())
                     }
+                    // Por donde suena ahora: altavoz, cable, Bluetooth o USB.
+                    "salidaDeAudio" -> respuesta.success(salidaDeAudio(applicationContext))
                     // Volumen de la musica del telefono, de 0 a 1. Sin valor solo se lee.
                     "volumen" -> {
                         val audio = getSystemService(AUDIO_SERVICE) as AudioManager
@@ -1216,6 +1223,53 @@ class MainActivity : AudioServiceActivity() {
     }
 
     private companion object {
+        /**
+         * Por donde sale la musica ahora mismo, para que el ecualizador use el
+         * ajuste de esa salida: el del altavoz no le sirve a unos audifonos.
+         *
+         * Android manda la musica al ultimo aparato conectado; si hay varios,
+         * gana lo inalambrico, luego lo USB y luego el cable, como hace el.
+         */
+        fun salidaDeAudio(contexto: Context): Map<String, String> {
+            val audio = contexto.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val salidas = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+            // TYPE_BLE_HEADSET (26) y TYPE_BLE_SPEAKER (27) llegaron en Android 12.
+            val inalambricos = setOf(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26, 27)
+            val usb = setOf(AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_DEVICE)
+            val cable = setOf(AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET)
+            val modelo = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+            fun con(tipo: String, aparato: AudioDeviceInfo) =
+                mapOf("tipo" to tipo, "nombre" to aparato.productName.toString().trim(), "modelo" to modelo)
+            salidas.firstOrNull { it.type in inalambricos }?.let { return con("bluetooth", it) }
+            salidas.firstOrNull { it.type in usb }?.let { return con("usb", it) }
+            salidas.firstOrNull { it.type in cable }?.let { return con("cable", it) }
+            return mapOf("tipo" to "altavoz", "nombre" to "", "modelo" to modelo)
+        }
+
+        /** Uno solo para todo el proceso, como [vigia]: el motor sobrevive a la actividad. */
+        private var vigiaDeSalida: AudioDeviceCallback? = null
+
+        /** Avisa a Flutter cada vez que se conecta o se quita un aparato de audio. */
+        fun vigilarSalidaDeAudio(contexto: Context, canal: MethodChannel) {
+            val audio = contexto.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            vigiaDeSalida?.let { audio.unregisterAudioDeviceCallback(it) }
+            val vigia = object : AudioDeviceCallback() {
+                private fun avisar() {
+                    try {
+                        canal.invokeMethod("salidaCambio", salidaDeAudio(contexto))
+                    } catch (error: Throwable) {
+                        // Sin Flutter escuchando no hay ecualizador que cambiar.
+                    }
+                }
+
+                override fun onAudioDevicesAdded(agregados: Array<out AudioDeviceInfo>?) = avisar()
+
+                override fun onAudioDevicesRemoved(quitados: Array<out AudioDeviceInfo>?) = avisar()
+            }
+            audio.registerAudioDeviceCallback(vigia, Handler(Looper.getMainLooper()))
+            vigiaDeSalida = vigia
+        }
+
         /** Codigo de la peticion al selector de archivos de la copia. */
         const val PEDIR_COPIA = 4107
 
