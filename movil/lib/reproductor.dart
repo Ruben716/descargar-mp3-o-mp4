@@ -295,7 +295,7 @@ class _AudioState extends State<_Audio> {
               if (inflado)
                 Text(
                   'guardado en ${extension.toUpperCase()}',
-                  style: const TextStyle(color: Colors.white38, fontSize: 11),
+                  style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                 ),
             ],
           ),
@@ -385,15 +385,19 @@ class _AudioState extends State<_Audio> {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      // Cifras tabulares: todas del mismo ancho, asi el
+                      // contador no baila a cada segundo que pasa.
                       children: <Widget>[
                         Text(formatoTiempo(actual.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                         Text(formatoTiempo(total.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
-                                fontSize: 12)),
+                                fontSize: 12,
+                                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
                       ],
                     ),
                   ),
@@ -485,8 +489,12 @@ class _BotonGrande extends StatelessWidget {
         width: 76,
         height: 76,
         decoration: BoxDecoration(
+          // Secundario y primario, no primario y terciario: Material gira el
+          // tono del terciario, y una portada azul acababa con el boton rosa.
+          // El secundario conserva el tono de la caratula y, sin ella, da el
+          // degradado de marca de cian a azul.
           gradient: LinearGradient(
-            colors: <Color>[colores.primary, colores.tertiary],
+            colors: <Color>[colores.secondary, colores.primary],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -505,7 +513,7 @@ class _BotonGrande extends StatelessWidget {
             sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,
             key: ValueKey<bool>(sonando),
             size: 40,
-            color: Colors.black87,
+            color: Tema.tinta,
           ),
         ),
       ),
@@ -708,13 +716,13 @@ class _BotonAleatorio extends StatelessWidget {
       icon: Icon(
         Icons.shuffle_rounded,
         size: 20,
-        color: estado.aleatorio ? tono : Colors.white38,
+        color: estado.aleatorio ? tono : Tema.textoTenue,
       ),
       label: Text(
         estado.aleatorio ? 'Aleatorio' : 'En orden',
         style: TextStyle(
           fontSize: 12,
-          color: estado.aleatorio ? tono : Colors.white38,
+          color: estado.aleatorio ? tono : Tema.textoTenue,
         ),
       ),
     );
@@ -740,11 +748,11 @@ class _BotonVelocidad extends StatelessWidget {
       icon: Icon(
         Icons.speed_rounded,
         size: 20,
-        color: normal ? Colors.white38 : tono,
+        color: normal ? Tema.textoTenue : tono,
       ),
       label: Text(
         etiqueta,
-        style: TextStyle(fontSize: 12, color: normal ? Colors.white38 : tono),
+        style: TextStyle(fontSize: 12, color: normal ? Tema.textoTenue : tono),
       ),
     );
   }
@@ -775,8 +783,8 @@ class _BotonTramo extends StatelessWidget {
       message: ayuda,
       child: TextButton.icon(
         onPressed: estado.alternarTramo,
-        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Colors.white38),
-        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Colors.white38)),
+        icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Tema.textoTenue),
+        label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Tema.textoTenue)),
       ),
     );
   }
@@ -799,7 +807,7 @@ class _BotonRepeticion extends StatelessWidget {
             ? Icons.repeat_one_rounded
             : Icons.repeat_rounded,
         size: 20,
-        color: activa ? tono : Colors.white38,
+        color: activa ? tono : Tema.textoTenue,
       ),
       label: Text(
         switch (estado.repeticion) {
@@ -809,7 +817,7 @@ class _BotonRepeticion extends StatelessWidget {
         },
         style: TextStyle(
           fontSize: 12,
-          color: activa ? tono : Colors.white38,
+          color: activa ? tono : Tema.textoTenue,
         ),
       ),
     );

@@ -368,26 +368,31 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
       onPopInvokedWithResult: (bool salio, _) {
         if (!salio) _salirDeSeleccion();
       },
-      child: Column(
-      children: <Widget>[
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: _seleccionando
-              ? KeyedSubtree(key: const ValueKey<String>('seleccion'), child: _barraSeleccion())
-              : KeyedSubtree(key: const ValueKey<String>('busqueda'), child: _barraBusqueda()),
+      // La cabecera de la biblioteca no se desplaza, asi que el destello se
+      // queda fijo detras de la busqueda y las fichas.
+      child: Resplandor(
+        alto: 260,
+        hijo: Column(
+          children: <Widget>[
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: _seleccionando
+                  ? KeyedSubtree(key: const ValueKey<String>('seleccion'), child: _barraSeleccion())
+                  : KeyedSubtree(key: const ValueKey<String>('busqueda'), child: _barraBusqueda()),
+            ),
+            _fichas(),
+            const SizedBox(height: 4),
+            Expanded(
+              child: switch (_seccion) {
+                Seccion.canciones =>
+                  _pistas(_canciones, 'Aqui apareceran las canciones que descargues.', conBotones: true),
+                Seccion.artistas => _seccionArtistas(),
+                Seccion.videos => _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
+                Seccion.listas => _seccionListas(),
+              },
+            ),
+          ],
         ),
-        _fichas(),
-        const SizedBox(height: 4),
-        Expanded(
-          child: switch (_seccion) {
-            Seccion.canciones =>
-              _pistas(_canciones, 'Aqui apareceran las canciones que descargues.', conBotones: true),
-            Seccion.artistas => _seccionArtistas(),
-            Seccion.videos => _pistas(_videos, 'Aqui apareceran los videos que descargues.'),
-            Seccion.listas => _seccionListas(),
-          },
-        ),
-      ],
       ),
     );
   }
@@ -476,7 +481,7 @@ class PantallaBibliotecaState extends State<PantallaBiblioteca> {
             resumen(canciones, audio: true),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
+            style: const TextStyle(color: Tema.textoTenue, fontSize: 12),
           ),
         ],
       ),
@@ -733,7 +738,7 @@ class _FilaLista extends StatelessWidget {
                       gradient: Tema.degradado,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.queue_music_rounded, color: Colors.black38),
+                    child: const Icon(Icons.queue_music_rounded, color: Color(0x73040814)),
                   )
                 else
                   PortadaLocal(elemento: pistas.first, lado: 52, radio: 14),
@@ -751,7 +756,7 @@ class _FilaLista extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         '${pistas.length} pistas',
-                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
                       ),
                     ],
                   ),
@@ -768,9 +773,9 @@ class _FilaLista extends StatelessWidget {
                       value: 'borrar',
                       child: Row(
                         children: <Widget>[
-                          Icon(Icons.delete_outline_rounded, color: Color(0xFFFF6B81)),
+                          Icon(Icons.delete_outline_rounded, color: Tema.peligro),
                           SizedBox(width: 12),
-                          Text('Eliminar lista', style: TextStyle(color: Color(0xFFFF6B81))),
+                          Text('Eliminar lista', style: TextStyle(color: Tema.peligro)),
                         ],
                       ),
                     ),

@@ -78,7 +78,7 @@ class _Esperando extends StatelessWidget {
             'El ecualizador es del telefono, y hasta que\n'
             'no suena algo no dice con que bandas cuenta.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white38, fontSize: 12, height: 1.5),
+            style: TextStyle(color: Tema.textoTenue, fontSize: 12, height: 1.5),
           ),
         ],
       ),
@@ -171,7 +171,7 @@ class _Controles extends StatelessWidget {
               Text(
                 '+${ecualizador.refuerzo.round()} dB',
                 style: TextStyle(
-                  color: ecualizador.refuerzo > 0 ? Tema.acento : Colors.white38,
+                  color: ecualizador.refuerzo > 0 ? Tema.acento : Tema.textoTenue,
                   fontWeight: FontWeight.w700,
                   fontSize: 13,
                 ),
@@ -190,7 +190,7 @@ class _Controles extends StatelessWidget {
           const Text(
             'Sube el nivel de las grabaciones flojas para que no haya que '
             'tocar el volumen entre cancion y cancion.',
-            style: TextStyle(color: Colors.white38, fontSize: 11, height: 1.4),
+            style: TextStyle(color: Tema.textoTenue, fontSize: 11, height: 1.4),
           ),
         ],
       ),
@@ -232,7 +232,7 @@ class _Banda extends StatelessWidget {
           children: <Widget>[
             Text(
               ganancia.round().toString(),
-              style: const TextStyle(color: Colors.white38, fontSize: 10),
+              style: const TextStyle(color: Tema.textoTenue, fontSize: 10),
             ),
             Expanded(
               child: RotatedBox(
@@ -378,7 +378,7 @@ class _HojaAudifonosState extends State<HojaAudifonos> {
                     return Center(
                       child: Text(
                         '${estado.data!.length} mediciones disponibles',
-                        style: const TextStyle(color: Colors.white38),
+                        style: const TextStyle(color: Tema.textoTenue),
                       ),
                     );
                   }

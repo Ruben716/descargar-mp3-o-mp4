@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
 import 'nucleo.dart';
+import 'tema.dart';
 
 /// Las canciones marcadas con el corazon, compartidas por toda la app.
 ///
@@ -64,11 +65,11 @@ class Favoritas extends ChangeNotifier {
 
 /// Listas que se hacen solas a partir de lo que se escucha y se marca.
 enum ListaAuto {
-  meGusta('Me gusta', Icons.favorite_rounded, Color(0xFFFF6B81)),
-  recientes('Escuchadas hace poco', Icons.history_rounded, Color(0xFF57D9A3)),
-  masEscuchadas('Lo mas escuchado', Icons.trending_up_rounded, Color(0xFFFFC857)),
-  nuncaEscuchadas('Sin escuchar todavia', Icons.new_releases_outlined, Color(0xFF7FB3FF)),
-  sinPerdida('Sin perdida', Icons.graphic_eq_rounded, Color(0xFFFFC857));
+  meGusta('Me gusta', Icons.favorite_rounded, Tema.meGusta),
+  recientes('Escuchadas hace poco', Icons.history_rounded, Tema.exito),
+  masEscuchadas('Lo mas escuchado', Icons.trending_up_rounded, Tema.acento),
+  nuncaEscuchadas('Sin escuchar todavia', Icons.new_releases_outlined, Tema.textoSecundario),
+  sinPerdida('Sin perdida', Icons.graphic_eq_rounded, Tema.oro);
 
   const ListaAuto(this.titulo, this.icono, this.color);
 

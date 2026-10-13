@@ -26,7 +26,7 @@ class _Marco extends StatelessWidget {
         child: hijo ??
             DecoratedBox(
               decoration: const BoxDecoration(gradient: Tema.degradado),
-              child: Icon(icono, color: Colors.black38, size: lado * 0.45),
+              child: Icon(icono, color: const Color(0x73040814), size: lado * 0.45),
             ),
       ),
     );

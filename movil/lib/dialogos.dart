@@ -19,7 +19,7 @@ Future<bool> confirmar(
       builder: (BuildContext contexto) => AlertDialog(
         backgroundColor: Tema.superficieAlta,
         icon: peligro
-            ? const Icon(Icons.warning_amber_rounded, color: Color(0xFFFF6B81), size: 32)
+            ? const Icon(Icons.warning_amber_rounded, color: Tema.peligro, size: 32)
             : const Icon(Icons.download_for_offline_outlined, color: Tema.acento, size: 32),
         title: Text(titulo, textAlign: TextAlign.center),
         content: Text(mensaje, style: const TextStyle(height: 1.4)),
@@ -30,8 +30,8 @@ Future<bool> confirmar(
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: peligro ? const Color(0xFFFF6B81) : Tema.acento,
-              foregroundColor: peligro ? null : Colors.black,
+              backgroundColor: peligro ? Tema.peligro : Tema.acento,
+              foregroundColor: Tema.tinta,
             ),
             onPressed: () => Navigator.of(contexto).pop(true),
             child: Text(accion),

@@ -273,7 +273,7 @@ class BotonDescargarVideo extends StatelessWidget {
         return FilledButton.icon(
           style: FilledButton.styleFrom(
             backgroundColor: Tema.acento,
-            foregroundColor: Colors.black,
+            foregroundColor: Tema.tinta,
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
           onPressed: () => descargarComoVideo(<String>[url]),
