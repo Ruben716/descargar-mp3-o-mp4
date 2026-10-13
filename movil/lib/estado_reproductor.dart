@@ -1096,7 +1096,15 @@ class EstadoReproductor extends ChangeNotifier {
     _factorNormal = c.factor;
     unawaited(_ponerVolumen(_ultimoFundido * _factorNormal));
     unawaited(_ponerExtra(c.extraDb));
-    if (uri != null) VolumenParejo.instancia.pedirSiFalta(uri);
+    if (uri == null) return;
+    // Lo que suena se analiza para el DJ, y esa pasada da tambien el volumen:
+    // asi no se lee el archivo dos veces. Si el DJ ya lo intento, solo volumen.
+    final Ritmos ritmos = Ritmos.instancia;
+    if (ritmos.listo && ritmos.rasgosDe(uri) == null && !ritmos.yaIntentada(uri)) {
+      ritmos.pedirSiFalta(uri);
+    } else {
+      VolumenParejo.instancia.pedirSiFalta(uri);
+    }
   }
 
   Future<void> _ponerExtra(double decibelios) async {

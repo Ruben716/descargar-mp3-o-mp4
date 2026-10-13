@@ -133,6 +133,18 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   bloque (`seccion`): una caída no tapa a las demás, y el proceso acaba con error si falló alguna.
 - **La radio en vivo va por HTTP plano**: casi todas las emisoras emiten así, y
   `network_security_config.xml` lo permite. Solo afecta a lo que reproduce la app.
+- **El DJ analiza en el teléfono, no en el núcleo.** `ritmo.py` vive junto a `puente.py`
+  (`analizar_audio`) y la consola no lo usa; sus pruebas están en `tests/test_ritmo.py` y lo cargan por su ruta.
+  Una sola pasada de FFmpeg da tempo, pulsos, energía y LUFS (el volumen parejo los aprovecha), con stderr a un
+  archivo temporal: `ebur128` escribe cada 100 ms y una tubería se llenaría. Lo analizado va a la tabla `ritmos`
+  (catálogo v9) con la `version` del algoritmo; subir `VERSION` vuelve a analizarlo todo. La energía se compara
+  siempre por percentil de la biblioteca (`Ritmos.percentil`), nunca en bruto.
+- **El fundido al compás recorta con `ClippingAudioSource`**: la posición y la duración del motor pasan a ser las
+  del tramo, así que solo se usa el corte en las fuentes que se cargaron recortadas (`_recortadas`). «Saltar
+  silencios» se apaga en ese modo: quita trozos y descuadra los pulsos.
+- **«Pídele a Tumbao» son reglas, no IA** (`pidele.dart`): sin red y probado con funciones puras. Relajar una
+  petición nunca deja sin filtros lo pedido: si solo se pidió un género o un ritmo que no hay, sale vacío y se
+  ofrece buscar en internet, en vez de devolver la biblioteca entera.
 - **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
   Opus o AAC llega tal cual. Pasarlo a MP3 lo comprimiría por segunda vez.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,

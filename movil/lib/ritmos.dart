@@ -239,6 +239,9 @@ class Ritmos extends ChangeNotifier {
     return puestas;
   }
 
+  /// Si ya se intento analizar [uri] en esta sesion (salga bien o mal).
+  bool yaIntentada(String uri) => _intentadas.contains(uri) || _encolada(uri);
+
   /// Cuantas de [uris] faltan por analizar.
   int faltanDe(Iterable<String> uris) => uris.where((String u) => !_rasgos.containsKey(u)).length;
 
