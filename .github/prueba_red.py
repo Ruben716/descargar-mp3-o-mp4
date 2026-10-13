@@ -111,6 +111,8 @@ def archive() -> None:
     print("pistas de", lista.title, ":", len(lista.items))
     corta = la_mas_corta(lista.items)
     print("la mas corta:", corta.title, corta.duration, "s |", corta.url)
+    # Regresión medida aquí: la pista apuntaba a la página del álbum entero, y
+    # bajarla pedía el concierto completo, que se rechaza por ser una lista.
     bajar(corta.url, "archive", "flac")
 
 

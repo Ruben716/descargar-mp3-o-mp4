@@ -167,6 +167,15 @@ BUSCADOR_PODCASTS = "https://itunes.apple.com/search"
 MARCA_EPISODIO = "#tumbao-episodio="
 
 
+def enlace_de_archive(identificador: str) -> str:
+    """La página de una pista suelta del Archive: «details/<álbum>/<archivo>».
+
+    El motor lee el nombre con unquote_plus, así que un «+» del nombre tiene
+    que ir como %2B o volvería convertido en espacio.
+    """
+    return "https://archive.org/details/" + quote(identificador, safe="/")
+
+
 def enlace_de_episodio(programa: str, episodio: str) -> str:
     """La dirección con la que se baja un episodio sin perder su título."""
     return f"{programa}{MARCA_EPISODIO}{quote(episodio, safe='')}"
@@ -1616,13 +1625,22 @@ class YtDlpDownloader:
             # (el RSS de un podcast) se baja desde la lista, para no perder
             # el título de cada episodio.
             desde_lista = (info or {}).get("extractor_key") == "Generic"
+            del_archive = (info or {}).get("extractor_key") == "ArchiveOrg"
+
+            def pista(e: dict) -> VideoInfo:
+                if desde_lista and e.get("url"):
+                    return replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
+                if del_archive and "/" in str(e.get("id") or ""):
+                    # Cada pista trae la página del álbum entero como su
+                    # dirección, y bajarla pedía el concierto completo (que se
+                    # rechaza por ser una lista). La de la pista suelta es
+                    # «details/<álbum>/<archivo>», y el motor la entiende.
+                    return replace(self._resultado(e), url=enlace_de_archive(str(e["id"])))
+                return self._resultado(e)
+
             return Playlist(
                 title=(info or {}).get("title") or "Lista importada",
-                items=tuple(
-                    replace(self._resultado(e), url=enlace_de_episodio(url, e["url"]))
-                    if desde_lista and e.get("url") else self._resultado(e)
-                    for e in entradas if e
-                ),
+                items=tuple(pista(e) for e in entradas if e),
             )
         except (YoutubeDLError, OSError, RuntimeError) as exc:
             raise DownloadError(f"No se pudo leer la lista: {exc}") from exc

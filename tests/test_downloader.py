@@ -72,6 +72,7 @@ from descargador.infrastructure import (
     clave_jamendo,
     codec_legible,
     datos_ytmusic,
+    enlace_de_archive,
     enlace_de_episodio,
     escribir_etiquetas,
     formatos_commons,
@@ -2167,6 +2168,24 @@ class HearthisPodcastsTests(unittest.TestCase):
             lista = YtDlpDownloader().playlist(self.PROGRAMA)
         self.assertEqual(lista.items[0].title, "Mozart")
         self.assertEqual(partir_episodio(lista.items[0].url), (self.PROGRAMA, self.EPISODIO))
+
+    def test_cada_pista_de_un_album_del_archive_apunta_a_su_archivo(self):
+        """Medido en la prueba de red: apuntaban a la página del álbum entero."""
+        info = {"_type": "playlist", "title": "The Open Goldberg Variations", "extractor_key": "ArchiveOrg",
+                "webpage_url": "https://archive.org/details/OpenGoldbergVariations",
+                "entries": [{"id": "OpenGoldbergVariations/05 Variatio 4 a 1 Clav.flac",
+                             "title": "Variatio 4",
+                             "webpage_url": "https://archive.org/details/OpenGoldbergVariations"}]}
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.return_value = info
+            lista = YtDlpDownloader().playlist("https://archive.org/details/OpenGoldbergVariations")
+        self.assertEqual(lista.items[0].url, "https://archive.org/details/OpenGoldbergVariations/"
+                                             "05%20Variatio%204%20a%201%20Clav.flac")
+
+    def test_un_mas_en_el_nombre_del_archive_no_se_vuelve_espacio(self):
+        from urllib.parse import unquote_plus
+        enlace = enlace_de_archive("album/Tema A+B.flac")
+        self.assertEqual(unquote_plus(enlace.split("/details/")[1]), "album/Tema A+B.flac")
 
     def test_las_dos_fuentes_se_aceptan(self):
         for fuente in ("hearthis", "podcasts"):
