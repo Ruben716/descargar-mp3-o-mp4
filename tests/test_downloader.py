@@ -1,4 +1,5 @@
 import contextlib
+import http.client
 import io
 import itertools
 import json
@@ -9,6 +10,7 @@ import unittest
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import Mock, patch
+from urllib.parse import unquote_plus
 
 from descargador.application import (
     CheckQuality,
@@ -49,25 +51,35 @@ from descargador.domain import (
 from descargador.infrastructure import (
     ES_AUDIUS,
     INTENTOS_TRANSITORIOS,
+    LICENCIA_LIBRE,
     PLANTILLA_CAPITULO,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
+    _consultar,
+    _extractor_ccmixter,
+    _extractor_ytmusic,
     _extraer,
     _portada_deezer,
     _portada_itunes,
+    archivo_ccmixter,
     argumentos_etiquetas,
     buscar_portada,
     cabecera_sin_perdida,
     calidad_audius,
+    calidad_commons,
     calidad_de,
     calidad_jamendo,
     clave_jamendo,
     codec_legible,
+    datos_ytmusic,
     enlace_de_episodio,
     escribir_etiquetas,
+    formatos_commons,
     formatos_jamendo,
     incrusta_caratula,
     incrustar_portada,
+    info_ccmixter,
+    json_ccmixter,
     mensaje_claro,
     necesita_portada_oficial,
     nombre_con_etiquetas,
@@ -1013,6 +1025,18 @@ class StreamTests(unittest.TestCase):
         pista = YtDlpDownloader._elegir_pista(self.FORMATOS, audio_only=True)
         self.assertEqual(pista["url"], "https://cdn/mejor")
 
+    def test_un_formato_sin_protocolo_declarado_tambien_se_escucha(self):
+        # Así llegan, sin procesar, los de los extractores propios: el de
+        # Audius, por ejemplo, solo dice su dirección y su códec.
+        audius = {"formats": [{"format_id": "mp3-320", "url": "https://api/stream",
+                               "acodec": "mp3", "vcodec": "none", "abr": 320}]}
+        pista = YtDlpDownloader._elegir_pista(audius, audio_only=True)
+        self.assertEqual(pista["url"], "https://api/stream")
+        # Lo que no es http sigue fuera aunque no lo diga.
+        raro = {"formats": [{"url": "rtmp://cdn/a", "acodec": "aac", "vcodec": "none"}]}
+        with self.assertRaises(DownloadError):
+            YtDlpDownloader._elegir_pista(raro, audio_only=True)
+
     def test_video_falls_back_to_a_combined_format(self):
         combinado = {"formats": [
             {"url": "https://cdn/360", "vcodec": "avc1", "acodec": "mp4a", "height": 360},
@@ -1428,6 +1452,41 @@ class BandcampTests(unittest.TestCase):
             self.assertEqual(SearchQuery("algo", source=fuente).source, fuente)
 
 
+class FallosHttpTests(unittest.TestCase):
+    """Los fallos de http.client no heredan de OSError, y aun así se cuentan."""
+
+    def test_una_cabecera_enorme_sale_como_error_nuestro(self):
+        # Lo que hace ccMixter: repite el cuerpo en una cabecera de 100 KB.
+        with (
+            patch("descargador.infrastructure.urlopen",
+                  side_effect=http.client.LineTooLong("header line")),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_bandcamp(SearchQuery("ambient", source="bandcamp"))
+        self.assertIn("Bandcamp", str(fallo.exception))
+
+    def test_una_respuesta_cortada_a_medias_tambien(self):
+        with (
+            patch("descargador.infrastructure.urlopen",
+                  side_effect=http.client.IncompleteRead(b"{")),
+            self.assertRaises(DownloadError),
+        ):
+            YtDlpDownloader._buscar_en_hearthis(SearchQuery("lofi", source="hearthis"))
+
+    def test_las_cabeceras_propias_se_suman_a_las_de_siempre(self):
+        with patch("descargador.infrastructure.urlopen", return_value=_Json({})) as red:
+            _consultar("https://api/x", "prueba", cabeceras={"Referer": "https://de/aqui"})
+        peticion = red.call_args.args[0]
+        self.assertEqual(peticion.get_header("Referer"), "https://de/aqui")
+        self.assertIn("descargador", peticion.get_header("User-agent"))
+
+    def test_buscar_la_portada_no_se_cae_por_eso(self):
+        # Cada proveedor responde vacío en vez de reventar.
+        with patch("descargador.infrastructure.urlopen",
+                   side_effect=http.client.IncompleteRead(b"")):
+            self.assertIsNone(_portada_itunes("Artista", "Tema", 1200))
+
+
 class JamendoTests(unittest.TestCase):
     """Jamendo: FLAC de lo que el artista deja bajar, con la clave de la app."""
 
@@ -1525,6 +1584,403 @@ class JamendoTests(unittest.TestCase):
             with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
                 elegido = motor.process_ie_result(dict(info), download=False)
             self.assertEqual(elegido["format_id"], esperado, msg=formato)
+
+
+class ArchiveAmpliadoTests(unittest.TestCase):
+    """El Archive: todo lo de licencia libre, y los 24 bits dichos al buscar."""
+
+    def _buscar(self, *documentos):
+        respuesta = _Json({"response": {"docs": list(documentos)}})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_archive(SearchQuery("bach", source="archive"))
+        return resultados, unquote_plus(red.call_args.args[0].full_url)
+
+    def test_los_24_bits_se_saben_antes_de_bajar(self):
+        resultados, _ = self._buscar(
+            {"identifier": "hires", "title": "Goldberg", "creator": "Ishizaka",
+             "format": ["24bit Flac", "Flac", "VBR MP3", "Metadata"]},
+            {"identifier": "cd", "title": "Partita", "format": ["Flac", "Ogg Vorbis"]},
+            {"identifier": "wav", "title": "Toma", "format": "WAVE"},
+        )
+        self.assertEqual([r.quality for r in resultados],
+                         [AudioQuality("flac", bits=24), AudioQuality("flac"), AudioQuality("wav")])
+        self.assertEqual(resultados[0].url, "https://archive.org/details/hires")
+
+    def test_entra_lo_que_declara_una_licencia_libre_ademas_de_las_colecciones(self):
+        _, consulta = self._buscar()
+        self.assertIn("licenseurl:*creativecommons*", consulta)
+        self.assertIn("licenseurl:*publicdomain*", consulta)
+        # Con una barra dentro del comodín su buscador da error.
+        self.assertNotIn("licenseurl:*/", consulta)
+        self.assertIn("collection:(etree OR netlabels OR georgeblood)", consulta)
+        # Los conciertos de etree no son «audio» para el Archive.
+        self.assertIn("mediatype:(audio OR etree)", consulta)
+        self.assertIn("format:24bit*", consulta)
+        self.assertIn("fl[]=format", consulta, msg="sin el formato no se sabrían los 24 bits")
+
+    def test_un_fallo_de_red_se_sigue_contando(self):
+        with (
+            patch("descargador.infrastructure.urlopen", side_effect=OSError("sin red")),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_archive(SearchQuery("bach", source="archive"))
+        self.assertIn("No se pudo buscar en el Archive", str(fallo.exception))
+
+
+def _pagina_commons(titulo: str, *, indice: int = 1, mime: str = "audio/x-flac",
+                    duracion: float = 300.0, licencia: str = "Public domain",
+                    categorias: str = "Musopen", tamano: int = 40_000_000) -> dict:
+    """Una página como las que da la búsqueda de Commons con «generator»."""
+    nombre = titulo.partition(":")[2].replace(" ", "_")
+    return {
+        "pageid": indice, "ns": 6, "title": titulo, "index": indice,
+        "imageinfo": [{
+            "size": tamano, "width": 0, "height": 0, "duration": duracion, "mime": mime,
+            "url": f"https://upload.wikimedia.org/wikipedia/commons/a/ab/{nombre}",
+            "descriptionurl": f"https://commons.wikimedia.org/wiki/File:{nombre}",
+            "extmetadata": {
+                "LicenseShortName": {"value": licencia},
+                "Artist": {"value": '<a href="//commons.wikimedia.org/wiki/User:M">Musopen</a>'},
+                "ObjectName": {"value": Path(titulo.partition(":")[2]).stem},
+                "Categories": {"value": categorias},
+            },
+        }],
+    }
+
+
+class CommonsTests(unittest.TestCase):
+    """Wikimedia Commons: el original que se subió, solo con licencia libre."""
+
+    FLAC = _pagina_commons("File:Beethoven - Symphony No. 5 - I. Allegro con brio.flac", indice=2)
+    MP3 = _pagina_commons("File:Gymnopedie No 1.mp3", indice=1, mime="audio/mpeg",
+                          duracion=200, licencia="CC BY-SA 4.0", tamano=4_800_000)
+
+    def _buscar(self, *paginas, limite=10):
+        respuesta = _Json({"batchcomplete": True, "query": {"pages": list(paginas)}})
+        with patch("descargador.infrastructure.urlopen", return_value=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_commons(
+                SearchQuery("beethoven", limit=limite, source="commons"))
+        return resultados, red.call_args.args[0]
+
+    def test_trae_el_original_con_su_calidad_y_en_orden_de_relevancia(self):
+        resultados, _ = self._buscar(self.FLAC, self.MP3)
+        # Con «generator» llegan desordenadas: manda «index».
+        self.assertEqual([r.title for r in resultados],
+                         ["Gymnopedie No 1", "Beethoven - Symphony No. 5 - I. Allegro con brio"])
+        mp3, flac = resultados
+        self.assertEqual(flac.quality, AudioQuality("flac"))
+        # 4,8 MB en 200 s son 192 kb/s de media.
+        self.assertEqual(mp3.quality, AudioQuality("mp3", 192.0))
+        self.assertEqual(flac.url, "https://commons.wikimedia.org/wiki/File:"
+                                   "Beethoven_-_Symphony_No._5_-_I._Allegro_con_brio.flac")
+        self.assertEqual(flac.uploader, "Musopen", msg="sin el HTML del campo")
+        self.assertEqual(flac.duration, 300.0)
+
+    def test_fuera_pronunciaciones_efectos_midis_y_licencias_que_no_dejan(self):
+        descartadas = (
+            _pagina_commons("File:LL-Q1321 (spa)-Rodelar-agua.wav", mime="audio/wav", duracion=40),
+            _pagina_commons("File:Agua.ogg", mime="application/ogg",
+                            categorias="Spanish pronunciation|Lingua Libre"),
+            _pagina_commons("File:Trueno.flac", duracion=12),
+            _pagina_commons("File:Fuga.mid", mime="audio/midi"),
+            _pagina_commons("File:Himno.ogg", mime="application/ogg", licencia="GFDL"),
+            _pagina_commons("File:Logo sonoro.ogg", mime="application/ogg", licencia="Fair use"),
+            _pagina_commons("File:Sin licencia.flac", licencia=""),
+        )
+        resultados, _ = self._buscar(*descartadas, self.FLAC)
+        self.assertEqual([r.title for r in resultados],
+                         ["Beethoven - Symphony No. 5 - I. Allegro con brio"])
+
+    def test_las_licencias_que_dejan_bajar_y_compartir(self):
+        for nombre in ("CC0", "CC0 1.0", "Public domain", "PD-old", "CC BY 4.0", "CC BY-SA 3.0",
+                       "CC-BY-SA-2.5", "CC BY-SA 3.0 de"):
+            self.assertTrue(LICENCIA_LIBRE.match(nombre), msg=nombre)
+        for nombre in ("GFDL", "Fair use", "CC BY-NC 4.0", "CC BY-ND 4.0", "", "Copyrighted"):
+            self.assertFalse(LICENCIA_LIBRE.match(nombre), msg=nombre)
+
+    def test_se_presenta_con_su_nombre_y_no_como_un_navegador(self):
+        _, peticion = self._buscar(self.FLAC)
+        agente = peticion.get_header("User-agent")
+        self.assertNotIn("Mozilla", agente, msg="fingir un navegador da 403")
+        self.assertIn("github.com", agente)
+        consulta = peticion.full_url
+        self.assertIn("filetype%3Aaudio", consulta)
+        self.assertIn("gsrnamespace=6", consulta)
+        self.assertIn("extmetadata", consulta)
+
+    def test_no_se_ensenian_mas_de_las_pedidas(self):
+        muchas = [_pagina_commons(f"File:Tema {i}.flac", indice=i) for i in range(1, 20)]
+        resultados, peticion = self._buscar(*muchas, limite=5)
+        self.assertEqual(len(resultados), 5)
+        self.assertIn("gsrlimit=15", peticion.full_url, msg="se piden de más por lo que se descarta")
+
+    def test_un_ogg_dice_su_contenedor_y_no_un_codec_adivinado(self):
+        calidad = calidad_commons("Canción.ogg", 6_000_000, 200)
+        self.assertEqual(calidad, AudioQuality("ogg", 240.0))
+        self.assertEqual(calidad_commons("Toma.wav"), AudioQuality("wav"))
+        self.assertTrue(calidad_commons("Toma.wav").lossless)
+
+    #: Lo que da el extractor del motor para un FLAC: el original sin
+    #: «vcodec» y las copias de Commons, que sí lo traen.
+    DEL_MOTOR: ClassVar[list] = [
+        {"url": "https://upload.wikimedia.org/wikipedia/commons/a/ab/Tema.flac", "format_id": "source",
+         "quality": 10, "width": 0, "height": 0, "filesize": 30_000_000},
+        {"url": "https://upload.wikimedia.org/transcoded/a/ab/Tema.flac/Tema.flac.ogg", "tbr": 112,
+         "ext": "ogg", "vcodec": "none", "acodec": "vorbis"},
+        {"url": "https://upload.wikimedia.org/transcoded/a/ab/Tema.flac/Tema.flac.mp3", "tbr": 128,
+         "ext": "mp3"},
+    ]
+
+    def test_se_queda_solo_con_el_original_y_es_audio(self):
+        formatos = formatos_commons([dict(f) for f in self.DEL_MOTOR], 240)
+        self.assertEqual(len(formatos), 1, msg="las copias son recompresiones del mismo archivo")
+        original = formatos[0]
+        self.assertEqual((original["ext"], original["acodec"], original["vcodec"]), ("flac", "flac", "none"))
+        self.assertEqual(original["abr"], 1000.0)
+
+    def test_el_motor_baja_el_original_pida_lo_que_se_pida(self):
+        """Con el extractor tal cual, «ba/b» elegía la copia Ogg: medido en local."""
+        from yt_dlp import YoutubeDL
+
+        info = {"id": "1", "title": "t", "formats": formatos_commons([dict(f) for f in self.DEL_MOTOR]),
+                "extractor": "wikimedia.org", "extractor_key": "Wikimedia", "webpage_url": "https://x"}
+        for formato in ("flac", "mp3", "best"):
+            seleccion = YtDlpDownloader._seleccion_formato(
+                DownloadOptions(audio_only=True, audio_format=formato))
+            with YoutubeDL({"quiet": True, "format": seleccion}) as motor:
+                elegido = motor.process_ie_result(dict(info), download=False)
+            self.assertEqual(elegido["format_id"], "source", msg=formato)
+            self.assertEqual(calidad_de(elegido).codec, "flac")
+
+    def test_un_video_de_commons_se_deja_como_viene(self):
+        video = [
+            {"url": "https://upload.wikimedia.org/a/b/Clip.webm", "format_id": "source",
+             "width": 1280, "height": 720},
+            {"url": "https://upload.wikimedia.org/t/Clip.webm.480p.vp9.webm", "height": 480,
+             "vcodec": "vp9", "acodec": "opus"},
+        ]
+        self.assertEqual(formatos_commons(video), video)
+
+    def test_sus_enlaces_van_por_el_extractor_que_baja_el_original(self):
+        motor = Mock()
+        _extraer(motor, "https://commons.wikimedia.org/wiki/File:Tema.flac", download=False)
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "CommonsOriginal")
+
+    def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
+        self.assertEqual(SearchQuery("algo", source="commons").source, "commons")
+        self.assertNotIn("commons", FUENTES_DE_LISTAS)
+
+
+class _Crudo(_Json):
+    """Una respuesta HTTP con el texto tal cual, aunque no sea JSON válido."""
+
+    def __init__(self, texto: str):
+        self._datos = texto.encode()
+
+
+class CcMixterTests(unittest.TestCase):
+    """ccMixter: la mezcla en MP3, con todas las manías de su API."""
+
+    SUBIDA: ClassVar[dict] = {
+        "upload_id": 63345, "upload_name": "Sunset Groove", "user_name": "admiralbob77",
+        "user_real_name": "Admiral Bob", "license_name": "Attribution (4.0)",
+        "license_url": "http://creativecommons.org/licenses/by/4.0/",
+        "file_page_url": "https://ccmixter.org/files/admiralbob77/63345",
+        "files": [
+            {"download_url": "https://ccmixter.org/content/admiralbob77/samples.zip",
+             "file_rawsize": 30_000_000, "file_format_info": {"media-type": "archive", "default-ext": "zip"},
+             "file_extra": {"type": "samples"}},
+            {"download_url": "https://ccmixter.org/content/admiralbob77/voz.flac",
+             "file_rawsize": 40_000_000, "file_extra": {"type": "pella"},
+             "file_format_info": {"media-type": "audio", "default-ext": "flac", "sr": "48k", "ps": "3:16"}},
+            {"download_url": "https://ccmixter.org/content/admiralbob77/Sunset_Groove.mp3",
+             "file_rawsize": 7_900_000, "file_extra": {},
+             "file_format_info": {"media-type": "audio", "format-name": "audio-mp3-mp3",
+                                  "default-ext": "mp3", "mime_type": "audio/mpeg", "sr": "44k",
+                                  "ch": "stereo", "ps": "3:16", "br": "CBR"}},
+        ],
+    }
+
+    def _buscar(self, respuesta, texto="groove", limite=10):
+        with patch("descargador.infrastructure.urlopen", side_effect=respuesta) as red:
+            resultados = YtDlpDownloader._buscar_en_ccmixter(
+                SearchQuery(texto, limit=limite, source="ccmixter"))
+        return resultados, [c.args[0] for c in red.call_args_list]
+
+    def test_la_cancion_es_la_mezcla_y_no_las_muestras_ni_la_voz(self):
+        resultados, _ = self._buscar([_Json([self.SUBIDA])])
+        r = resultados[0]
+        self.assertEqual(r.url, "https://ccmixter.org/files/admiralbob77/63345")
+        self.assertEqual(r.uploader, "Admiral Bob")
+        self.assertEqual(r.duration, 196)
+        # 7,9 MB en 3:16 dan 322 kb/s: lo que sobra es la cabecera, y en un
+        # MP3 constante se redondea al estándar.
+        self.assertEqual(r.quality, AudioQuality("mp3", 320.0, 44100))
+
+    def test_una_a_cappella_subida_como_tal_tambien_vale(self):
+        solo_voz = {**self.SUBIDA, "files": self.SUBIDA["files"][:2]}
+        self.assertEqual(archivo_ccmixter(solo_voz)["download_url"],
+                         "https://ccmixter.org/content/admiralbob77/voz.flac")
+        self.assertIsNone(archivo_ccmixter({**self.SUBIDA, "files": self.SUBIDA["files"][:1]}))
+
+    def test_se_piden_pocas_y_con_la_procedencia_que_exige(self):
+        _, peticiones = self._buscar([_Json([])], limite=25)
+        self.assertIn("limit=10", peticiones[0].full_url, msg="más rompe la cabecera X-JSON")
+        self.assertEqual(peticiones[0].get_header("Referer"), "https://ccmixter.org/")
+
+    def test_si_la_cabecera_no_cabe_se_pide_la_mitad(self):
+        _, peticiones = self._buscar([http.client.LineTooLong("header line"), _Json([self.SUBIDA])])
+        self.assertEqual(len(peticiones), 2)
+        self.assertIn("limit=5", peticiones[1].full_url)
+
+    def test_si_nunca_cabe_se_cuenta_como_error_nuestro(self):
+        siempre = itertools.repeat(http.client.LineTooLong("header line"))
+        with self.assertRaises(DownloadError) as fallo:
+            self._buscar(siempre)
+        self.assertIn("ccMixter", str(fallo.exception))
+
+    def test_su_json_roto_se_arregla(self):
+        # Ceros a la izquierda en el bpm y un carácter de control en un texto.
+        crudo = ('[{"upload_id": 63345, "upload_name": "Sunset\x01 Groove", "user_name": "admiralbob77",'
+                 ' "upload_extra": {"bpm": 090, "nada": 0, "medio": 0.5},'
+                 ' "files": ' + json.dumps(self.SUBIDA["files"]) + "}]")
+        resultados, _ = self._buscar([_Crudo(crudo)])
+        self.assertEqual(len(resultados), 1)
+        datos = json_ccmixter(crudo)[0]["upload_extra"]
+        self.assertEqual(datos, {"bpm": 90, "nada": 0, "medio": 0.5})
+
+    def test_lo_que_no_se_entiende_se_dice(self):
+        with self.assertRaises(DownloadError):
+            self._buscar([_Crudo("Illegal")])
+
+    def test_una_comilla_al_final_no_llega_a_su_servidor(self):
+        _, peticiones = self._buscar([_Json([])], texto="rock'")
+        self.assertIn("search=rock&", peticiones[0].full_url)
+        _, peticiones = self._buscar([_Json([])], texto="don't stop")
+        self.assertIn("search=don%27t+stop", peticiones[0].full_url)
+
+    def test_el_motor_recibe_la_mezcla_con_su_procedencia(self):
+        info = info_ccmixter(self.SUBIDA)
+        self.assertEqual(info["id"], "63345")
+        self.assertEqual(info["license"], "Attribution (4.0)")
+        formato = info["formats"][0]
+        self.assertEqual(formato["url"], "https://ccmixter.org/content/admiralbob77/Sunset_Groove.mp3")
+        self.assertEqual((formato["ext"], formato["acodec"], formato["vcodec"]), ("mp3", "mp3", "none"))
+        self.assertEqual(formato["http_headers"], {"Referer": "https://ccmixter.org/"})
+
+    def test_el_extractor_lee_su_api_sin_tocar_la_red(self):
+        from yt_dlp.utils import YoutubeDLError
+
+        url = "https://ccmixter.org/files/admiralbob77/63345"
+        extractor = _extractor_ccmixter()()
+        crudo = json.dumps([self.SUBIDA]).replace('"upload_id": 63345', '"upload_id": 063345')
+        with patch.object(extractor, "_download_webpage", return_value=crudo) as api:
+            info = extractor._real_extract(url)
+        self.assertEqual(api.call_args.kwargs["query"], {"f": "json", "ids": "63345"})
+        self.assertEqual(info["title"], "Sunset Groove")
+        self.assertEqual(info["webpage_url"], url)
+        with (
+            patch.object(extractor, "_download_webpage", return_value="[]"),
+            self.assertRaises(YoutubeDLError),
+        ):
+            extractor._real_extract(url)
+
+    def test_sus_enlaces_van_por_el_extractor_propio(self):
+        motor = Mock()
+        _extraer(motor, "https://ccmixter.org/files/admiralbob77/63345", download=False)
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "CcMixter")
+
+    def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
+        self.assertEqual(SearchQuery("algo", source="ccmixter").source, "ccmixter")
+        self.assertNotIn("ccmixter", FUENTES_DE_LISTAS)
+
+
+def _enlace_ytmusic(tipo: str, ident: str) -> dict:
+    """A dónde lleva un trozo de texto de una fila de YouTube Music."""
+    return {"browseEndpoint": {"browseId": ident, "browseEndpointContextSupportedConfigs": {
+        "browseEndpointContextMusicConfig": {"pageType": f"MUSIC_PAGE_TYPE_{tipo}"}}}}
+
+
+class YoutubeMusicTests(unittest.TestCase):
+    """YouTube Music: solo canciones, con artista y carátula oficiales."""
+
+    PUNTO = " " + chr(0x2022) + " "
+
+    #: Una fila de la sección de canciones, como la sirve su web.
+    FILA: ClassVar[dict] = {
+        "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+            {"url": "https://lh3.googleusercontent.com/abc=w60-h60-l90-rj", "width": 60, "height": 60},
+            {"url": "https://lh3.googleusercontent.com/abc=w120-h120-l90-rj", "width": 120, "height": 120},
+        ]}}},
+        "flexColumns": [
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Despacito"}]}}},
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                {"text": "Luis Fonsi", "navigationEndpoint": _enlace_ytmusic("ARTIST", "UC1")},
+                {"text": " & "},
+                {"text": "Daddy Yankee", "navigationEndpoint": _enlace_ytmusic("ARTIST", "UC2")},
+                {"text": PUNTO},
+                {"text": "VIDA", "navigationEndpoint": _enlace_ytmusic("ALBUM", "MPREb_1")},
+                {"text": PUNTO},
+                {"text": "3:48"},
+            ]}}},
+        ],
+        "playlistItemData": {"videoId": "kJQP7kiw5Fk"},
+    }
+
+    def test_de_la_fila_salen_artista_album_duracion_y_caratula_grande(self):
+        datos = datos_ytmusic(self.FILA)
+        self.assertEqual(datos["artist"], "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(datos["uploader"], "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(datos["album"], "VIDA")
+        self.assertEqual(datos["duration"], 228)
+        self.assertEqual(datos["thumbnails"][0]["url"],
+                         "https://lh3.googleusercontent.com/abc=w544-h544-l90-rj")
+
+    def test_un_artista_sin_pagina_propia_tambien_sale(self):
+        fila = json.loads(json.dumps(self.FILA))
+        trozos = fila["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"]
+        fila["flexColumns"][1]["musicResponsiveListItemFlexColumnRenderer"]["text"]["runs"] = [
+            {"text": "Grupo Local"}, *trozos[3:]]
+        self.assertEqual(datos_ytmusic(fila)["artist"], "Grupo Local")
+        # Y una fila rara no rompe nada: solo no aporta.
+        self.assertEqual(datos_ytmusic({}), {})
+
+    def test_el_resultado_lleva_lo_oficial(self):
+        entrada = _extractor_ytmusic()()._music_reponsive_list_entry(self.FILA)
+        r = YtDlpDownloader._resultado(entrada)
+        self.assertEqual(r.title, "Despacito")
+        self.assertEqual(r.uploader, "Luis Fonsi & Daddy Yankee")
+        self.assertEqual(r.url, "https://music.youtube.com/watch?v=kJQP7kiw5Fk")
+        self.assertEqual(r.duration, 228)
+        self.assertIn("w544-h544", r.thumbnail)
+
+    def test_se_busca_en_la_seccion_de_canciones_y_solo_las_pedidas(self):
+        entrada = _extractor_ytmusic()()._music_reponsive_list_entry(self.FILA)
+        with patch("yt_dlp.YoutubeDL") as clase:
+            motor = clase.return_value.__enter__.return_value
+            motor.extract_info.return_value = {"entries": [entrada, None, entrada]}
+            resultados = YtDlpDownloader().search(SearchQuery("bad bunny", limit=2, source="ytmusic"))
+        self.assertEqual(motor.extract_info.call_args.args[0],
+                         "https://music.youtube.com/search?q=bad+bunny#songs")
+        self.assertEqual(motor.extract_info.call_args.kwargs["ie_key"], "YoutubeMusicCanciones")
+        opciones = clase.call_args.args[0]
+        self.assertEqual(opciones["playlistend"], 2)
+        self.assertEqual(opciones["extract_flat"], "in_playlist")
+        self.assertEqual([r.title for r in resultados], ["Despacito", "Despacito"])
+
+    def test_un_fallo_del_motor_se_cuenta(self):
+        from yt_dlp.utils import ExtractorError
+
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.side_effect = ExtractorError("caido")
+            with self.assertRaises(DownloadError) as fallo:
+                YtDlpDownloader().search(SearchQuery("algo", source="ytmusic"))
+        self.assertIn("YouTube Music", str(fallo.exception))
+
+    def test_la_fuente_se_acepta_y_su_portada_se_trata_como_la_de_youtube(self):
+        self.assertEqual(SearchQuery("algo", source="ytmusic").source, "ytmusic")
+        self.assertNotIn("ytmusic", PREFIJOS_BUSQUEDA)
+        self.assertTrue(necesita_portada_oficial("https://music.youtube.com/watch?v=kJQP7kiw5Fk"))
 
 
 class CapitulosTests(unittest.TestCase):

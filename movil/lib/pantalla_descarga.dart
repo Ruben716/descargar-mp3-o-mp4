@@ -74,10 +74,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// unos 127 kb/s) y solo hace falta saber que se deja bajar. En SoundCloud
   /// se miran mas, porque lo de los sellos grandes viene con DRM, y lo que no
   /// lo lleva llega a AAC 160. En Bandcamp, porque solo uno de cada diez
-  /// regala el FLAC y no hay otra forma de saber cual. Audius ya lo dice al
-  /// buscar y el Archive siempre es FLAC: esos no hace falta mirarlos.
+  /// regala el FLAC y no hay otra forma de saber cual. Audius, Jamendo, el
+  /// Archive, Commons y ccMixter ya lo dicen al buscar: esos no hace falta
+  /// mirarlos. YouTube Music es el mismo YouTube: como el, basta uno.
   static const Map<Fuente, int> _aComprobar = <Fuente, int>{
     Fuente.youtube: 1,
+    Fuente.ytmusic: 1,
     Fuente.soundcloud: 3,
     Fuente.bandcamp: 4,
   };
@@ -89,7 +91,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     _comprobadas.clear();
   }
 
-  /// El Archive solo devuelve grabaciones con FLAC: su calidad ya se sabe.
+  /// El Archive solo devuelve grabaciones sin perdida. El nucleo ya dice
+  /// cual (y si es de 24 bits); esto queda para lo que no lo trajera.
   static const CalidadAudio _flac = CalidadAudio(codec: 'flac');
 
   /// Lo que esta mal de lo escrito, debajo del campo.
@@ -439,7 +442,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     return r.calidad ??
         switch (r.fuente) {
           Fuente.archive => _flac,
-          Fuente.youtube => CalidadAudio.tipicaDeYoutube,
+          Fuente.youtube || Fuente.ytmusic => CalidadAudio.tipicaDeYoutube,
           _ => null,
         };
   }
@@ -700,7 +703,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// Donde se busca. Solo tiene sentido buscando: un enlace ya dice de donde es.
   ///
   /// Compactas y sin la marca de elegida (ya lo dice el color): con «Todas»
-  /// son cuatro, y en un telefono normal la ultima quedaba fuera de la vista.
+  /// son muchas, y en un telefono normal las ultimas quedan fuera de la vista.
   /// Se deja el desplazamiento por si la letra del sistema es grande.
   Widget _fuentes() {
     return SingleChildScrollView(
