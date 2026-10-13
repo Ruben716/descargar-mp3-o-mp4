@@ -12,8 +12,6 @@ import 'package:descargador_movil/pantalla_mix.dart';
 import 'package:descargador_movil/pantalla_pidele.dart';
 import 'package:descargador_movil/secciones_inicio.dart';
 import 'package:descargador_movil/ritmos.dart';
-import 'package:descargador_movil/pantalla_pidele.dart';
-import 'package:descargador_movil/dj.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
 import 'package:descargador_movil/emisora.dart';
