@@ -4158,6 +4158,10 @@ void main() {
     // Commons y ccMixter pueden sonar mejor que lo que hay; YouTube Music, nunca.
     expect(MejorCalidad.fuentes, containsAll(<Fuente>[Fuente.commons, Fuente.ccmixter]));
     expect(MejorCalidad.fuentes, isNot(contains(Fuente.ytmusic)));
+    // Un resultado del Archive es un disco entero: nunca «la misma cancion».
+    expect(MejorCalidad.fuentes.where((Fuente f) => f.daListas), isEmpty);
+    // A igual calidad gana el orden: la version limpia antes que el videoclip.
+    expect(Fuente.reales.indexOf(Fuente.ytmusic), lessThan(Fuente.reales.indexOf(Fuente.youtube)));
   });
 
   testWidgets('tocar un concierto del Archive trae sus pistas',

@@ -1762,6 +1762,24 @@ class CommonsTests(unittest.TestCase):
         ]
         self.assertEqual(formatos_commons(video), video)
 
+    def test_un_midi_se_deja_con_la_copia_que_suena(self):
+        """Un MIDI no es audio grabado: solo suena la copia que sintetiza Commons."""
+        midi = [
+            {"url": "https://upload.wikimedia.org/a/b/Fuga.mid", "format_id": "source"},
+            {"url": "https://upload.wikimedia.org/t/Fuga.mid.mp3", "format_id": "mp3",
+             "vcodec": "none", "acodec": "mp3"},
+        ]
+        self.assertEqual(formatos_commons(midi), midi)
+
+    def test_un_error_de_la_api_se_dice_y_no_parece_que_no_haya_nada(self):
+        respuesta = _Json({"error": {"code": "maxlag", "info": "Waiting for a database server"}})
+        with (
+            patch("descargador.infrastructure.urlopen", return_value=respuesta),
+            self.assertRaises(DownloadError) as fallo,
+        ):
+            YtDlpDownloader._buscar_en_commons(SearchQuery("beethoven", source="commons"))
+        self.assertIn("Waiting for a database server", str(fallo.exception))
+
     def test_sus_enlaces_van_por_el_extractor_que_baja_el_original(self):
         motor = Mock()
         _extraer(motor, "https://commons.wikimedia.org/wiki/File:Tema.flac", download=False)
@@ -1770,6 +1788,20 @@ class CommonsTests(unittest.TestCase):
     def test_la_fuente_se_acepta_y_da_canciones_sueltas(self):
         self.assertEqual(SearchQuery("algo", source="commons").source, "commons")
         self.assertNotIn("commons", FUENTES_DE_LISTAS)
+
+
+class YtMusicErroresTests(unittest.TestCase):
+    def test_un_fallo_de_busqueda_llega_en_castellano_y_sin_texto_del_motor(self):
+        from yt_dlp.utils import DownloadError as FalloMotor
+
+        with patch("yt_dlp.YoutubeDL") as clase:
+            clase.return_value.__enter__.return_value.extract_info.side_effect = FalloMotor(
+                'ERROR: query "bad bunny" page 1: Unable to download API page; please report this issue')
+            with self.assertRaises(DownloadError) as fallo:
+                YtDlpDownloader().search(SearchQuery("bad bunny", source="ytmusic"))
+        mensaje = str(fallo.exception)
+        self.assertIn("YouTube Music", mensaje)
+        self.assertNotIn("report", mensaje)
 
 
 class _Crudo(_Json):

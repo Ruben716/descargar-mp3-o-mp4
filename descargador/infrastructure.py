@@ -700,7 +700,9 @@ def formatos_commons(formatos: list[dict], segundos: object = None) -> list[dict
     if original is None:
         return formatos
     extension = Path(urlparse(str(original["url"])).path).suffix.lower().lstrip(".")
-    if not extension:
+    # Un MIDI no es audio grabado: el motor no lo sabría sonar, y la copia
+    # que sintetiza Commons es lo único que se oye. Se deja como viene.
+    if not extension or extension not in CODEC_COMMONS:
         return formatos
     return [{
         **original,
@@ -1331,7 +1333,12 @@ class YtDlpDownloader:
             entradas = (info or {}).get("entries") or []
             return tuple(self._resultado(e) for e in entradas if e)[:query.limit]
         except (YoutubeDLError, OSError, RuntimeError) as exc:
-            raise DownloadError(f"No se pudo buscar en YouTube Music: {exc}") from exc
+            # Sin el texto crudo del motor: llega en inglés y pide «reportar»
+            # cosas al usuario. Lo conocido se explica; lo demás, en llano.
+            explicacion = mensaje_claro(exc)
+            if explicacion.startswith("No se pudo completar la descarga"):
+                explicacion = "No se pudo buscar en YouTube Music. Comprueba la conexión y prueba de nuevo."
+            raise DownloadError(explicacion) from exc
 
     @staticmethod
     def _buscar_en_audius(query: SearchQuery) -> tuple[VideoInfo, ...]:
@@ -1453,6 +1460,11 @@ class YtDlpDownloader:
             "iiextmetadatafilter": "LicenseShortName|Artist|ObjectName|Categories",
         })
         datos = _consultar(direccion, "Commons", cabeceras={"User-Agent": AGENTE_COMMONS})
+        # MediaWiki responde 200 con {"error": ...} si la consulta falla (límite
+        # de peticiones, «maxlag»): sin esto se veía como «nada encontrado».
+        if isinstance(datos.get("error"), dict):
+            motivo = datos["error"].get("info") or "error de la API"
+            raise DownloadError(f"No se pudo buscar en Commons: {motivo}")
         # Con «generator» las páginas no llegan en orden de relevancia: lo dice «index».
         paginas = sorted((datos.get("query") or {}).get("pages") or [],
                          key=lambda p: p.get("index") or 0)

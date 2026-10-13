@@ -604,8 +604,10 @@ enum Fuente {
 
   /// Las que existen de verdad en el nucleo, en el orden en que se ensenian.
   static const List<Fuente> reales = <Fuente>[
-    Fuente.youtube,
+    // YouTube Music antes que YouTube: a igual calidad gana el orden de aqui,
+    // y la version limpia del tema es mejor eleccion que el videoclip.
     Fuente.ytmusic,
+    Fuente.youtube,
     Fuente.soundcloud,
     Fuente.audius,
     Fuente.bandcamp,
