@@ -221,6 +221,12 @@ class MainActivity : AudioServiceActivity() {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> medirVolumen(puente, uri) }
                     }
+                    "caratulaGrande" -> {
+                        val artista = llamada.argument<String>("artista").orEmpty()
+                        val titulo = llamada.argument<String>("titulo").orEmpty()
+                        val clave = llamada.argument<String>("clave").orEmpty()
+                        enHilo(respuesta) { puente -> caratulaGrande(puente, artista, titulo, clave) }
+                    }
                     "analizarAudio" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> analizarAudio(puente, uri) }
@@ -445,6 +451,27 @@ class MainActivity : AudioServiceActivity() {
             fallo("No se pudo medir: ${error.message}")
         } finally {
             copia.delete()
+        }
+    }
+
+    /**
+     * Baja la caratula oficial de una cancion en grande, para el reproductor.
+     *
+     * La miniatura de MediaStore no pasa de 512 px y, en lo bajado de YouTube,
+     * es el fotograma del video. Se guarda en la carpeta privada de la app con
+     * la clave que da Flutter, que la lee de ahi sin volver a pedirla. La clave
+     * no puede llevar barras: no debe salirse de la carpeta.
+     */
+    private fun caratulaGrande(puente: PyObject, artista: String, titulo: String, clave: String): String {
+        if (!clave.matches(Regex("[A-Za-z0-9_-]+"))) return fallo("Clave de portada no valida.")
+        if (artista.isBlank() && titulo.isBlank()) return fallo("Falta la cancion.")
+        val destino = File(File(filesDir, "portadas").apply { mkdirs() }, "$clave.jpg")
+        return try {
+            // FFmpeg recorta y recomprime la que no llega ya cuadrada.
+            asegurarFfmpeg(puente)
+            puente.callAttr("caratula_grande", artista, titulo, destino.absolutePath).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo bajar la portada: ${error.message}")
         }
     }
 

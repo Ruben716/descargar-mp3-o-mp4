@@ -1,4 +1,5 @@
 """Adaptador de yt-dlp: red, archivos, unión con FFmpeg y utilidades del sistema."""
+import base64
 import functools
 import hashlib
 import html
@@ -7,9 +8,10 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote, unquote, urlencode, urlparse
@@ -68,6 +70,45 @@ RUIDO_TITULO = (
 #: La miniatura de YouTube es 16:9, y de carátula de disco queda fatal en
 #: cualquier reproductor: sale el fotograma estirado o con franjas.
 RECORTE_CUADRADO = "crop='min(iw,ih)':'min(iw,ih)'"
+
+#: Lado de la carátula que se incrusta, en píxeles.
+#:
+#: Más que el ancho de cualquier móvil (la portada del reproductor va de borde
+#: a borde) y el mínimo que piden Bandcamp y Apple Podcasts al subirla. Apple
+#: y Deezer la sirven ya a esta medida, sin que haya que recomprimirla.
+LADO_PORTADA = 1400
+
+#: Calidad JPEG de FFmpeg («-q:v»): 2 equivale a una calidad de 90 a 95.
+#:
+#: El mjpeg de FFmpeg siempre sale en línea base, no progresivo, que es lo que
+#: leen también los reproductores de coche.
+CALIDAD_JPEG_PORTADA = "2"
+
+#: Por encima de este peso se recomprime aunque ya sea un JPEG cuadrado.
+PESO_MAX_PORTADA = 1024 * 1024
+
+#: Lo más que se baja de una portada. Más es un original enorme o no es una imagen.
+TOPE_DESCARGA_PORTADA = 20 * 1024 * 1024
+
+#: Con 2000 o más, la CDN de Deezer responde 403; hasta 1900 sirve la nativa.
+LADO_MAX_DEEZER = 1900
+
+#: El mayor «imagesize» que admite la API de Jamendo.
+LADO_MAX_JAMENDO = 600
+
+#: El md5 de un archivo vacío: es el hueco de Deezer cuando no hay carátula.
+DEEZER_SIN_PORTADA = "d41d8cd98f00b204e9800998ecf8427e"
+
+#: Recorte al cuadrado y escalado que nunca agranda.
+#:
+#: Sobre un cuadrado es idempotente: aplicarlo dos veces no cambia nada.
+FILTRO_PORTADA = (
+    RECORTE_CUADRADO
+    + f",scale='min(iw,{LADO_PORTADA})':'min(ih,{LADO_PORTADA})':flags=lanczos"
+)
+
+#: El JPEG en 4:2:0: desde un PNG, FFmpeg elegiría 4:4:4 y pesaría el doble.
+SUBMUESTREO_PORTADA = "yuvj420p"
 
 #: Cómo se reparte «Artista - Tema» dentro del título.
 PLANTILLA_ETIQUETAS = "%(artist)s - %(track)s"
@@ -1105,6 +1146,112 @@ def mensaje_claro(error: Exception) -> str:
     return f"No se pudo completar la descarga: {crudo}"
 
 
+#: Cómo se reconoce cada CDN de carátulas y dónde va la medida en su dirección.
+_PORTADA_APPLE = re.compile(
+    r"^(https://[\w.-]*mzstatic\.com/image/thumb/.+)/\d+x\d+[a-z]*(?:-\d+)?\.(?:jpg|jpeg|png|webp)$")
+_PORTADA_DEEZER = re.compile(
+    r"^(https://[\w.-]*dzcdn\.net/images/(?:cover|artist)/([0-9a-f]{32}))/\d+x\d+-[^/]+$")
+_PORTADA_BANDCAMP = re.compile(r"^(https://f\d+\.bcbits\.com/img/a?\d+)_\d+\.(?:jpg|png|gif)$")
+_PORTADA_SOUNDCLOUD = re.compile(
+    r"^(https://i\d*\.sndcdn\.com/.+)-(?:t\d+x\d+|large|crop|small|badge|tiny|mini|original)\.(jpg|png)$")
+_PORTADA_YOUTUBE = re.compile(r"^https://i\d?\.ytimg\.com/vi(?:_webp)?/([\w-]{11})/\w+\.(?:jpg|webp)")
+_PORTADA_CAA = re.compile(
+    r"^(https://coverartarchive\.org/release(?:-group)?/[0-9a-f-]{36}/front)(?:-\d+)?$")
+_PORTADA_GOOGLE = re.compile(r"^(https://lh\d\.googleusercontent\.com/[^=\s]+)=[^/]*$")
+_PORTADA_JAMENDO = re.compile(r"^(https://usercontent\.jamendo\.com/?\?.*[?&]width=)\d+(.*)$")
+
+
+def versiones_grandes(direccion: str, lado: int = LADO_PORTADA) -> list[str]:
+    """La misma imagen en grande, de mayor a menor, según la CDN que la sirve.
+
+    Cada web guarda varias medidas de la misma carátula y la medida va en la
+    dirección: basta con cambiarla. Lo que no se reconoce da una lista vacía.
+
+    - Apple redimensiona a cualquier medida, pero por encima del máster la
+      agranda: pedir 1400 a un máster de 600 da 1400 falsos.
+    - Deezer no pasa de 1900 (con más responde 403), y su md5 vacío es el
+      hueco que pone cuando no hay carátula: eso no es una portada.
+    - Bandcamp: «_10» es la de 1200 en JPEG. El «_0» es el original tal cual se
+      subió, que puede ser un PNG con nombre .jpg y tumbar la conversión.
+    - Del Cover Art Archive solo existen 250, 500 y 1200: otra medida da 404.
+    """
+    if m := _PORTADA_APPLE.match(direccion):
+        return [f"{m[1]}/{lado}x{lado}bb.jpg"]
+    if m := _PORTADA_DEEZER.match(direccion):
+        if m[2] == DEEZER_SIN_PORTADA:
+            return []
+        n = min(lado, LADO_MAX_DEEZER)
+        grande = f"{m[1]}/{n}x{n}-000000-80-0-0.jpg"
+        return [grande] if grande == direccion else [grande, direccion]
+    if m := _PORTADA_BANDCAMP.match(direccion):
+        return [f"{m[1]}_10.jpg"]
+    if m := _PORTADA_SOUNDCLOUD.match(direccion):
+        return [f"{m[1]}-original.{m[2]}", f"{m[1]}-t500x500.jpg"]
+    if m := _PORTADA_YOUTUBE.match(direccion):
+        # «oar2» es la de proporción original: en los vídeos de disco (Topic)
+        # da el cuadrado sin franjas. No la tiene ni un tercio de los vídeos;
+        # el motor prueba la siguiente si responde 404.
+        return [f"https://i.ytimg.com/vi/{m[1]}/oar2.jpg",
+                f"https://i.ytimg.com/vi/{m[1]}/maxresdefault.jpg"]
+    if m := _PORTADA_CAA.match(direccion):
+        return [f"{m[1]}-1200", f"{m[1]}-500"]
+    if m := _PORTADA_GOOGLE.match(direccion):
+        return [f"{m[1]}=w{lado}-h{lado}-l90-rj"]
+    if m := _PORTADA_JAMENDO.match(direccion):
+        return [f"{m[1]}{min(lado, LADO_MAX_JAMENDO)}{m[2]}"]
+    return []
+
+
+def con_miniaturas_grandes(info: dict, lado: int = LADO_PORTADA) -> dict:
+    """La ficha con las versiones grandes de sus miniaturas por delante.
+
+    El motor baja la miniatura de más preferencia y, si responde 404, pasa a
+    la siguiente: así se prueba primero la grande y, si no existe, se queda la
+    de siempre, sin más coste que una petición. SoundCloud no se toca: el motor
+    ya elige su original y comprueba la extensión.
+
+    Cada candidata hereda la extensión y las cabeceras de la miniatura de la que
+    sale. Una dirección sin extensión (la de Jamendo) se guardaría con un nombre
+    que FFmpeg no sabe leer.
+    """
+    miniaturas = [m for m in (info.get("thumbnails") or []) if isinstance(m, dict) and m.get("url")]
+    if not miniaturas and info.get("thumbnail"):
+        miniaturas = [{"url": str(info["thumbnail"])}]
+    if not miniaturas:
+        return info
+    tope = max((m.get("preference") or 0) for m in miniaturas)
+    vistas = {str(m["url"]) for m in miniaturas}
+    nuevas: list[dict] = []
+    for miniatura in miniaturas:
+        origen = str(miniatura["url"])
+        if "sndcdn.com" in origen:
+            continue
+        for direccion in versiones_grandes(origen, lado):
+            if direccion in vistas:
+                continue
+            vistas.add(direccion)
+            nueva: dict = {
+                "url": direccion,
+                "id": f"grande-{len(nuevas)}",
+                "preference": tope + 100 - len(nuevas),
+            }
+            ruta = urlparse(direccion).path.lower()
+            if ruta.endswith(".jpg"):
+                nueva["ext"] = "jpg"
+            else:
+                # Las CDN sin extensión en la dirección sirven JPEG (el CAA y
+                # Google con «-rj»); la de Jamendo la averiguó el motor.
+                nueva["ext"] = miniatura.get("ext") or "jpg"
+            if miniatura.get("http_headers"):
+                nueva["http_headers"] = miniatura["http_headers"]
+            nuevas.append(nueva)
+    if not nuevas:
+        return info
+    grande = {k: v for k, v in info.items() if k != "thumbnail"}
+    grande["thumbnails"] = miniaturas + nuevas
+    return grande
+
+
 def incrusta_caratula(audio_only: bool) -> bool:
     """Indica si la carátula puede incrustarse sin abortar el postprocesado.
 
@@ -1780,6 +1927,10 @@ class YtDlpDownloader:
                 info = _extraer(engine, request.url, download=False, process=False)
                 if info and info.get("_type") in {"playlist", "multi_video"}:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
+                if info and caratula and opts.audio_only and info.get("_type", "video") == "video":
+                    # La carátula grande por delante: si no existe, el motor
+                    # sigue con la de siempre.
+                    info = con_miniaturas_grandes(info)
                 procesado = engine.process_ie_result(info, download=True) if info else None
             existentes = tuple(dict.fromkeys(p for p in archivos if p.is_file()))
             if opts.split_chapters:
@@ -1890,7 +2041,13 @@ class YtDlpDownloader:
         if opts.normalize:
             argumentos["extractaudio+ffmpeg"] = ["-af", f"loudnorm={NIVEL_SONORIDAD}"]
         if opts.audio_only:
-            argumentos["thumbnailsconvertor+ffmpeg"] = ["-vf", RECORTE_CUADRADO]
+            # Lo comparten los dos convertidores de miniatura. El paso a PNG
+            # ignora el submuestreo y elige el suyo; el paso a JPEG lo usa.
+            argumentos["thumbnailsconvertor+ffmpeg"] = [
+                "-vf", FILTRO_PORTADA,
+                "-q:v", CALIDAD_JPEG_PORTADA,
+                "-pix_fmt", SUBMUESTREO_PORTADA,
+            ]
         return argumentos
 
     @staticmethod
@@ -1910,9 +2067,13 @@ class YtDlpDownloader:
         if opts.audio_only and caratula:
             # Convierte la miniatura antes de incrustarla, que es cuando se le
             # puede aplicar el recorte: al incrustarla ya va con «-c copy».
-            # A PNG y no a JPG a propósito: si el destino coincide con el
-            # origen, yt-dlp se salta la conversión y no habría recorte.
+            # Dos pasos, a PNG y luego a JPEG, a propósito: si el destino
+            # coincide con el origen, yt-dlp se salta la conversión y no habría
+            # recorte. Así el que de verdad convierte recorta y limita, y
+            # siempre sale un JPEG cuadrado de LADO_PORTADA como mucho: un PNG
+            # de 1400 pesaría de seis a nueve veces más dentro de cada canción.
             pps.append({"key": "FFmpegThumbnailsConvertor", "format": "png"})
+            pps.append({"key": "FFmpegThumbnailsConvertor", "format": "jpg"})
         if opts.skip_sponsors:
             pps.append({"key": "SponsorBlock", "categories": list(SPONSOR_CATEGORIES),
                         "when": "after_filter"})
@@ -2002,8 +2163,8 @@ def escribir_etiquetas(origen: Path, destino: Path, *, titulo: str, artista: str
             "No se pudieron escribir las etiquetas: " + (detalle[-1] if detalle else "falló FFmpeg"))
 
 
-#: Quién dice ser la app al pedir. MusicBrainz exige identificarse de verdad.
-AGENTE = "descargador (proyecto academico)"
+#: Quién dice ser la app al pedir. MusicBrainz pide «Aplicación/versión ( contacto )».
+AGENTE = "Tumbao/2.0 ( https://github.com/Ruben716/descargar-mp3-o-mp4 )"
 
 
 def _json_remoto(direccion: str) -> dict:
@@ -2022,8 +2183,8 @@ def _json_remoto(direccion: str) -> dict:
     return datos if isinstance(datos, dict) else {}
 
 
-def _portada_itunes(artista: str, titulo: str, lado: int) -> str | None:
-    """El catálogo de Apple. El que mejor resolución da: 1200 píxeles."""
+def _portada_itunes(artista: str, titulo: str, lado: int) -> list[str]:
+    """El catálogo de Apple. Redimensiona a la medida que se le pida."""
     datos = _json_remoto("https://itunes.apple.com/search?" + urlencode({
         "term": f"{artista} {titulo}".strip(),
         "entity": "song",
@@ -2031,18 +2192,21 @@ def _portada_itunes(artista: str, titulo: str, lado: int) -> str | None:
     }))
     resultados = datos.get("results") or []
     if not resultados:
-        return None
+        return []
     # Devuelve una miniatura de 100, pero la misma imagen existe en grande
     # cambiándole la medida a la propia dirección.
     pequena = str(resultados[0].get("artworkUrl100") or "")
-    return pequena.replace("100x100bb", f"{lado}x{lado}bb") if pequena else None
+    if not pequena:
+        return []
+    return versiones_grandes(pequena, lado) or [pequena.replace("100x100bb", f"{lado}x{lado}bb")]
 
 
-def _portada_deezer(artista: str, titulo: str, lado: int) -> str | None:
-    """Deezer. Menos resolución que Apple, pero encuentra bastante más.
+def _portada_deezer(artista: str, titulo: str, lado: int) -> list[str]:
+    """Deezer. Hasta 1900 píxeles, y encuentra bastante más que Apple.
 
     Medido: da la cara con los remixes y las sesiones largas, que es justo
-    donde el catálogo de Apple se queda en blanco.
+    donde el catálogo de Apple se queda en blanco. Si la grande falla, queda
+    su «cover_xl» de 1000 como respaldo.
     """
     datos = _json_remoto("https://api.deezer.com/search?" + urlencode({
         "q": f"{artista} {titulo}".strip(),
@@ -2050,19 +2214,25 @@ def _portada_deezer(artista: str, titulo: str, lado: int) -> str | None:
     }))
     resultados = datos.get("data") or []
     if not resultados:
-        return None
+        return []
     album = resultados[0].get("album") or {}
-    return str(album.get("cover_xl") or "") or None
+    grande = str(album.get("cover_xl") or "")
+    if not grande or DEEZER_SIN_PORTADA in grande:
+        # El hueco que pone Deezer cuando no hay carátula no es una portada.
+        return []
+    return versiones_grandes(grande, lado) or [grande]
 
 
-def _portada_coverart(artista: str, titulo: str, lado: int) -> str | None:
+def _portada_coverart(artista: str, titulo: str, lado: int) -> list[str]:
     """MusicBrainz y su archivo de carátulas, ambos abiertos.
 
     Va el último de los tres porque falla más con lo comercial, pero recoge
-    ediciones y rarezas que los otros dos no tienen fichadas.
+    ediciones y rarezas que los otros dos no tienen fichadas. Solo existen las
+    medidas 250, 500 y 1200, así que no se le pide otra. La del grupo de
+    ediciones sirve cuando la edición encontrada no tiene carátula propia.
     """
     if not artista.strip():
-        return None
+        return []
     datos = _json_remoto("https://musicbrainz.org/ws/2/release?" + urlencode({
         "query": f'artist:"{artista}" AND release:"{titulo}"',
         "fmt": "json",
@@ -2070,57 +2240,254 @@ def _portada_coverart(artista: str, titulo: str, lado: int) -> str | None:
     }))
     ediciones = datos.get("releases") or []
     if not ediciones:
-        return None
+        return []
     identificador = str(ediciones[0].get("id") or "")
     if not identificador:
-        return None
-    return f"https://coverartarchive.org/release/{identificador}/front-{lado}"
+        return []
+    candidatas = [f"https://coverartarchive.org/release/{identificador}/front-1200"]
+    grupo = str((ediciones[0].get("release-group") or {}).get("id") or "")
+    if grupo:
+        candidatas.append(f"https://coverartarchive.org/release-group/{grupo}/front-1200")
+    candidatas.append(f"https://coverartarchive.org/release/{identificador}/front-500")
+    return candidatas
 
 
 #: A quién se le pregunta por la carátula y en qué orden.
 #:
 #: Primero el que da la imagen más grande y, según se baja, los que encuentran
-#: más cosas. Se para en el primero que responda, así que en lo corriente solo
-#: se consulta uno. Si ninguno la tiene, la canción se queda con el fotograma
-#: del vídeo, que es como estaba antes.
-PROVEEDORES_PORTADA: tuple[tuple[str, Callable[[str, str, int], str | None]], ...] = (
+#: más cosas. Cada uno da sus candidatas de mayor a menor, y solo se pregunta
+#: al siguiente si ninguna de las suyas se pudo bajar. Si no la tiene nadie, la
+#: canción se queda con el fotograma del vídeo, que es como estaba antes.
+PROVEEDORES_PORTADA: tuple[tuple[str, Callable[[str, str, int], list[str]]], ...] = (
     ("itunes", _portada_itunes),
     ("deezer", _portada_deezer),
     ("coverart", _portada_coverart),
 )
 
 
-def buscar_portada(artista: str, titulo: str, *, lado: int = 1200) -> str | None:
-    """Dirección de la carátula oficial, o None si no la tiene nadie."""
+def candidatas_portada(artista: str, titulo: str, *, lado: int = LADO_PORTADA) -> Iterator[str]:
+    """Las direcciones de la carátula oficial, de la mejor a la peor.
+
+    Es perezoso: al siguiente proveedor no se le pregunta hasta que se agotan
+    las candidatas del anterior. Así, si la grande de Apple falla al bajarla,
+    se prueba la de Deezer, y en lo corriente solo se consulta uno.
+    """
     if not f"{artista}{titulo}".strip():
-        return None
+        return
+    vistas: set[str] = set()
     for _nombre, buscar in PROVEEDORES_PORTADA:
         try:
-            direccion = buscar(artista, titulo, lado)
+            encontradas: list[str] | str | None = buscar(artista, titulo, lado)
         except Exception:
             # Un proveedor que se porte raro no puede dejar sin probar a los
             # que vienen detrás.
             continue
-        if direccion:
-            return direccion
+        if isinstance(encontradas, str):
+            # Una cadena suelta se recorrería letra a letra.
+            encontradas = [encontradas]
+        for direccion in encontradas or []:
+            if direccion and direccion not in vistas:
+                vistas.add(direccion)
+                yield direccion
+
+
+def buscar_portada(artista: str, titulo: str, *, lado: int = LADO_PORTADA) -> str | None:
+    """Dirección de la carátula oficial, o None si no la tiene nadie."""
+    return next(candidatas_portada(artista, titulo, lado=lado), None)
+
+
+def _cabecera_jpeg(datos: bytes) -> tuple[int, int, int] | None:
+    """El marcador SOF de un JPEG con su ancho y su alto.
+
+    El marcador dice si es de línea base (C0, C1) o progresivo (C2), que hay
+    reproductores de coche que no saben leer.
+    """
+    if datos[:2] != b"\xff\xd8":
+        return None
+    i = 2
+    while i + 9 < len(datos):
+        if datos[i] != 0xFF:
+            i += 1
+            continue
+        marca = datos[i + 1]
+        if marca == 0xFF:
+            i += 1
+            continue
+        if marca in (0xD8, 0x01) or 0xD0 <= marca <= 0xD7:
+            i += 2
+            continue
+        largo = struct.unpack(">H", datos[i + 2:i + 4])[0]
+        if 0xC0 <= marca <= 0xCF and marca not in (0xC4, 0xC8, 0xCC):
+            alto, ancho = struct.unpack(">HH", datos[i + 5:i + 9])
+            return marca, ancho, alto
+        i += 2 + largo
     return None
 
 
-def descargar_portada(direccion: str, destino: Path) -> bool:
-    """Trae la imagen a disco. Devuelve si lo consiguió."""
+def medidas_imagen(datos: bytes) -> tuple[int, int] | None:
+    """Ancho y alto de un JPEG, un PNG o un WebP, leídos de su cabecera.
+
+    Sin dependencias, como cabecera_sin_perdida con el FLAC. None quiere decir
+    que no es una imagen: una página de error que llega con código 200, por
+    ejemplo.
+    """
+    if datos[:8] == b"\x89PNG\r\n\x1a\n" and len(datos) >= 24:
+        ancho, alto = struct.unpack(">II", datos[16:24])
+        return ancho, alto
+    if datos[:4] == b"RIFF" and datos[8:12] == b"WEBP":
+        trozo = datos[12:16]
+        if trozo == b"VP8X" and len(datos) >= 30:
+            return (int.from_bytes(datos[24:27], "little") + 1,
+                    int.from_bytes(datos[27:30], "little") + 1)
+        if trozo == b"VP8 " and len(datos) >= 30:
+            ancho, alto = struct.unpack("<HH", datos[26:30])
+            return ancho & 0x3FFF, alto & 0x3FFF
+        if trozo == b"VP8L" and len(datos) >= 25:
+            bits = int.from_bytes(datos[21:25], "little")
+            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+        return None
+    jpeg = _cabecera_jpeg(datos)
+    return (jpeg[1], jpeg[2]) if jpeg else None
+
+
+def _extension_imagen(datos: bytes) -> str:
+    """La extensión que corresponde a la firma, o «» si no se reconoce."""
+    if datos[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if datos[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if datos[:4] == b"RIFF" and datos[8:12] == b"WEBP":
+        return ".webp"
+    return ""
+
+
+def necesita_ajuste(datos: bytes, lado: int = LADO_PORTADA) -> bool:
+    """Si hay que recortarla o recomprimirla antes de incrustarla.
+
+    Solo se deja tal cual un JPEG de línea base, cuadrado, de «lado» como mucho
+    y que no pase de PESO_MAX_PORTADA: Apple y Deezer ya la sirven así, y
+    recomprimir un JPEG siempre pierde algo.
+    """
+    if datos[:3] != b"\xff\xd8\xff" or len(datos) > PESO_MAX_PORTADA:
+        return True
+    jpeg = _cabecera_jpeg(datos)
+    if not jpeg:
+        return True
+    marca, ancho, alto = jpeg
+    return not (marca in (0xC0, 0xC1) and ancho == alto and ancho <= lado)
+
+
+def preparar_portada(imagen: Path, lado: int = LADO_PORTADA) -> Path:
+    """La carátula lista para incrustar: un JPEG cuadrado de «lado» como mucho.
+
+    Si ya lo es, se devuelve tal cual. Si FFmpeg falla, también: una portada
+    sin ajustar es mejor que ninguna.
+    """
     try:
-        peticion = Request(direccion, headers={"User-Agent": "descargador"})
-        with urlopen(peticion, timeout=30) as respuesta:
-            imagen = respuesta.read()
-    except (OSError, http.client.HTTPException):
-        return False
-    if not imagen:
-        return False
-    try:
-        destino.write_bytes(imagen)
+        datos = imagen.read_bytes()
     except OSError:
-        return False
-    return True
+        return imagen
+    if not necesita_ajuste(datos, lado):
+        return imagen
+    salida = imagen.with_name(f"{imagen.stem}.ajustada.jpg")
+    # FFmpeg elige el decodificador por la extensión: un PNG que se llame .jpg
+    # no lo sabría leer. Se le da el nombre que dice su firma.
+    tipo = _extension_imagen(datos)
+    entrada = imagen
+    if tipo and imagen.suffix.lower() not in {tipo, ".jpeg" if tipo == ".jpg" else tipo}:
+        entrada = imagen.with_name(f"{imagen.stem}.origen{tipo}")
+    filtro = RECORTE_CUADRADO + f",scale='min(iw,{lado})':'min(ih,{lado})':flags=lanczos"
+    try:
+        if entrada != imagen:
+            shutil.copyfile(imagen, entrada)
+        orden = [
+            _preparar_ffmpeg(), "-y", "-f", "image2", "-pattern_type", "none",
+            "-i", str(entrada),
+            "-vf", filtro, "-q:v", CALIDAD_JPEG_PORTADA, "-pix_fmt", SUBMUESTREO_PORTADA,
+            "-frames:v", "1", "-update", "1",
+            str(salida),
+        ]
+        resultado = subprocess.run(orden, capture_output=True, text=True, check=False)
+    except (OSError, DownloadError):
+        return imagen
+    finally:
+        if entrada != imagen:
+            entrada.unlink(missing_ok=True)
+    if resultado.returncode != 0 or not salida.is_file():
+        salida.unlink(missing_ok=True)
+        return imagen
+    return salida
+
+
+def descargar_portada(direcciones: Iterable[str] | str, destino: Path) -> str | None:
+    """Trae a disco la primera de las candidatas que sea de verdad una imagen.
+
+    Devuelve la dirección que funcionó, o None si no sirvió ninguna. Lo que
+    pasa de TOPE_DESCARGA_PORTADA o no es una imagen (una página de error con
+    código 200) se descarta y se prueba la siguiente.
+    """
+    if isinstance(direcciones, str):
+        # Una cadena suelta se recorrería letra a letra.
+        direcciones = (direcciones,)
+    for direccion in direcciones:
+        try:
+            peticion = Request(direccion, headers={"User-Agent": AGENTE})
+            with urlopen(peticion, timeout=20) as respuesta:
+                datos = respuesta.read(TOPE_DESCARGA_PORTADA + 1)
+        except (OSError, ValueError, http.client.HTTPException):
+            continue
+        if not datos or len(datos) > TOPE_DESCARGA_PORTADA or medidas_imagen(datos) is None:
+            continue
+        try:
+            destino.write_bytes(datos)
+        except OSError:
+            return None
+        return direccion
+    return None
+
+
+def bloque_portada_ogg(datos: bytes, medidas: tuple[int, int] | None = None) -> str:
+    """La carátula como la guarda un Ogg: un bloque PICTURE de FLAC en base64.
+
+    Es lo mismo que hace el EmbedThumbnail del motor con los Opus.
+    """
+    try:
+        from mutagen.flac import Picture
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+    imagen = Picture()
+    imagen.type = 3
+    imagen.mime = "image/png" if datos[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+    imagen.desc = "Cover (front)"
+    imagen.data = datos
+    if medidas is None:
+        medidas = medidas_imagen(datos)
+    if medidas:
+        imagen.width, imagen.height = medidas
+        imagen.depth = 24
+    return base64.b64encode(imagen.write()).decode("ascii")
+
+
+def _incrustar_en_ogg(origen: Path, destino: Path, imagen: Path) -> None:
+    """Pone la carátula en un Opus o un Ogg, donde FFmpeg no sabe hacerlo.
+
+    FFmpeg (6.1 y 7.0) no escribe «attached_pic» en Ogg: falla siempre con
+    «Invalid argument». Al asignar la clave, la carátula vieja se sustituye.
+    """
+    try:
+        import mutagen
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+    try:
+        datos = imagen.read_bytes()
+        shutil.copyfile(origen, destino)
+        archivo = mutagen.File(destino)
+        if archivo is None:
+            raise DownloadError("No se pudo incrustar la carátula: formato desconocido.")
+        archivo["METADATA_BLOCK_PICTURE"] = [bloque_portada_ogg(datos)]
+        archivo.save()
+    except (mutagen.MutagenError, OSError) as exc:
+        raise DownloadError(f"No se pudo incrustar la carátula: {exc}") from exc
 
 
 def incrustar_portada(origen: Path, destino: Path, imagen: Path) -> None:
@@ -2128,12 +2495,16 @@ def incrustar_portada(origen: Path, destino: Path, imagen: Path) -> None:
 
     «-map 0:a» coge solo el sonido del original, de modo que la carátula vieja
     se queda fuera; si no, quedarían las dos y cada reproductor enseñaría la
-    que le diera la gana. El audio pasa con «-c copy», sin recomprimir.
+    que le diera la gana. El audio pasa con «-c copy», sin recomprimir. En
+    Opus y Ogg va con mutagen, porque ahí FFmpeg no sabe.
     """
     if not origen.is_file():
         raise DownloadError("No se encontró el archivo al que poner la carátula.")
     if not imagen.is_file():
         raise DownloadError("No se encontró la imagen de la carátula.")
+    if origen.suffix.lower() in {".opus", ".ogg"}:
+        _incrustar_en_ogg(origen, destino, imagen)
+        return
     ffmpeg = _preparar_ffmpeg()
     orden = [
         ffmpeg, "-y", "-i", str(origen), "-i", str(imagen),

@@ -1,11 +1,14 @@
+import base64
 import contextlib
 import http.client
 import io
 import itertools
 import json
 import shutil
+import struct
 import subprocess
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from typing import ClassVar
@@ -49,9 +52,14 @@ from descargador.domain import (
     parse_timestamp,
 )
 from descargador.infrastructure import (
+    CALIDAD_JPEG_PORTADA,
+    DEEZER_SIN_PORTADA,
     ES_AUDIUS,
+    FILTRO_PORTADA,
     INTENTOS_TRANSITORIOS,
+    LADO_PORTADA,
     LICENCIA_LIBRE,
+    PESO_MAX_PORTADA,
     PLANTILLA_CAPITULO,
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
@@ -59,19 +67,24 @@ from descargador.infrastructure import (
     _extractor_ccmixter,
     _extractor_ytmusic,
     _extraer,
+    _portada_coverart,
     _portada_deezer,
     _portada_itunes,
     archivo_ccmixter,
     argumentos_etiquetas,
+    bloque_portada_ogg,
     buscar_portada,
     cabecera_sin_perdida,
     calidad_audius,
     calidad_commons,
     calidad_de,
     calidad_jamendo,
+    candidatas_portada,
     clave_jamendo,
     codec_legible,
+    con_miniaturas_grandes,
     datos_ytmusic,
+    descargar_portada,
     enlace_de_archive,
     enlace_de_episodio,
     escribir_etiquetas,
@@ -81,13 +94,17 @@ from descargador.infrastructure import (
     incrustar_portada,
     info_ccmixter,
     json_ccmixter,
+    medidas_imagen,
     mensaje_claro,
+    necesita_ajuste,
     necesita_portada_oficial,
     nombre_con_etiquetas,
     original_sin_perdida,
     partes_del_nombre,
     partir_episodio,
+    preparar_portada,
     trozos,
+    versiones_grandes,
 )
 
 
@@ -320,7 +337,7 @@ class PortadaOficialTests(unittest.TestCase):
         def __init__(self, cuerpo):
             self._cuerpo = cuerpo
 
-        def read(self):
+        def read(self, _tope=-1):
             return self._cuerpo
 
         def __enter__(self):
@@ -330,13 +347,16 @@ class PortadaOficialTests(unittest.TestCase):
             return False
 
     def test_se_pide_la_grande_y_no_la_miniatura(self):
-        # El catálogo devuelve una de 100 píxeles; la misma existe en 1200 sin
+        # El catálogo devuelve una de 100 píxeles; la misma existe en 1400 sin
         # más que cambiarle la medida a la dirección.
-        cuerpo = b'{"results": [{"artworkUrl100": "https://x/a/100x100bb.jpg"}]}'
+        cuerpo = (b'{"results": [{"artworkUrl100": '
+                  b'"https://is1-ssl.mzstatic.com/image/thumb/Music/v4/a/b/source/100x100bb.jpg"}]}')
         with patch("descargador.infrastructure.urlopen",
                    return_value=self._RespuestaFalsa(cuerpo)):
             direccion = buscar_portada("Un Grupo", "Un Tema")
-        self.assertEqual(direccion, "https://x/a/1200x1200bb.jpg")
+        self.assertEqual(
+            direccion,
+            f"https://is1-ssl.mzstatic.com/image/thumb/Music/v4/a/b/source/{LADO_PORTADA}x{LADO_PORTADA}bb.jpg")
 
     @staticmethod
     def _tabla(*proveedores):
@@ -349,11 +369,11 @@ class PortadaOficialTests(unittest.TestCase):
 
     def test_se_pregunta_por_orden_y_se_para_en_el_primero(self):
         # Primero el que da la imagen mas grande; a los demas ni se les pregunta.
-        uno = Mock(return_value="https://a/1")
-        dos = Mock(return_value="https://b/2")
+        uno = Mock(return_value=["https://a/1"])
+        dos = Mock(return_value=["https://b/2"])
         with self._tabla(uno, dos):
             self.assertEqual(buscar_portada("Un Grupo", "Un Tema"), "https://a/1")
-        uno.assert_called_once_with("Un Grupo", "Un Tema", 1200)
+        uno.assert_called_once_with("Un Grupo", "Un Tema", LADO_PORTADA)
         dos.assert_not_called()
 
     def test_si_el_primero_no_la_tiene_se_prueba_el_siguiente(self):
@@ -449,6 +469,410 @@ class PortadaOficialTests(unittest.TestCase):
         self.assertEqual(
             partes_del_nombre("Artista - Tema - con guion [id].mp3"),
             ("Artista", "Tema - con guion"))
+
+
+def _jpeg(ancho: int, alto: int, marca: int = 0xC0, relleno: bytes = b"") -> bytes:
+    """Un JPEG mínimo: la firma, un APP0 opcional y el SOF con las medidas."""
+    app0 = b"\xff\xe0" + struct.pack(">H", len(relleno) + 2) + relleno if relleno else b""
+    sof = b"\xff" + bytes([marca]) + struct.pack(">HBHHB", 17, 8, alto, ancho, 3) + bytes(9)
+    return b"\xff\xd8" + app0 + sof + b"\xff\xd9"
+
+
+def _png(ancho: int, alto: int) -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", ancho, alto) + bytes(5)
+
+
+class _Respuesta:
+    """Una respuesta de urlopen que respeta el tope de lectura."""
+
+    def __init__(self, cuerpo: bytes):
+        self._cuerpo = cuerpo
+
+    def read(self, tope: int = -1) -> bytes:
+        return self._cuerpo if tope < 0 else self._cuerpo[:tope]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class VersionesGrandesTests(unittest.TestCase):
+    """La misma carátula en grande, cambiando la medida en la dirección."""
+
+    def test_cada_cdn_da_su_version_grande(self):
+        apple = "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/aa/bb/cc/uuid/source"
+        deezer = "https://cdn-images.dzcdn.net/images/cover/3da6aaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        caa = "https://coverartarchive.org/release/76df3287-6cda-33eb-8e9a-044b5e15ffdd/front"
+        casos = (
+            (f"{apple}/100x100bb.jpg", [f"{apple}/1400x1400bb.jpg"]),
+            (f"{deezer}/1000x1000-000000-80-0-0.jpg",
+             [f"{deezer}/1400x1400-000000-80-0-0.jpg", f"{deezer}/1000x1000-000000-80-0-0.jpg"]),
+            ("https://f4.bcbits.com/img/a1638428842_5.jpg", ["https://f4.bcbits.com/img/a1638428842_10.jpg"]),
+            ("https://i1.sndcdn.com/artworks-000123-abc-large.jpg",
+             ["https://i1.sndcdn.com/artworks-000123-abc-original.jpg",
+              "https://i1.sndcdn.com/artworks-000123-abc-t500x500.jpg"]),
+            ("https://i.ytimg.com/vi_webp/dQw4w9WgXcQ/maxresdefault.webp",
+             ["https://i.ytimg.com/vi/dQw4w9WgXcQ/oar2.jpg",
+              "https://i.ytimg.com/vi/dQw4w9WgXcQ/maxresdefault.jpg"]),
+            (f"{caa}-250", [f"{caa}-1200", f"{caa}-500"]),
+            ("https://lh3.googleusercontent.com/abcDEF_123=w120-h120-l90-rj",
+             ["https://lh3.googleusercontent.com/abcDEF_123=w1400-h1400-l90-rj"]),
+            ("https://usercontent.jamendo.com?type=album&id=29279&width=300&trackid=196219",
+             ["https://usercontent.jamendo.com?type=album&id=29279&width=600&trackid=196219"]),
+            ("https://example.com/x.jpg", []),
+        )
+        for entrada, esperado in casos:
+            with self.subTest(entrada=entrada):
+                self.assertEqual(versiones_grandes(entrada, 1400), esperado)
+
+    def test_bandcamp_nunca_pide_el_original(self):
+        # El «_0» puede ser un PNG con nombre .jpg, y FFmpeg no lo sabría leer.
+        self.assertEqual(versiones_grandes("https://f4.bcbits.com/img/a1_5.jpg", 2000),
+                         ["https://f4.bcbits.com/img/a1_10.jpg"])
+
+    def test_deezer_nunca_pasa_de_1900(self):
+        # Con 2000 o más su CDN responde 403.
+        url = "https://cdn-images.dzcdn.net/images/cover/3da6aaaaaaaaaaaaaaaaaaaaaaaaaaaa/1000x1000-000000-80-0-0.jpg"
+        self.assertIn("/1900x1900-", versiones_grandes(url, lado=3000)[0])
+
+    def test_el_hueco_de_deezer_no_es_una_portada(self):
+        url = f"https://e-cdns-images.dzcdn.net/images/cover/{DEEZER_SIN_PORTADA}/1000x1000-000000-80-0-0.jpg"
+        self.assertEqual(versiones_grandes(url), [])
+        cuerpo = json.dumps({"data": [{"album": {"cover_xl": url}}]}).encode()
+        with patch("descargador.infrastructure.urlopen", return_value=_Respuesta(cuerpo)):
+            self.assertEqual(_portada_deezer("Un Grupo", "Un Tema", LADO_PORTADA), [])
+        # Y la cadena sigue con el siguiente proveedor.
+        siguiente = Mock(return_value=["https://b/2"])
+        with (
+            patch("descargador.infrastructure.urlopen", return_value=_Respuesta(cuerpo)),
+            PortadaOficialTests._tabla(_portada_deezer, siguiente),
+        ):
+            self.assertEqual(list(candidatas_portada("Un Grupo", "Un Tema")), ["https://b/2"])
+
+
+class CandidatasPortadaTests(unittest.TestCase):
+    def test_coverart_solo_pide_tallas_que_existen(self):
+        cuerpo = json.dumps({"releases": [{"id": "rel-1", "release-group": {"id": "grupo-1"}}]}).encode()
+        with patch("descargador.infrastructure.urlopen", return_value=_Respuesta(cuerpo)):
+            candidatas = _portada_coverart("A", "B", 1400)
+        self.assertTrue(all(c.endswith(("-1200", "-500")) for c in candidatas), candidatas)
+        self.assertIn("https://coverartarchive.org/release-group/grupo-1/front-1200", candidatas)
+        self.assertEqual(candidatas[0], "https://coverartarchive.org/release/rel-1/front-1200")
+
+    def test_las_candidatas_se_piden_perezosamente(self):
+        uno = Mock(return_value=["https://a/1", "https://a/2"])
+        dos = Mock(return_value=["https://b/1"])
+        with PortadaOficialTests._tabla(uno, dos):
+            candidatas = candidatas_portada("A", "B")
+            self.assertEqual(next(candidatas), "https://a/1")
+            uno.assert_called_once()
+            dos.assert_not_called()
+            self.assertEqual(list(candidatas), ["https://a/2", "https://b/1"])
+        dos.assert_called_once()
+
+    def test_un_proveedor_que_lanza_no_corta_la_cadena(self):
+        with PortadaOficialTests._tabla(Mock(side_effect=RuntimeError("uf")), Mock(return_value=["https://b"])):
+            self.assertEqual(list(candidatas_portada("A", "B")), ["https://b"])
+
+    def test_una_cadena_suelta_no_se_recorre_letra_a_letra(self):
+        with PortadaOficialTests._tabla(Mock(return_value="https://a/1"), Mock(return_value=None)):
+            self.assertEqual(list(candidatas_portada("A", "B")), ["https://a/1"])
+
+    def test_sin_nada_que_buscar_no_sale_nada(self):
+        uno = Mock(return_value=["https://a/1"])
+        with PortadaOficialTests._tabla(uno):
+            self.assertEqual(list(candidatas_portada(" ", "")), [])
+        uno.assert_not_called()
+
+
+class DescargarPortadaTests(unittest.TestCase):
+    def setUp(self):
+        carpeta = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, carpeta, ignore_errors=True)
+        self.destino = carpeta / "portada.jpg"
+
+    def test_si_la_grande_falla_se_baja_la_siguiente(self):
+        from urllib.error import HTTPError
+
+        fallo = HTTPError("https://a/grande", 404, "No existe", http.client.HTTPMessage(), None)
+        with patch("descargador.infrastructure.urlopen",
+                   side_effect=[fallo, _Respuesta(_jpeg(1400, 1400))]):
+            usada = descargar_portada(["https://a/grande", "https://a/menor"], self.destino)
+        self.assertEqual(usada, "https://a/menor")
+        self.assertTrue(self.destino.is_file())
+
+    def test_lo_que_no_es_imagen_no_se_guarda(self):
+        with patch("descargador.infrastructure.urlopen",
+                   return_value=_Respuesta(b"<html>error</html>")):
+            self.assertIsNone(descargar_portada(["https://a/1"], self.destino))
+        self.assertFalse(self.destino.exists())
+
+    def test_lo_que_pasa_del_tope_se_descarta(self):
+        enorme = _jpeg(1400, 1400) + bytes(100)
+        with (
+            patch("descargador.infrastructure.TOPE_DESCARGA_PORTADA", 10),
+            patch("descargador.infrastructure.urlopen", return_value=_Respuesta(enorme)),
+        ):
+            self.assertIsNone(descargar_portada(["https://a/1"], self.destino))
+        self.assertFalse(self.destino.exists())
+
+    def test_una_direccion_suelta_tambien_vale(self):
+        with patch("descargador.infrastructure.urlopen",
+                   return_value=_Respuesta(_jpeg(500, 500))) as red:
+            self.assertEqual(descargar_portada("https://a/1", self.destino), "https://a/1")
+        red.assert_called_once()
+
+
+class MedidasImagenTests(unittest.TestCase):
+    def test_lee_las_medidas_de_la_cabecera(self):
+        webp = (b"RIFF" + bytes(4) + b"WEBP" + b"VP8X" + bytes(8)
+                + (1399).to_bytes(3, "little") + (799).to_bytes(3, "little"))
+        casos = (
+            (_png(3000, 3000), (3000, 3000)),
+            (_jpeg(1280, 720, marca=0xC2, relleno=b"JFIF\x00" + bytes(9)), (1280, 720)),
+            (webp, (1400, 800)),
+            (b"basura", None),
+            (b"", None),
+        )
+        for datos, esperado in casos:
+            with self.subTest(esperado=esperado):
+                self.assertEqual(medidas_imagen(datos), esperado)
+
+    def test_necesita_ajuste(self):
+        self.assertFalse(necesita_ajuste(_jpeg(1400, 1400) + bytes(300_000)))
+        self.assertTrue(necesita_ajuste(_png(1400, 1400)))
+        self.assertTrue(necesita_ajuste(_jpeg(3000, 3000)))
+        self.assertTrue(necesita_ajuste(_jpeg(1280, 720)))
+        self.assertTrue(necesita_ajuste(_jpeg(1400, 1400) + bytes(PESO_MAX_PORTADA)))
+        # Hay reproductores de coche que no leen el JPEG progresivo.
+        self.assertTrue(necesita_ajuste(_jpeg(1400, 1400, marca=0xC2)))
+
+
+class PrepararPortadaTests(unittest.TestCase):
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.carpeta, ignore_errors=True)
+
+    def test_no_toca_lo_que_ya_esta_bien(self):
+        imagen = self.carpeta / "a.jpg"
+        imagen.write_bytes(_jpeg(1400, 1400))
+        with patch("descargador.infrastructure.subprocess.run") as corrio:
+            self.assertEqual(preparar_portada(imagen), imagen)
+        corrio.assert_not_called()
+
+    def test_ajusta_y_recomprime(self):
+        # Un PNG con nombre .jpg: FFmpeg elige el decodificador por la extensión.
+        imagen = self.carpeta / "a.portada.jpg"
+        imagen.write_bytes(_png(3000, 3000))
+
+        def fingir(orden, **_):
+            Path(orden[-1]).write_bytes(_jpeg(1400, 1400))
+            return subprocess.CompletedProcess(orden, 0, "", "")
+
+        with (
+            patch("descargador.infrastructure._preparar_ffmpeg", return_value="ffmpeg"),
+            patch("descargador.infrastructure.subprocess.run", side_effect=fingir) as corrio,
+        ):
+            lista = preparar_portada(imagen)
+        orden = corrio.call_args.args[0]
+        self.assertEqual(orden[orden.index("-vf") + 1], FILTRO_PORTADA)
+        self.assertEqual(orden[orden.index("-q:v") + 1], CALIDAD_JPEG_PORTADA)
+        self.assertEqual(orden[orden.index("-pattern_type") + 1], "none")
+        self.assertTrue(orden[orden.index("-i") + 1].endswith(".png"))
+        self.assertEqual(lista.suffix, ".jpg")
+        self.assertNotEqual(lista, imagen)
+        self.assertTrue(lista.is_file())
+        # La copia con el nombre bueno no se queda suelta.
+        self.assertEqual(sorted(p.name for p in self.carpeta.iterdir()),
+                         ["a.portada.ajustada.jpg", "a.portada.jpg"])
+
+    def test_si_ffmpeg_falla_se_usa_la_original(self):
+        imagen = self.carpeta / "a.png"
+        imagen.write_bytes(_png(3000, 3000))
+        with (
+            patch("descargador.infrastructure._preparar_ffmpeg", return_value="ffmpeg"),
+            patch("descargador.infrastructure.subprocess.run",
+                  return_value=subprocess.CompletedProcess([], 1, "", "mal")),
+        ):
+            self.assertEqual(preparar_portada(imagen), imagen)
+
+
+class IncrustarPortadaTests(unittest.TestCase):
+    def test_en_opus_va_por_mutagen_y_no_por_ffmpeg(self):
+        from mutagen.flac import Picture
+
+        class Falso(dict):
+            guardado = False
+
+            def save(self):
+                self.guardado = True
+
+        falso = Falso()
+        datos = _jpeg(1400, 1400)
+        with tempfile.TemporaryDirectory() as carpeta:
+            audio = Path(carpeta) / "tema.opus"
+            audio.write_bytes(b"OggS")
+            imagen = Path(carpeta) / "arte.jpg"
+            imagen.write_bytes(datos)
+            sale = Path(carpeta) / "sale.opus"
+            with (
+                patch("mutagen.File", return_value=falso),
+                patch("descargador.infrastructure.subprocess.run") as corrio,
+            ):
+                incrustar_portada(audio, sale, imagen)
+            corrio.assert_not_called()
+            self.assertTrue(sale.is_file())
+        self.assertTrue(falso.guardado)
+        imagen_dentro = Picture(base64.b64decode(falso["METADATA_BLOCK_PICTURE"][0]))
+        self.assertEqual(imagen_dentro.type, 3)
+        self.assertEqual(imagen_dentro.mime, "image/jpeg")
+        self.assertEqual(imagen_dentro.data, datos)
+
+    def test_bloque_portada_ogg_es_un_picture_valido(self):
+        from mutagen.flac import Picture
+
+        imagen = Picture(base64.b64decode(bloque_portada_ogg(_png(600, 600))))
+        self.assertEqual((imagen.mime, imagen.width, imagen.height), ("image/png", 600, 600))
+
+    def test_si_mutagen_falla_se_dice_claro(self):
+        from mutagen import MutagenError
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            audio = Path(carpeta) / "tema.ogg"
+            audio.write_bytes(b"OggS")
+            imagen = Path(carpeta) / "arte.jpg"
+            imagen.write_bytes(_jpeg(10, 10))
+            with (
+                patch("mutagen.File", side_effect=MutagenError("roto")),
+                self.assertRaises(DownloadError),
+            ):
+                incrustar_portada(audio, Path(carpeta) / "sale.ogg", imagen)
+
+
+class MiniaturasGrandesTests(unittest.TestCase):
+    """El motor prueba primero la carátula grande y, si no existe, la de siempre."""
+
+    BASE: ClassVar[dict] = {
+        "id": "1", "title": "t", "extractor": "prueba", "extractor_key": "Prueba",
+        "webpage_url": "https://x",
+        "formats": [{"format_id": "mp3", "url": "https://x/a.mp3", "ext": "mp3",
+                     "vcodec": "none", "acodec": "mp3"}],
+    }
+
+    def _procesar(self, info: dict) -> dict:
+        from yt_dlp import YoutubeDL
+
+        with YoutubeDL({"quiet": True}) as motor:
+            return motor.process_ie_result(con_miniaturas_grandes(info), download=False)
+
+    def test_el_motor_elige_la_grande(self):
+        bandcamp = {**self.BASE, "thumbnail": "https://f4.bcbits.com/img/a1638428842_5.jpg"}
+        self.assertTrue(self._procesar(bandcamp)["thumbnails"][-1]["url"].endswith("_10.jpg"))
+
+        vi = "https://i.ytimg.com/vi/dQw4w9WgXcQ"
+        youtube = {**self.BASE, "thumbnails": [
+            {"url": "https://i.ytimg.com/vi_webp/dQw4w9WgXcQ/maxresdefault.webp", "preference": 0},
+            {"url": f"{vi}/hqdefault.jpg", "preference": -1},
+            {"url": f"{vi}/sddefault.jpg", "preference": -7},
+        ]}
+        self.assertEqual(self._procesar(youtube)["thumbnails"][-1]["url"], f"{vi}/oar2.jpg")
+
+    def test_las_nuevas_son_jpeg_y_heredan_extension_y_cabeceras(self):
+        jamendo = {"thumbnails": [{
+            "url": "https://usercontent.jamendo.com?type=album&id=1&width=300&trackid=2",
+            "ext": "jpg", "http_headers": {"Referer": "https://jamendo"},
+        }]}
+        nueva = con_miniaturas_grandes(jamendo)["thumbnails"][-1]
+        self.assertIn("width=600", nueva["url"])
+        self.assertEqual(nueva["ext"], "jpg")
+        self.assertEqual(nueva["http_headers"], {"Referer": "https://jamendo"})
+        youtube = {"thumbnails": [{"url": "https://i.ytimg.com/vi_webp/dQw4w9WgXcQ/maxresdefault.webp",
+                                   "ext": "webp"}]}
+        nuevas = con_miniaturas_grandes(youtube)["thumbnails"][1:]
+        self.assertEqual({n["ext"] for n in nuevas}, {"jpg"})
+
+    def test_sin_miniaturas_o_desconocidas_no_cambia(self):
+        for info in ({}, {"thumbnail": "https://example.com/a.jpg"}):
+            with self.subTest(info=info):
+                self.assertIs(con_miniaturas_grandes(info), info)
+        # SoundCloud ya da su original con la extensión comprobada.
+        soundcloud = {"thumbnail": "https://i1.sndcdn.com/artworks-1-large.jpg"}
+        self.assertIs(con_miniaturas_grandes(soundcloud), soundcloud)
+
+    def test_las_direcciones_repetidas_no_se_duplican(self):
+        vi = "https://i.ytimg.com/vi/dQw4w9WgXcQ"
+        info = {"thumbnails": [{"url": f"{vi}/maxresdefault.jpg"}, {"url": f"{vi}/hqdefault.jpg"}]}
+        urls = [m["url"] for m in con_miniaturas_grandes(info)["thumbnails"]]
+        self.assertEqual(len(urls), len(set(urls)))
+        self.assertEqual(urls.count(f"{vi}/oar2.jpg"), 1)
+
+
+class PuentePortadasTests(unittest.TestCase):
+    """La portada oficial en el puente del móvil: nunca tumba nada."""
+
+    puente: ClassVar[types.ModuleType]
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+
+        ruta = Path("movil/android/app/src/main/python/puente.py")
+        spec = importlib.util.spec_from_file_location("puente_portadas", ruta)
+        assert spec and spec.loader
+        cls.puente = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.puente)
+
+    def setUp(self):
+        self.carpeta = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.carpeta, ignore_errors=True)
+        self.archivo = self.carpeta / "Grupo - Tema [abc].opus"
+        self.archivo.write_bytes(b"audio")
+
+    def _sueltos(self) -> list[str]:
+        return sorted(p.name for p in self.carpeta.iterdir() if p != self.archivo)
+
+    def test_sin_portada_el_archivo_se_queda_igual(self):
+        with patch.object(self.puente, "descargar_portada", return_value=None):
+            self.assertEqual(self.puente._ponerPortadaOficial(self.archivo), self.archivo)
+        self.assertEqual(self.archivo.read_bytes(), b"audio")
+        self.assertEqual(self._sueltos(), [])
+
+    def test_si_no_se_puede_incrustar_se_queda_el_original_y_se_limpia(self):
+        def bajar(_candidatas, destino):
+            destino.write_bytes(_jpeg(1400, 1400))
+            return "https://a/1"
+
+        with (
+            patch.object(self.puente, "descargar_portada", side_effect=bajar),
+            patch.object(self.puente, "incrustar_portada", side_effect=DownloadError("no")),
+        ):
+            self.assertEqual(self.puente._ponerPortadaOficial(self.archivo), self.archivo)
+        self.assertEqual(self.archivo.read_bytes(), b"audio")
+        self.assertEqual(self._sueltos(), [])
+
+    def test_caratula_grande_la_deja_en_su_sitio(self):
+        destino = self.carpeta / "portadas" / "clave.jpg"
+
+        def bajar(_candidatas, ruta):
+            ruta.write_bytes(_jpeg(1400, 1400))
+            return "https://a/1"
+
+        with patch.object(self.puente, "descargar_portada", side_effect=bajar):
+            respuesta = json.loads(self.puente.caratula_grande("Grupo", "Tema", str(destino)))
+        self.assertEqual(respuesta, {"ok": True, "ruta": str(destino)})
+        self.assertEqual(destino.read_bytes(), _jpeg(1400, 1400))
+        self.assertEqual(sorted(p.name for p in destino.parent.iterdir()), ["clave.jpg"])
+
+    def test_caratula_grande_nunca_lanza(self):
+        destino = str(self.carpeta / "clave.jpg")
+        with patch.object(self.puente, "descargar_portada", return_value=None):
+            self.assertFalse(json.loads(self.puente.caratula_grande("A", "B", destino))["ok"])
+        with patch.object(self.puente, "descargar_portada", side_effect=RuntimeError("uf")):
+            respuesta = json.loads(self.puente.caratula_grande("A", "B", destino))
+        self.assertFalse(respuesta["ok"])
+        self.assertIn("uf", respuesta["error"])
 
 
 class FuentesTests(unittest.TestCase):
@@ -898,6 +1322,21 @@ class CaratulaCuadradaTests(unittest.TestCase):
 
         argumentos = YtDlpDownloader._argumentos_postproceso(DownloadOptions(audio_only=True))
         self.assertIn("crop", argumentos["thumbnailsconvertor+ffmpeg"][1])
+
+    def test_en_audio_sale_jpeg_cuadrado_y_limitado(self):
+        # Primero a PNG y luego a JPEG: si el destino coincidiera con el
+        # origen, el motor se saltaría la conversión y no habría recorte.
+        pps = YtDlpDownloader._postprocesadores(DownloadOptions(audio_only=True), caratula=True)
+        claves = [p["key"] for p in pps]
+        convertidores = [p for p in pps if p["key"] == "FFmpegThumbnailsConvertor"]
+        self.assertEqual([p["format"] for p in convertidores], ["png", "jpg"])
+        ultimo = len(claves) - 1 - claves[::-1].index("FFmpegThumbnailsConvertor")
+        self.assertLess(ultimo, claves.index("EmbedThumbnail"))
+
+        argumentos = YtDlpDownloader._argumentos_postproceso(DownloadOptions(audio_only=True))
+        texto = " ".join(argumentos["thumbnailsconvertor+ffmpeg"])
+        for trozo in ("crop", "scale", str(LADO_PORTADA), "-q:v", "yuvj420p"):
+            self.assertIn(trozo, texto)
 
     def test_en_video_la_miniatura_se_deja_como_viene(self):
         claves = [p["key"] for p in YtDlpDownloader._postprocesadores(
@@ -1485,7 +1924,7 @@ class FallosHttpTests(unittest.TestCase):
         # Cada proveedor responde vacío en vez de reventar.
         with patch("descargador.infrastructure.urlopen",
                    side_effect=http.client.IncompleteRead(b"")):
-            self.assertIsNone(_portada_itunes("Artista", "Tema", 1200))
+            self.assertEqual(_portada_itunes("Artista", "Tema", 1200), [])
 
 
 class JamendoTests(unittest.TestCase):
