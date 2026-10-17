@@ -526,7 +526,7 @@ class _AudioState extends State<_Audio> {
       ? hijo
       : Expanded(
           child: Align(
-            alignment: const Alignment(0, -0.45),
+            alignment: const Alignment(0, -0.2),
             child: SingleChildScrollView(child: hijo),
           ),
         );
@@ -557,9 +557,9 @@ class _BotonGrande extends StatelessWidget {
           shape: BoxShape.circle,
           boxShadow: <BoxShadow>[
             BoxShadow(
-              color: colores.primary.withValues(alpha: 0.28 + 0.32 * golpe),
-              blurRadius: 22 + 16 * golpe,
-              spreadRadius: 1 + 5 * golpe,
+              color: colores.primary.withValues(alpha: 0.22 + 0.30 * golpe),
+              blurRadius: 26 + 18 * golpe,
+              spreadRadius: 4 * golpe,
             ),
           ],
         );
