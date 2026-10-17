@@ -8,6 +8,7 @@ import 'atajos.dart';
 
 import 'control_descarga.dart';
 import 'copia_seguridad.dart';
+import 'descubre.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
 import 'mini_reproductor.dart';
@@ -143,6 +144,7 @@ class _InicioState extends State<Inicio>
       _deFondo = Timer(const Duration(seconds: 8), () {
         unawaited(CopiaSeguridad.siToca());
         unawaited(Suscripciones.instancia.revisarSiToca());
+        unawaited(Descubre.instancia.rehacerSiToca());
       });
     }
   }

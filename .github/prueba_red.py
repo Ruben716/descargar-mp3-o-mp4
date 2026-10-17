@@ -151,12 +151,32 @@ def ytmusic() -> None:
         print("   AVISO: YouTube pidió verificación desde este servidor:", exc)
 
 
+def radio() -> None:
+    """«Descubre»: la radio de YouTube Music de una canción, leída como lista."""
+    semilla = motor.search(SearchQuery("marc anthony vivir mi vida", limit=1, source="ytmusic"))
+    if not semilla:
+        raise AssertionError("YouTube Music no devolvió la canción semilla")
+    video = semilla[0].url.split("v=")[1].split("&")[0]
+    lista = motor.playlist(f"https://www.youtube.com/watch?v={video}&list=RDAMVM{video}")
+    print("  ", lista.title, "|", len(lista.items), "pistas")
+    listar(lista.items[:10])
+    if len(lista.items) < 10:
+        raise AssertionError("la radio trajo muy pocas canciones")
+    if not all(p.title and "v=" in p.url for p in lista.items):
+        raise AssertionError("hay pistas sin título o sin video")
+    if len({p.uploader for p in lista.items}) < 4:
+        raise AssertionError("la radio no trae artistas distintos")
+    print("   con miniatura:", sum(1 for p in lista.items if p.thumbnail), "de", len(lista.items))
+    print("   con duración:", sum(1 for p in lista.items if p.duration), "de", len(lista.items))
+
+
 seccion("PODCASTS (con id corto)", podcasts)
 seccion("HEARTHIS", hearthis)
 seccion("WIKIMEDIA COMMONS", commons)
 seccion("ARCHIVE (ampliado)", archive)
 seccion("CCMIXTER", ccmixter)
 seccion("YOUTUBE MUSIC", ytmusic)
+seccion("RADIO DE YOUTUBE MUSIC (Descubre)", radio)
 
 if fallos:
     print("\nFALLARON:", ", ".join(fallos))
