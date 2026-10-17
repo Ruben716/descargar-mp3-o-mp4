@@ -7,6 +7,7 @@ import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'letras.dart';
 import 'nucleo.dart';
+import 'tarjeta_letra.dart';
 import 'tema.dart';
 import 'traducir_letra.dart';
 
@@ -129,6 +130,13 @@ class _PanelLetrasState extends State<PanelLetras> {
     }
   }
 
+  /// Mantener pulsado un verso lo prepara para compartirlo como tarjeta.
+  void _compartir(List<String> versos, int indice) {
+    if (versos[indice].trim().isEmpty) return;
+    Feedback.forLongPress(context);
+    abrirCompartirLetra(context, elemento: widget.elemento, versos: versos, indice: indice);
+  }
+
   Widget _botonTraducir() {
     final bool puesta = _traduccion != null;
     final Color tono = puesta ? Tema.acento : Colors.white54;
@@ -176,19 +184,28 @@ class _PanelLetrasState extends State<PanelLetras> {
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),
-              child: Text.rich(
-                TextSpan(children: <InlineSpan>[
-                  for (int i = 0; i < originales.length; i++) ...<InlineSpan>[
-                    TextSpan(text: '${originales[i]}\n'),
-                    if (traducidas != null && i < traducidas.length && traducidas[i].trim().isNotEmpty)
-                      TextSpan(
-                        text: '${traducidas[i]}\n',
-                        style: const TextStyle(color: Tema.acento, fontSize: 13, fontStyle: FontStyle.italic),
-                      ),
-                  ],
-                ]),
+              // Una linea por widget, y no un solo texto: asi cada verso se
+              // puede mantener pulsado para compartirlo.
+              child: DefaultTextStyle.merge(
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white70, height: 1.9, fontSize: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    for (int i = 0; i < originales.length; i++) ...<Widget>[
+                      GestureDetector(
+                        // Sin toque corto: sin marcas de tiempo no hay a donde saltar.
+                        onLongPress: originales[i].trim().isEmpty ? null : () => _compartir(originales, i),
+                        child: Text(originales[i]),
+                      ),
+                      if (traducidas != null && i < traducidas.length && traducidas[i].trim().isNotEmpty)
+                        Text(
+                          traducidas[i],
+                          style: const TextStyle(color: Tema.acento, fontSize: 13, fontStyle: FontStyle.italic),
+                        ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -208,6 +225,7 @@ class _PanelLetrasState extends State<PanelLetras> {
     // El desenfoque de lo ya cantado es un adorno: fuera con «Quitar
     // animaciones» y en las pruebas, donde solo estorba.
     final bool desenfoca = Movimiento.continuas(context);
+    final List<String> versos = <String>[for (final LineaLetra l in letra.lineas) l.texto];
     return StreamBuilder<Duration>(
       stream: _estado.motor.positionStream,
       builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
@@ -269,6 +287,8 @@ class _PanelLetrasState extends State<PanelLetras> {
               // Tocar una linea salta a ese momento: es la forma mas comoda
               // de repetir el trozo que no se pillo.
               onTap: () => _estado.motor.seek(letra.lineas[i].desde),
+              // Mantenerla pulsada, en cambio, la comparte como tarjeta.
+              onLongPress: () => _compartir(versos, i),
               behavior: HitTestBehavior.opaque,
               child: Align(alignment: Alignment.center, child: verso),
             );

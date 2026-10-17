@@ -114,6 +114,13 @@ class Nucleo {
   static Future<void> compartirEnlace(String url, {String titulo = ''}) =>
       _pedir('compartirEnlace', <String, dynamic>{'url': url, 'titulo': titulo});
 
+  /// Manda una imagen PNG (la tarjeta de una frase de la letra) a otra app.
+  ///
+  /// Tambien se queda en Pictures/Tumbao, como una captura: asi se puede
+  /// volver a compartir sin rehacerla.
+  static Future<void> compartirImagen(Uint8List png, String nombre) =>
+      _pedir('compartirImagen', <String, dynamic>{'png': png, 'nombre': nombre});
+
   /// Cuanto suena una cancion de la biblioteca, en LUFS. Null si no se pudo.
   static Future<double?> medirVolumen(String uri) async {
     try {
