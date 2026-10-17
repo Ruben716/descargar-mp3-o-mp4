@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -44,7 +45,13 @@ class Paleta {
       );
       // El fondo de la app se mantiene casi negro aunque la portada sea clara:
       // con el fondo tenido, la propia caratula deja de destacar.
-      return _memoria[uri] = sacada.copyWith(surface: Tema.fondo);
+      //
+      // El primario es el color del titulo: de una portada muy oscura sale
+      // apagado y casi no se lee sobre ese fondo, asi que se le sube la luz.
+      return _memoria[uri] = sacada.copyWith(
+        surface: Tema.fondo,
+        primary: conContraste(sacada.primary, Tema.fondo),
+      );
     } catch (_) {
       return _memoria[uri] = neutra;
     } finally {
@@ -63,6 +70,35 @@ class Paleta {
     _memoria.clear();
     _enCurso.clear();
   }
+}
+
+/// El contraste entre dos colores segun WCAG: de 1 (iguales) a 21 (negro y blanco).
+double contraste(Color a, Color b) {
+  final double la = a.computeLuminance();
+  final double lb = b.computeLuminance();
+  return (max(la, lb) + 0.05) / (min(la, lb) + 0.05);
+}
+
+/// [color] con la luz justa para leerse sobre [fondo]: al menos [minimo] a 1.
+///
+/// Solo sube la luminosidad en HSL, sin tocar el tono ni la saturacion, y lo
+/// minimo que haga falta: el titulo sigue siendo del color de la portada,
+/// solo que mas claro. Si ya llegaba, se devuelve tal cual. La luminancia
+/// crece siempre con la luz en HSL, asi que basta una busqueda binaria.
+Color conContraste(Color color, Color fondo, {double minimo = 4.5}) {
+  if (contraste(color, fondo) >= minimo) return color;
+  final HSLColor hsl = HSLColor.fromColor(color);
+  double bajo = hsl.lightness;
+  double alto = 1;
+  for (int i = 0; i < 20; i++) {
+    final double medio = (bajo + alto) / 2;
+    if (contraste(hsl.withLightness(medio).toColor(), fondo) >= minimo) {
+      alto = medio;
+    } else {
+      bajo = medio;
+    }
+  }
+  return hsl.withLightness(alto).toColor();
 }
 
 /// Aplica la paleta de una pista a todo lo que tenga debajo.
