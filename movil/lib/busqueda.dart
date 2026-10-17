@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import 'formato.dart';
 
 /// Palabras que marcan otra version de la cancion, no la cancion.
@@ -91,3 +93,87 @@ bool pareceLaMisma(String buscado, {required String titulo, String autor = ''}) 
   final Set<String> pedidasSet = pedidas.toSet();
   return !marcasDeVersion.any((String m) => enElTitulo.contains(m) && !pedidasSet.contains(m));
 }
+
+/// La cancion que se quiso decir, segun el buscador que mejor entiende lo
+/// escrito: YouTube Music y, si no hay, YouTube.
+///
+/// Es lo que hace bien YouTube: con un trozo del titulo, una frase de la letra
+/// o una falta de ortografia, su primer resultado suele ser la cancion. Las
+/// demas fuentes solo buscan palabras, asi que primero se averigua que cancion
+/// es y despues se busca esa misma en mejor calidad.
+@immutable
+class Objetivo {
+  const Objetivo({required this.tema, this.artista = '', this.duracion = 0, this.limpio = false});
+
+  final String tema;
+  final String artista;
+
+  /// En segundos; 0 si no se sabe.
+  final double duracion;
+
+  /// Si viene de YouTube Music, que da el titulo y el artista por separado y
+  /// la duracion del tema, no la de un videoclip con introduccion.
+  final bool limpio;
+
+  /// Lo que se le pregunta a las demas fuentes.
+  String get consulta => '$artista $tema'.trim();
+}
+
+/// Adornos de los titulos de YouTube que no son parte del nombre del tema.
+final RegExp _adornos = RegExp(
+  r'\s*[\(\[][^\)\]]*\b(official|oficial|video|videoclip|audio|lyrics?|letra|visualizer|hd|4k|mv|clip)\b[^\)\]]*[\)\]]',
+  caseSensitive: false,
+);
+
+/// Lee el objetivo del primer resultado de YouTube Music o de YouTube.
+Objetivo objetivoDe({
+  required String titulo,
+  String autor = '',
+  double duracion = 0,
+  required bool deYoutubeMusic,
+}) {
+  if (deYoutubeMusic) return Objetivo(tema: titulo.trim(), artista: autor.trim(), duracion: duracion, limpio: true);
+  String tema = titulo.replaceAll(_adornos, '').trim();
+  String artista = autor
+      .replaceAll(RegExp(r'\s*-\s*topic\s*$', caseSensitive: false), '')
+      .replaceAll(RegExp(r'vevo\s*$', caseSensitive: false), '')
+      .trim();
+  // «Artista - Tema (Video Oficial)»: el artista va delante del guion.
+  final Consulta partes = separarConsulta(tema);
+  if (partes.separada) {
+    artista = partes.primera;
+    tema = partes.segunda;
+  }
+  return Objetivo(tema: tema, artista: artista, duracion: duracion);
+}
+
+/// Si un resultado es la cancion objetivo: lleva su titulo, alguna palabra de
+/// su artista, dura lo mismo y no es otra version (un remix, un directo) que
+/// no estuviera ya en el objetivo o en lo buscado. Un video ([esVideo]) puede
+/// durar mas: los videoclips llevan introduccion y final.
+bool esElObjetivo(
+  Objetivo o,
+  String buscado, {
+  required String titulo,
+  String autor = '',
+  double duracion = 0,
+  bool esVideo = false,
+}) {
+  final Set<String> enElTitulo = _palabras(titulo).toSet();
+  final List<String> tema = _palabras(o.tema);
+  if (tema.isEmpty || !_casi(tema, enElTitulo)) return false;
+  final List<String> artista = _palabras(o.artista).where((String p) => p.length >= 3).toList();
+  if (artista.isNotEmpty) {
+    final Set<String> tiene = <String>{...enElTitulo, ..._palabras(autor)};
+    if (!artista.any(tiene.contains)) return false;
+  }
+  final double margen = esVideo ? 45 : (o.limpio ? 10 : 25);
+  if (o.duracion > 0 && duracion > 0 && (o.duracion - duracion).abs() > margen) return false;
+  final Set<String> permitidas = <String>{...tema, ..._palabras(buscado)};
+  return !marcasDeVersion.any((String m) => enElTitulo.contains(m) && !permitidas.contains(m));
+}
+
+/// Si lo escrito no era el titulo (un trozo de la letra, una falta...), y
+/// hay que preguntar a las demas fuentes por el titulo de verdad.
+bool hayQueBuscarElObjetivo(Objetivo o, String buscado) =>
+    _palabras(o.tema).isNotEmpty && !_casi(_palabras(o.tema), _palabras(buscado).toSet());

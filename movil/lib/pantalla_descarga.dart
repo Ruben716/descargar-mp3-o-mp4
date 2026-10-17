@@ -14,6 +14,7 @@ import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'hoja_descarga.dart';
 import 'navegacion.dart';
+import 'mejor_calidad.dart';
 import 'nucleo.dart';
 import 'pantalla_ajustes.dart';
 import 'pantalla_explorar.dart';
@@ -56,6 +57,46 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// plegados: las fuentes devuelven de relleno canciones parecidas, y entre
   /// tanto relleno no se veia la que se queria.
   bool _verOtros = false;
+
+  /// La busqueda en la que ya se pregunto por el objetivo a las demas fuentes.
+  int _objetivoBuscadoEn = -1;
+
+  /// La cancion que se quiso decir, segun YouTube Music o YouTube; null
+  /// mientras no respondan o si no se busca en todas.
+  Objetivo? get _objetivo {
+    if (_fuente != Fuente.todas || _importada) return null;
+    for (final Fuente f in <Fuente>[Fuente.ytmusic, Fuente.youtube]) {
+      for (final Resultado r in _resultados) {
+        if (r.fuente != f) continue;
+        return objetivoDe(
+          titulo: r.titulo,
+          autor: r.autor,
+          duracion: r.duracion,
+          deYoutubeMusic: f == Fuente.ytmusic,
+        );
+      }
+      // Sin respuesta aun de YouTube Music, mejor esperarla que fiarse del videoclip.
+      if (f == Fuente.ytmusic && _pendientes.contains(f)) return null;
+    }
+    return null;
+  }
+
+  bool _esElObjetivo(Resultado r, [Objetivo? o]) {
+    final Objetivo? objetivo = o ?? _objetivo;
+    return objetivo != null &&
+        esElObjetivo(
+          objetivo,
+          _buscado,
+          titulo: r.titulo,
+          autor: r.autor,
+          duracion: r.duracion,
+          esVideo: r.fuente == Fuente.youtube,
+        );
+  }
+
+  /// Lo que es la cancion buscada: el objetivo o, si no, lo que lleva las palabras.
+  bool _relevante(Resultado r, Objetivo? o) =>
+      (o != null && _esElObjetivo(r, o)) || pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor);
 
   /// Fuentes a las que aun se esta preguntando.
   final Set<Fuente> _pendientes = <Fuente>{};
@@ -419,7 +460,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     });
   }
 
-  Future<void> _buscarEn(Fuente f, String texto, int esta) async {
+  Future<void> _buscarEn(Fuente f, String texto, int esta, {bool sumar = false}) async {
     final String clave = '${f.clave}|${texto.toLowerCase()}';
     try {
       final List<Resultado> encontrados = _recuerdo[clave] ??
@@ -430,19 +471,42 @@ class PantallaDescargaState extends State<PantallaDescarga> {
       if (!mounted || esta != _busqueda) return;
       setState(() {
         // Cada fuente en su sitio y siempre en el mismo orden: lo que llega
-        // despues no empuja lo que ya se estaba leyendo.
+        // despues no empuja lo que ya se estaba leyendo. La segunda vuelta
+        // (por el objetivo) se suma a lo que ya dio esa fuente.
+        final List<Resultado> deEsta = <Resultado>[
+          if (sumar) ..._resultados.where((Resultado r) => r.fuente == f),
+          for (final Resultado r in encontrados)
+            if (!sumar || !_resultados.any((Resultado y) => y.url == r.url)) r,
+        ];
         _resultados = <Resultado>[
           for (final Fuente g in Fuente.reales)
-            ...(g == f ? encontrados : _resultados.where((Resultado r) => r.fuente == g)),
+            ...(g == f ? deEsta : _resultados.where((Resultado r) => r.fuente == g)),
         ];
       });
       _comprobar(f, encontrados, texto);
     } catch (error) {
-      if (mounted && esta == _busqueda) {
+      if (mounted && esta == _busqueda && !sumar) {
         setState(() => _sinRespuesta[f] = error is ErrorNucleo ? error.mensaje : '$error');
       }
     } finally {
-      if (mounted && esta == _busqueda) setState(() => _pendientes.remove(f));
+      if (mounted && esta == _busqueda) {
+        setState(() => _pendientes.remove(f));
+        _quizasBuscarElObjetivo(esta);
+      }
+    }
+  }
+
+  /// Si lo escrito no era el titulo (un trozo de la letra, por ejemplo), las
+  /// fuentes de calidad buscaron palabras y no la cancion. En cuanto YouTube
+  /// dice cual es, se les pregunta por ella con su artista y su titulo.
+  void _quizasBuscarElObjetivo(int esta) {
+    if (_objetivoBuscadoEn == esta || _fuente != Fuente.todas) return;
+    final Objetivo? o = _objetivo;
+    if (o == null || !hayQueBuscarElObjetivo(o, _buscado)) return;
+    _objetivoBuscadoEn = esta;
+    setState(() => _pendientes.addAll(MejorCalidad.fuentes));
+    for (final Fuente f in MejorCalidad.fuentes) {
+      unawaited(_buscarEn(f, o.consulta, esta, sumar: true));
     }
   }
 
@@ -453,8 +517,9 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// por la fuente, y lo que tiene DRM se sabe antes de intentarlo.
   void _comprobar(Fuente f, List<Resultado> encontrados, String texto) {
     final int cuantos = _aComprobar[f] ?? 0;
+    final Objetivo? o = _objetivo;
     final Iterable<Resultado> candidatos = encontrados
-        .where((Resultado r) => pareceLaMisma(texto, titulo: r.titulo, autor: r.autor))
+        .where((Resultado r) => _esElObjetivo(r, o) || pareceLaMisma(texto, titulo: r.titulo, autor: r.autor))
         .take(cuantos);
     for (final Resultado r in candidatos) {
       if (_comprobadas.containsKey(r.url)) continue;
@@ -487,29 +552,45 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         };
   }
 
-  /// Todo junto, de la mejor calidad a la peor.
+  /// Todo junto: primero la cancion, despues la calidad.
   ///
-  /// Primero lo que es la cancion buscada, de mejor a peor; despues lo demas
-  /// (otras versiones, conciertos enteros), tambien de mejor a peor; y al
-  /// final lo que no se puede bajar. A igual calidad manda el orden en que lo
-  /// devolvio cada fuente, que ya es su propia relevancia.
+  /// Arriba, la cancion que se quiso decir (el objetivo que da YouTube) en
+  /// todas las fuentes donde este, de la mejor calidad a la peor. Despues lo
+  /// que lleva las palabras buscadas, por relevancia: el orden que dio cada
+  /// fuente, como hace YouTube, y no la calidad, que haria ganar a una cancion
+  /// que solo se llama parecido. Luego lo demas y al final lo que no se puede
+  /// bajar. Sin objetivo aun, lo que lleva las palabras va por calidad.
   List<Resultado> get _ordenados {
     if (_importada) return _resultados;
+    final Objetivo? o = _objetivo;
     int grupo(Resultado r) {
-      if (_comprobadas[r.url]?.error != null) return 2;
-      return pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor) ? 0 : 1;
+      if (_comprobadas[r.url]?.error != null) return 3;
+      if (o != null && _esElObjetivo(r, o)) return 0;
+      return pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor) ? (o == null ? 0 : 1) : 2;
     }
 
+    // El puesto de cada uno dentro de su fuente: la relevancia que dio ella.
+    final Map<Resultado, int> puesto = <Resultado, int>{};
+    final Map<Fuente?, int> cuantos = <Fuente?, int>{};
+    for (final Resultado r in _resultados) {
+      puesto[r] = cuantos[r.fuente] = (cuantos[r.fuente] ?? -1) + 1;
+    }
     final Map<Resultado, int> posicion = <Resultado, int>{
       for (int i = 0; i < _resultados.length; i++) _resultados[i]: i,
     };
+    final Map<Resultado, int> grupos = <Resultado, int>{for (final Resultado r in _resultados) r: grupo(r)};
     return List<Resultado>.of(_resultados)
       ..sort((Resultado a, Resultado b) {
-        final int porGrupo = grupo(a).compareTo(grupo(b));
+        final int porGrupo = grupos[a]!.compareTo(grupos[b]!);
         if (porGrupo != 0) return porGrupo;
-        final double pa = _calidadDe(a)?.puntos ?? 0;
-        final double pb = _calidadDe(b)?.puntos ?? 0;
-        if (pa != pb) return pb.compareTo(pa);
+        if (grupos[a] == 0) {
+          final double pa = _calidadDe(a)?.puntos ?? 0;
+          final double pb = _calidadDe(b)?.puntos ?? 0;
+          if (pa != pb) return pb.compareTo(pa);
+          return posicion[a]!.compareTo(posicion[b]!);
+        }
+        final int porPuesto = puesto[a]!.compareTo(puesto[b]!);
+        if (porPuesto != 0) return porPuesto;
         return posicion[a]!.compareTo(posicion[b]!);
       });
   }
@@ -842,10 +923,13 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   Widget _lista() {
     final List<Resultado> orden = _ordenados;
     // La primera es la mejor si se sabe su calidad y es lo que se busco.
+    final Objetivo? objetivo = _objetivo;
     final Resultado? mejor = !_importada &&
             orden.isNotEmpty &&
             _calidadDe(orden.first) != null &&
-            pareceLaMisma(_buscado, titulo: orden.first.titulo, autor: orden.first.autor)
+            (objetivo != null
+                ? _esElObjetivo(orden.first, objetivo)
+                : pareceLaMisma(_buscado, titulo: orden.first.titulo, autor: orden.first.autor))
         ? orden.first
         : null;
     final bool variasFuentes = _fuente == Fuente.todas && !_importada;
@@ -855,7 +939,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         ? orden
         : <Resultado>[
             for (final Resultado r in orden)
-              if (pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor)) r,
+              if (_relevante(r, objetivo)) r,
           ];
     final List<Resultado> otras = buscadas.isEmpty || _importada
         ? const <Resultado>[]
@@ -874,6 +958,12 @@ class PantallaDescargaState extends State<PantallaDescarga> {
           ),
         for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
           _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
+        if (objetivo != null && _objetivoBuscadoEn == _busqueda)
+          _Nota(
+            icono: Icons.auto_awesome_rounded,
+            texto: 'Parece que buscas «${objetivo.tema}»'
+                '${objetivo.artista.isEmpty ? '' : ' de ${objetivo.artista}'}: la busco tambien en mejor calidad.',
+          ),
         if (!_importada && separarConsulta(_buscado).separada)
           _Nota(
             icono: Icons.auto_awesome_rounded,
