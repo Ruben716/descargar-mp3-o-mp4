@@ -52,6 +52,11 @@ class PantallaDescargaState extends State<PantallaDescarga> {
   /// Lo que se busco la ultima vez, para saber que resultados son la cancion.
   String _buscado = '';
 
+  /// Si se ensenian tambien los resultados que no parecen lo buscado. Van
+  /// plegados: las fuentes devuelven de relleno canciones parecidas, y entre
+  /// tanto relleno no se veia la que se queria.
+  bool _verOtros = false;
+
   /// Fuentes a las que aun se esta preguntando.
   final Set<Fuente> _pendientes = <Fuente>{};
 
@@ -391,6 +396,7 @@ class PantallaDescargaState extends State<PantallaDescarga> {
     final List<Fuente> donde = _fuente == Fuente.todas ? Fuente.deMusica : <Fuente>[_fuente];
     setState(() {
       _buscado = texto;
+      _verOtros = false;
       _aviso = '';
       _fallo = false;
       _importada = false;
@@ -843,6 +849,21 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         ? orden.first
         : null;
     final bool variasFuentes = _fuente == Fuente.todas && !_importada;
+    // Lo que es la cancion buscada va arriba; lo demas, plegado debajo. Si no
+    // hay ninguna que lo parezca, se ensenia todo, como siempre.
+    final List<Resultado> buscadas = _importada
+        ? orden
+        : <Resultado>[
+            for (final Resultado r in orden)
+              if (pareceLaMisma(_buscado, titulo: r.titulo, autor: r.autor)) r,
+          ];
+    final List<Resultado> otras = buscadas.isEmpty || _importada
+        ? const <Resultado>[]
+        : <Resultado>[
+            for (final Resultado r in orden)
+              if (!buscadas.contains(r)) r,
+          ];
+    final List<Resultado> arriba = buscadas.isEmpty ? orden : buscadas;
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       children: <Widget>[
@@ -853,12 +874,35 @@ class PantallaDescargaState extends State<PantallaDescarga> {
           ),
         for (final MapEntry<Fuente, String> e in _sinRespuesta.entries)
           _Nota(icono: Icons.cloud_off_rounded, texto: '${e.key.etiqueta} no respondio: ${e.value}'),
-        for (final Resultado r in orden)
+        if (!_importada && separarConsulta(_buscado).separada)
+          _Nota(
+            icono: Icons.auto_awesome_rounded,
+            texto: 'Buscando la cancion «${separarConsulta(_buscado).comoSeLee.tema}» de '
+                '${separarConsulta(_buscado).comoSeLee.artista} (o al reves)',
+          ),
+        for (final Resultado r in arriba)
           AparecerEscalonado(
             key: ValueKey<String>('aparece-${r.url}'),
-            indice: orden.indexOf(r),
+            indice: arriba.indexOf(r),
             child: _tarjeta(r, esLaMejor: identical(r, mejor), fuenteVisible: variasFuentes),
           ),
+        if (otras.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: TextButton.icon(
+              onPressed: () => setState(() => _verOtros = !_verOtros),
+              icon: Icon(_verOtros ? Icons.expand_less_rounded : Icons.expand_more_rounded),
+              label: Text(
+                _verOtros
+                    ? 'Ocultar lo que no es «$_buscado»'
+                    : 'Ver ${otras.length} ${otras.length == 1 ? 'resultado' : 'resultados'} mas '
+                        '(no parecen «$_buscado»)',
+              ),
+            ),
+          ),
+        if (_verOtros)
+          for (final Resultado r in otras)
+            _tarjeta(r, esLaMejor: false, fuenteVisible: variasFuentes),
       ],
     );
   }
@@ -1273,6 +1317,10 @@ class _Vacio extends StatelessWidget {
           const _Forma(
             icono: Icons.search_rounded,
             texto: 'Escribe una cancion, un artista o un video, y elige donde buscar.',
+          ),
+          const _Forma(
+            icono: Icons.auto_awesome_rounded,
+            texto: 'Para afinar, separa con un guion: «artista - cancion».',
           ),
           const _Forma(
             icono: Icons.link_rounded,

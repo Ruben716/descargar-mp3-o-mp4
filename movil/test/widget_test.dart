@@ -2476,6 +2476,36 @@ void main() {
     test('las tildes y las mayusculas no cuentan', () {
       expect(pareceLaMisma('corazon partio', titulo: 'CORAZÓN PARTÍO'), isTrue);
     });
+
+    test('artista - cancion se separa, y vale en los dos ordenes', () {
+      final Consulta c = separarConsulta('Bad Bunny - Titi Me Pregunto');
+      expect(c.separada, isTrue);
+      expect(c.comoSeLee, (artista: 'Bad Bunny', tema: 'Titi Me Pregunto'));
+      expect(separarConsulta('Fuze by Jay Eskar').comoSeLee, (artista: 'Jay Eskar', tema: 'Fuze'));
+      expect(separarConsulta('fuze jay eskar remix').separada, isFalse, reason: 'sin separador no se adivina');
+      expect(separarConsulta('ac-dc thunderstruck').separada, isFalse, reason: 'un guion pegado no separa');
+
+      expect(pareceLaMisma('Bad Bunny - Titi Me Pregunto', titulo: 'TITÍ ME PREGUNTÓ', autor: 'Bad Bunny'), isTrue);
+      expect(pareceLaMisma('Titi Me Pregunto - Bad Bunny', titulo: 'Bad Bunny - Tití Me Preguntó'), isTrue,
+          reason: 'al reves tambien');
+      expect(pareceLaMisma('Bad Bunny - Titi Me Pregunto', titulo: 'Me Porto Bonito', autor: 'Bad Bunny'), isFalse,
+          reason: 'otra cancion del mismo artista');
+      expect(pareceLaMisma('Bad Bunny - Titi Me Pregunto', titulo: 'Titi Me Pregunto', autor: 'Karaoke Hits'),
+          isFalse, reason: 'la cancion de otro artista');
+    });
+  });
+
+  testWidgets('lo que no parece la cancion buscada va plegado debajo', (WidgetTester tester) async {
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'cancion uno');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cancion uno'), findsOneWidget);
+    expect(find.text('Cancion dos'), findsNothing);
+    await tester.tap(find.text('Ver 1 resultado mas (no parecen «cancion uno»)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cancion dos'), findsOneWidget);
   });
 
   group('el nombre que se ensenia', () {
