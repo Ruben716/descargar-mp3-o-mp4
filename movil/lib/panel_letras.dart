@@ -127,17 +127,27 @@ class _PanelLetrasState extends State<PanelLetras> {
   Widget _botonTraducir() {
     final bool puesta = _traduccion != null;
     final Color tono = puesta ? Tema.acento : Colors.white54;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Padding(
-        padding: const EdgeInsets.only(right: 12),
-        child: TextButton.icon(
-          onPressed: _alternarTraduccion,
-          icon: _traduciendo
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-              : Icon(Icons.translate_rounded, size: 18, color: tono),
-          label: Text(puesta ? 'Ver solo original' : 'Traducir', style: TextStyle(fontSize: 12, color: tono)),
-        ),
+    return TextButton.icon(
+      onPressed: _alternarTraduccion,
+      icon: _traduciendo
+          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : Icon(Icons.translate_rounded, size: 18, color: tono),
+      label: Text(puesta ? 'Ver solo original' : 'Traducir', style: TextStyle(fontSize: 12, color: tono)),
+    );
+  }
+
+  /// Una sola fila arriba con lo que se toca poco: la sincronia a la izquierda
+  /// y la traduccion a la derecha. Antes iban arriba y abajo, cada una con su
+  /// hueco, y le quitaban a la letra casi dos lineas.
+  Widget _barra({required bool traducible, Duration? desfase}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: Row(
+        children: <Widget>[
+          if (desfase != null) _ControlSincronia(desfase: desfase, alAjustar: _ajustar),
+          const Spacer(),
+          if (traducible) _botonTraducir(),
+        ],
       ),
     );
   }
@@ -157,7 +167,7 @@ class _PanelLetrasState extends State<PanelLetras> {
       final List<String>? traducidas = _traduccion;
       return Column(
         children: <Widget>[
-          if (traducible) _botonTraducir(),
+          if (traducible) _barra(traducible: true),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),
@@ -183,9 +193,8 @@ class _PanelLetrasState extends State<PanelLetras> {
 
     return Column(
       children: <Widget>[
-        if (traducible) _botonTraducir(),
+        _barra(traducible: traducible, desfase: letra.desfase),
         Expanded(child: _versos(letra)),
-        _ControlSincronia(desfase: letra.desfase, alAjustar: _ajustar),
       ],
     );
   }
@@ -284,49 +293,44 @@ class _ControlSincronia extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool ajustada = desfase != Duration.zero;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              IconButton(
-                onPressed: () => alAjustar(-paso),
-                tooltip: 'La letra va atrasada',
-                icon: const Icon(Icons.fast_rewind_rounded, size: 20),
-                color: Colors.white54,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        IconButton(
+          onPressed: () => alAjustar(-paso),
+          tooltip: 'La letra va atrasada',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.fast_rewind_rounded, size: 18),
+          color: Colors.white54,
+        ),
+        Tooltip(
+          message: ajustada ? 'Toca para dejarlo como estaba' : 'Ajusta si la letra no va a la par',
+          child: TextButton(
+            style: TextButton.styleFrom(
+              minimumSize: const Size(56, 36),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: ajustada ? () => alAjustar(-desfase) : null,
+            child: Text(
+              _etiqueta,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: ajustada ? Tema.acento : Tema.textoTenue,
               ),
-              SizedBox(
-                width: 84,
-                child: TextButton(
-                  onPressed: ajustada ? () => alAjustar(-desfase) : null,
-                  child: Text(
-                    _etiqueta,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: ajustada ? Tema.acento : Tema.textoTenue,
-                    ),
-                  ),
-                ),
-              ),
-              IconButton(
-                onPressed: () => alAjustar(paso),
-                tooltip: 'La letra va adelantada',
-                icon: const Icon(Icons.fast_forward_rounded, size: 20),
-                color: Colors.white54,
-              ),
-            ],
+            ),
           ),
-          Text(
-            ajustada ? 'Toca el valor para dejarlo como estaba' : 'Ajusta si no va a la par',
-            style: const TextStyle(color: Tema.textoTenue, fontSize: 10),
-          ),
-        ],
-      ),
+        ),
+        IconButton(
+          onPressed: () => alAjustar(paso),
+          tooltip: 'La letra va adelantada',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.fast_forward_rounded, size: 18),
+          color: Colors.white54,
+        ),
+      ],
     );
   }
 }
