@@ -8,7 +8,6 @@ import 'package:video_player/video_player.dart';
 
 import 'calidad.dart';
 import 'catalogo.dart';
-import 'dj.dart';
 import 'estado_reproductor.dart';
 import 'formato.dart';
 import 'gestos.dart';
@@ -115,8 +114,12 @@ class _ReproductorState extends State<Reproductor> {
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             iconTheme: IconThemeData(color: tono),
-            title: Text(
-              elemento.audio ? 'REPRODUCIENDO' : 'VIDEO',
+            // En audio sin titulo: «REPRODUCIENDO» no cabia con los botones y
+            // no decia nada que la pantalla no dijera ya.
+            title: elemento.audio
+                ? null
+                : Text(
+              'VIDEO',
               style: TextStyle(
                 fontSize: 11,
                 letterSpacing: 2,
@@ -279,30 +282,22 @@ class _AudioState extends State<_Audio> {
         // Un MP3 hecho desde un original sin perdida ya no es sin perdida: el
         // sello dorado seria mentira. Se dice que se bajo de ahi, sin mas.
         if (calidad.sinPerdida && !archivoSinPerdida && extension.isNotEmpty) {
-          return Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Text(
-              '${extension.toUpperCase()} · hecho desde un original sin perdida',
-              style: const TextStyle(color: Colors.white54, fontSize: 11),
-            ),
+          return Text(
+            '${extension.toUpperCase()} de un original sin perdida',
+            style: const TextStyle(color: Colors.white54, fontSize: 10),
           );
         }
         final bool inflado = !calidad.sinPerdida && archivoSinPerdida;
-        return Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: Wrap(
-            alignment: WrapAlignment.center,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            children: <Widget>[
-              SelloCalidad(calidad: calidad, grande: true),
-              if (inflado)
-                Text(
-                  'guardado en ${extension.toUpperCase()}',
-                  style: const TextStyle(color: Tema.textoTenue, fontSize: 11),
-                ),
-            ],
-          ),
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SelloCalidad(calidad: calidad),
+            if (inflado)
+              Text(
+                '  en ${extension.toUpperCase()}',
+                style: const TextStyle(color: Tema.textoTenue, fontSize: 10),
+              ),
+          ],
         );
       },
     );
@@ -314,20 +309,25 @@ class _AudioState extends State<_Audio> {
       listenable: Ritmos.instancia,
       builder: (BuildContext context, _) {
         final String? bpm = Ritmos.instancia.rasgosDe(widget.elemento.uri)?.textoBpm;
-        final ModoDj? modo = _estado.modoDj;
-        if (bpm == null && modo == null) return const SizedBox.shrink();
-        final String alCompas = _estado.alCompas ? ' · al compas' : '';
-        return Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            <String>[
-              if (modo != null) 'Mezcla DJ ${modo.titulo.toLowerCase()}$alCompas',
-              ?bpm,
-            ].join('  ·  '),
-            style: const TextStyle(color: Tema.textoTenue, fontSize: 11, letterSpacing: 0.3),
-          ),
+        final bool dj = _estado.modoDj != null;
+        if (bpm == null && !dj) return const SizedBox.shrink();
+        return Text(
+          '  ·  ${<String>[if (dj) _estado.alCompas ? 'DJ al compas' : 'DJ', ?bpm].join('  ·  ')}',
+          style: const TextStyle(color: Tema.textoTenue, fontSize: 10, letterSpacing: 0.3),
         );
       },
+    );
+  }
+
+  /// Lo tecnico (calidad, tempo, DJ) en una sola linea, entre los dos tiempos
+  /// de la barra: es un hueco que estaba vacio y no le quita sitio a nada.
+  Widget _detalles() {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[_sello(widget.elemento.nombre), _ritmo()],
+      ),
     );
   }
 
@@ -338,9 +338,10 @@ class _AudioState extends State<_Audio> {
     final ({String artista, String tema}) partes =
         widget.elemento.partes;
 
+    // Sin hueco para la barra: el Scaffold ya mete su alto en el SafeArea del
+    // fondo (extendBodyBehindAppBar), y con otro mas quedaba una franja vacia.
     return Column(
       children: <Widget>[
-        const SizedBox(height: kToolbarHeight),
         if (widget.letras)
           Expanded(child: PanelLetras(elemento: widget.elemento))
         else
@@ -362,10 +363,11 @@ class _AudioState extends State<_Audio> {
           ),
         // Centrado cuando cabe y con desplazamiento cuando no: un titulo
         // largo en una pantalla corta desbordaria, y ya sabemos como queda.
-        Expanded(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+        // Con la letra no: ocupan lo justo y la letra se queda todo lo demas.
+        _ocupar(
+          letras: widget.letras,
+          hijo: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
@@ -393,9 +395,7 @@ class _AudioState extends State<_Audio> {
                       ),
                     ),
                   ],
-                  _sello(widget.elemento.nombre),
-                  _ritmo(),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 10),
           StreamBuilder<Duration>(
             stream: motor.positionStream,
             builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
@@ -412,7 +412,6 @@ class _AudioState extends State<_Audio> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       // Cifras tabulares: todas del mismo ancho, asi el
                       // contador no baila a cada segundo que pasa.
                       children: <Widget>[
@@ -421,6 +420,12 @@ class _AudioState extends State<_Audio> {
                                 color: colores.primary.withValues(alpha: 0.7),
                                 fontSize: 12,
                                 fontFeatures: const <FontFeature>[FontFeature.tabularFigures()])),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Center(child: _detalles()),
+                          ),
+                        ),
                         Text(formatoTiempo(total.inSeconds),
                             style: TextStyle(
                                 color: colores.primary.withValues(alpha: 0.7),
@@ -436,17 +441,19 @@ class _AudioState extends State<_Audio> {
           const SizedBox(height: 4),
           ListenableBuilder(
             listenable: _estado,
-            // Wrap y no Row: tres botones con sus etiquetas no caben en una
-            // pantalla estrecha, y asi bajan de linea en vez de desbordar.
-            builder: (BuildContext context, _) => Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: <Widget>[
-                _BotonAleatorio(estado: _estado),
-                _BotonRepeticion(estado: _estado),
-                _BotonVelocidad(estado: _estado),
-                _BotonTramo(estado: _estado),
-              ],
+            // Los cuatro en una sola fila, compactos: en dos filas se comian
+            // el sitio de la letra. En una pantalla muy estrecha se encogen.
+            builder: (BuildContext context, _) => FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  _BotonAleatorio(estado: _estado),
+                  _BotonRepeticion(estado: _estado),
+                  _BotonVelocidad(estado: _estado),
+                  _BotonTramo(estado: _estado),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -495,11 +502,16 @@ class _AudioState extends State<_Audio> {
                 ],
               ),
             ),
-          ),
         ),
       ],
     );
   }
+
+  /// Con la caratula, los datos van centrados en lo que sobre (y se desplazan
+  /// si no caben); con la letra, solo lo justo, para que ella crezca.
+  static Widget _ocupar({required bool letras, required Widget hijo}) => letras
+      ? hijo
+      : Expanded(child: Center(child: SingleChildScrollView(child: hijo)));
 }
 
 class _BotonGrande extends StatelessWidget {
@@ -741,6 +753,13 @@ class _BotonTemporizador extends StatelessWidget {
   }
 }
 
+/// Botones de texto con poco relleno, para que quepan cuatro en una fila.
+final ButtonStyle _compacto = TextButton.styleFrom(
+  padding: const EdgeInsets.symmetric(horizontal: 8),
+  minimumSize: const Size(0, 40),
+  visualDensity: VisualDensity.compact,
+);
+
 /// Pone y quita el aleatorio.
 class _BotonAleatorio extends StatelessWidget {
   const _BotonAleatorio({required this.estado});
@@ -751,6 +770,7 @@ class _BotonAleatorio extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color tono = Theme.of(context).colorScheme.primary;
     return TextButton.icon(
+      style: _compacto,
       onPressed: estado.alternarAleatorio,
       icon: Icon(
         Icons.shuffle_rounded,
@@ -783,6 +803,7 @@ class _BotonVelocidad extends StatelessWidget {
         ? '${estado.velocidad.round()}x'
         : '${estado.velocidad}x';
     return TextButton.icon(
+      style: _compacto,
       onPressed: estado.alternarVelocidad,
       icon: Icon(
         Icons.speed_rounded,
@@ -821,6 +842,7 @@ class _BotonTramo extends StatelessWidget {
     return Tooltip(
       message: ayuda,
       child: TextButton.icon(
+        style: _compacto,
         onPressed: estado.alternarTramo,
         icon: Icon(Icons.repeat_one_on_rounded, size: 20, color: activo ? tono : Tema.textoTenue),
         label: Text(etiqueta, style: TextStyle(fontSize: 12, color: activo ? tono : Tema.textoTenue)),
@@ -840,6 +862,7 @@ class _BotonRepeticion extends StatelessWidget {
     final bool activa = estado.repeticion != LoopMode.off;
     final Color tono = Theme.of(context).colorScheme.primary;
     return TextButton.icon(
+      style: _compacto,
       onPressed: estado.alternarRepeticion,
       icon: Icon(
         estado.repeticion == LoopMode.one
