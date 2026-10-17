@@ -188,7 +188,10 @@ void main() {
             return pendiente;
           }(),
         'biblioteca' => biblioteca,
-        'buscar' => respuestas[(llamada.arguments as Map<dynamic, dynamic>)['fuente']] ??
+        // «fuente|texto» para lo que cambia segun lo buscado; si no, por fuente.
+        'buscar' => respuestas['${(llamada.arguments as Map<dynamic, dynamic>)['fuente']}|'
+                '${(llamada.arguments as Map<dynamic, dynamic>)['texto']}'] ??
+            respuestas[(llamada.arguments as Map<dynamic, dynamic>)['fuente']] ??
             '{"ok":true,"resultados":[]}',
         'calidad' => calidades[(llamada.arguments as Map<dynamic, dynamic>)['url']] ??
             '{"ok":true,"codec":"opus","kbps":127.0,"hz":48000,"sinPerdida":false}',
@@ -2477,6 +2480,33 @@ void main() {
       expect(pareceLaMisma('corazon partio', titulo: 'CORAZÓN PARTÍO'), isTrue);
     });
 
+    test('el objetivo sale de YouTube Music o del titulo del video', () {
+      final Objetivo video = objetivoDe(
+        titulo: 'Bad Bunny - Tití Me Preguntó (Video Oficial)',
+        autor: 'BadBunnyVEVO',
+        duracion: 260,
+        deYoutubeMusic: false,
+      );
+      expect((video.artista, video.tema), ('Bad Bunny', 'Tití Me Preguntó'));
+      final Objetivo canal = objetivoDe(titulo: 'Fuze [Official Audio]', autor: 'Jay Eskar - Topic', deYoutubeMusic: false);
+      expect((canal.artista, canal.tema), ('Jay Eskar', 'Fuze'));
+      final Objetivo musica = objetivoDe(titulo: 'Tití Me Preguntó', autor: 'Bad Bunny', duracion: 243, deYoutubeMusic: true);
+      expect(musica.consulta, 'Bad Bunny Tití Me Preguntó');
+
+      bool es(String titulo, {String autor = '', double duracion = 0, bool esVideo = false}) =>
+          esElObjetivo(musica, 'te quiero ver pero no', titulo: titulo, autor: autor, duracion: duracion, esVideo: esVideo);
+      expect(es('Titi Me Pregunto', autor: 'Bad Bunny', duracion: 245), isTrue);
+      expect(es('Bad Bunny - Tití Me Preguntó (Video Oficial)', duracion: 280, esVideo: true), isTrue,
+          reason: 'el videoclip dura mas y vale igual');
+      expect(es('Titi Me Pregunto', autor: 'Bad Bunny', duracion: 280), isFalse, reason: 'otra version, mas larga');
+      expect(es('Titi Me Pregunto (Remix)', autor: 'Bad Bunny', duracion: 243), isFalse, reason: 'un remix no es');
+      expect(es('Titi Me Pregunto', autor: 'Karaoke Hits', duracion: 243), isFalse, reason: 'otro artista');
+      expect(es('Me Porto Bonito', autor: 'Bad Bunny', duracion: 243), isFalse);
+
+      expect(hayQueBuscarElObjetivo(musica, 'te quiero ver pero no'), isTrue, reason: 'era un trozo de la letra');
+      expect(hayQueBuscarElObjetivo(musica, 'titi me pregunto'), isFalse, reason: 'ya se busco por el titulo');
+    });
+
     test('artista - cancion se separa, y vale en los dos ordenes', () {
       final Consulta c = separarConsulta('Bad Bunny - Titi Me Pregunto');
       expect(c.separada, isTrue);
@@ -4198,11 +4228,12 @@ void main() {
       (WidgetTester tester) async {
     // Lo medido de verdad: Audius da el original en WAV cuando el artista lo
     // deja; SoundCloud sin DRM, AAC 160; YouTube, Opus ~127.
-    respuestas['audius'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Grupo",'
-        '"duracion":180,"url":"https://audius.co/grupo/cancion-uno","miniatura":"",'
+    // La misma cancion que la de YouTube (artista y duracion), en cada fuente.
+    respuestas['audius'] = '{"ok":true,"resultados":[{"titulo":"Cancion uno","autor":"Autor",'
+        '"duracion":254,"url":"https://audius.co/grupo/cancion-uno","miniatura":"",'
         '"calidad":{"codec":"wav","kbps":null,"hz":null,"sinPerdida":true}}]}';
     respuestas['soundcloud'] = '{"ok":true,"resultados":['
-        '{"titulo":"Cancion uno","autor":"Grupo","duracion":180,'
+        '{"titulo":"Cancion uno","autor":"Autor","duracion":254,'
         '"url":"https://soundcloud.com/grupo/cancion-uno","miniatura":""}]}';
     calidades['https://soundcloud.com/grupo/cancion-uno'] =
         '{"ok":true,"codec":"aac","kbps":160.0,"hz":44100,"sinPerdida":false}';
@@ -4219,6 +4250,43 @@ void main() {
     expect(find.text('SIN PERDIDA · WAV'), findsOneWidget);
     expect(alturaDe(tester, 'Audius'), lessThan(alturaDe(tester, 'SoundCloud')));
     expect(alturaDe(tester, 'SoundCloud'), lessThan(alturaDe(tester, 'YouTube')));
+  });
+
+  testWidgets('con un trozo de la letra encuentra la cancion y la trae en mejor calidad',
+      (WidgetTester tester) async {
+    respuestas = <String, String>{
+      // YouTube entiende la letra: su primer resultado es la cancion.
+      'ytmusic': '{"ok":true,"resultados":[{"titulo":"Cancion Real","autor":"Grupo","duracion":200,'
+          '"url":"https://music.youtube.com/watch?v=real","miniatura":""}]}',
+      'youtube': '{"ok":true,"resultados":[{"titulo":"Grupo - Cancion Real (Video Oficial)",'
+          '"autor":"GrupoVEVO","duracion":230,"url":"https://www.youtube.com/watch?v=real","miniatura":""}]}',
+      // Las demas solo ven palabras: sin perdida, pero otra cancion.
+      'audius': '{"ok":true,"resultados":[{"titulo":"Te Busque Toda La Noche Remix","autor":"Alguien",'
+          '"duracion":180,"url":"https://audius.co/x/otra","miniatura":"",'
+          '"calidad":{"codec":"wav","sinPerdida":true}}]}',
+      // Preguntadas por el titulo de verdad, si la tienen.
+      'audius|Grupo Cancion Real': '{"ok":true,"resultados":[{"titulo":"Cancion Real","autor":"Grupo",'
+          '"duracion":201,"url":"https://audius.co/grupo/real","miniatura":"",'
+          '"calidad":{"codec":"wav","sinPerdida":true}}]}',
+    };
+    comoElTelefono(tester);
+    await abrir(tester);
+    await tester.enterText(find.byType(TextField), 'te busque toda la noche');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(
+      llamadas.where((MethodCall c) => c.method == 'buscar').map((MethodCall c) =>
+          '${(c.arguments as Map<dynamic, dynamic>)['fuente']}|${(c.arguments as Map<dynamic, dynamic>)['texto']}'),
+      contains('audius|Grupo Cancion Real'),
+      reason: 'despues de saber que cancion es, se busca por su nombre',
+    );
+    expect(find.textContaining('Parece que buscas «Cancion Real» de Grupo'), findsOneWidget);
+    expect(find.text('MEJOR CALIDAD'), findsOneWidget);
+    expect(find.text('Te Busque Toda La Noche Remix'), findsNothing, reason: 'la otra va plegada');
+    expect(alturaDe(tester, 'Audius'), lessThan(alturaDe(tester, 'YouTube Music')),
+        reason: 'la misma cancion en sin perdida, arriba');
+    expect(alturaDe(tester, 'YouTube Music'), lessThan(alturaDe(tester, 'YouTube')));
   });
 
   testWidgets('lo que tiene DRM se dice antes de intentarlo y se va al final',

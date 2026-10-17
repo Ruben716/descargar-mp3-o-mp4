@@ -147,6 +147,11 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   ajuste en `ecualizador_salidas`. No hay mediciones públicas de altavoces de teléfono: `Ajuste.altavoz` es
   una curva general, no la de cada modelo. Unos audífonos nuevos se corrigen solos con AutoEQ solo si el
   nombre casa sin dudas (`modeloParaAparato`) y con wifi.
+- **En «Todas» primero la canción y después la calidad** (`busqueda.dart`, `_ordenados`). El primer resultado
+  de YouTube Music (o, si no hay, de YouTube) es el `Objetivo`: YouTube entiende trozos de letra y faltas, las
+  demás fuentes solo palabras. Arriba va el objetivo en todas las fuentes, por calidad; lo que solo lleva las
+  palabras va después por la relevancia de cada fuente, no por calidad. Si lo escrito no era el título, se
+  vuelve a preguntar a `MejorCalidad.fuentes` por «artista título» del objetivo.
 - **«Pídele a Tumbao» son reglas, no IA** (`pidele.dart`): sin red y probado con funciones puras. Relajar una
   petición nunca deja sin filtros lo pedido: si solo se pidió un género o un ritmo que no hay, sale vacío y se
   ofrece buscar en internet, en vez de devolver la biblioteca entera.
