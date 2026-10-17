@@ -64,7 +64,7 @@ class _Barra extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => Reproductor(elemento: pista.elemento!)),
+            rutaQueSeAbre(context, Reproductor(elemento: pista.elemento!)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -217,4 +217,30 @@ class _BarraEnVivo extends StatelessWidget {
       ),
     );
   }
+}
+
+/// El reproductor sube desde la barra de abajo creciendo, como si la propia
+/// barra se abriera: se entiende de donde sale. Al cerrar, baja a su sitio.
+Route<void> rutaQueSeAbre(BuildContext context, Widget pantalla) {
+  final bool reducido = Movimiento.reducido(context);
+  return PageRouteBuilder<void>(
+    transitionDuration: reducido ? Duration.zero : const Duration(milliseconds: 420),
+    reverseTransitionDuration: reducido ? Duration.zero : const Duration(milliseconds: 300),
+    pageBuilder: (BuildContext context, Animation<double> a, Animation<double> b) => pantalla,
+    transitionsBuilder: (BuildContext context, Animation<double> a, Animation<double> b, Widget hijo) {
+      final Animation<double> curva =
+          CurvedAnimation(parent: a, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: a, curve: const Interval(0, 0.55, curve: Curves.easeOut)),
+        child: SlideTransition(
+          position: Tween<Offset>(begin: const Offset(0, 0.16), end: Offset.zero).animate(curva),
+          child: ScaleTransition(
+            alignment: Alignment.bottomCenter,
+            scale: Tween<double>(begin: 0.94, end: 1).animate(curva),
+            child: hijo,
+          ),
+        ),
+      );
+    },
+  );
 }
