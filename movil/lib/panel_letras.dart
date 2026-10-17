@@ -26,7 +26,9 @@ class _PanelLetrasState extends State<PanelLetras> {
 
   /// Alto fijo por linea: hace falta saberlo para poder centrar la que suena
   /// sin medir el texto, que con lineas de dos renglones seria un lio.
-  static const double _alto = 46;
+  // Cabe un verso de dos lineas al tamanio del que suena (19 x 1,25 x 2): con
+  // 46 se salia por dos pixeles.
+  static const double _alto = 54;
 
   Letra? _letra;
   int _resaltada = -1;

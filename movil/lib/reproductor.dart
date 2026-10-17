@@ -303,7 +303,7 @@ class _AudioState extends State<_Audio> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            SelloCalidad(calidad: calidad),
+            SelloCalidad(calidad: calidad, brillo: true),
             if (inflado)
               Text(
                 '  en ${extension.toUpperCase()}',
@@ -324,7 +324,7 @@ class _AudioState extends State<_Audio> {
         final bool dj = _estado.modoDj != null;
         if (bpm == null && !dj) return const SizedBox.shrink();
         return Text(
-          '  ·  ${<String>[if (dj) _estado.alCompas ? 'DJ al compas' : 'DJ', ?bpm].join('  ·  ')}',
+          <String>[if (dj) _estado.alCompas ? 'DJ al compas' : 'DJ', ?bpm].join('  ·  '),
           style: const TextStyle(color: Tema.textoTenue, fontSize: 10, letterSpacing: 0.3),
         );
       },
@@ -338,7 +338,8 @@ class _AudioState extends State<_Audio> {
       fit: BoxFit.scaleDown,
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: <Widget>[_sello(widget.elemento.nombre), _ritmo()],
+        // Un hueco y no un punto entre los dos: sin sello, el punto quedaba suelto.
+        children: <Widget>[_sello(widget.elemento.nombre), const SizedBox(width: 10), _ritmo()],
       ),
     );
   }

@@ -152,6 +152,11 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   demás fuentes solo palabras. Arriba va el objetivo en todas las fuentes, por calidad; lo que solo lleva las
   palabras va después por la relevancia de cada fuente, no por calidad. Si lo escrito no era el título, se
   vuelve a preguntar a `MejorCalidad.fuentes` por «artista título» del objetivo.
+- **Las animaciones sin fin pasan por `Movimiento.continuas(context)`** (el latido, el fondo vivo, la barra
+  ondulada, el brillo del sello, Pídele que se escribe, el desenfoque de la letra). Es false con «Quitar
+  animaciones» del sistema y en las pruebas (`Movimiento.bucles = false` en el `setUp`): `pumpAndSettle` no
+  acaba nunca con una animación en bucle. El latido del reproductor es un solo reloj (`ConLatido`) que solo
+  corre sonando una canción con pulso; lo demás escucha sus `ValueNotifier` sin reconstruir la pantalla.
 - **«Pídele a Tumbao» son reglas, no IA** (`pidele.dart`): sin red y probado con funciones puras. Relajar una
   petición nunca deja sin filtros lo pedido: si solo se pidió un género o un ritmo que no hay, sale vacío y se
   ofrece buscar en internet, en vez de devolver la biblioteca entera.
