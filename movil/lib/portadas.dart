@@ -9,25 +9,110 @@ import 'tema.dart';
 
 /// Marco comun de las portadas: esquinas redondeadas y relleno de reserva.
 class _Marco extends StatelessWidget {
-  const _Marco({required this.hijo, required this.lado, required this.radio, required this.icono});
+  const _Marco({required this.hijo, required this.lado, required this.radio, required this.reserva});
 
   final Widget? hijo;
   final double lado;
   final double radio;
-  final IconData icono;
+
+  /// Lo que se pinta si no hay imagen.
+  final Widget reserva;
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(radio),
-      child: SizedBox(
-        width: lado,
-        height: lado,
-        child: hijo ??
-            DecoratedBox(
-              decoration: const BoxDecoration(gradient: Tema.degradado),
-              child: Icon(icono, color: const Color(0x73040814), size: lado * 0.45),
+      child: SizedBox(width: lado, height: lado, child: hijo ?? reserva),
+    );
+  }
+}
+
+/// Los dos tonos del degradado de una portada que no existe, sacados de [clave].
+///
+/// La misma clave da siempre los mismos colores, en esta y en cualquier otra
+/// ejecucion: por eso el hash es uno propio (FNV-1a) y no `hashCode`, que Dart
+/// no promete estable. El tono cae entre el teal y el violeta, pasando por el
+/// cian y el azul de la marca, y nunca en rojos ni verdes chillones; el
+/// segundo es mas oscuro y algo girado, para que el degradado tenga fondo.
+(Color, Color) colorDeArtista(String clave) {
+  int h = 0x811c9dc5;
+  for (final int c in clave.trim().toLowerCase().codeUnits) {
+    h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+  }
+  // Del teal (170) al violeta (265).
+  final double tono = 170 + (h % 96);
+  final double saturacion = 0.45 + ((h >> 8) % 20) / 100;
+  final double luz = 0.36 + ((h >> 16) % 10) / 100;
+  final double giro = ((h >> 24) % 2 == 0 ? 1 : -1) * (18 + (h >> 12) % 14).toDouble();
+  final Color claro = HSLColor.fromAHSL(1, tono, saturacion, luz).toColor();
+  final Color oscuro =
+      HSLColor.fromAHSL(1, (tono + giro).clamp(160.0, 275.0), saturacion * 0.9, luz * 0.55).toColor();
+  return (claro, oscuro);
+}
+
+/// Una o dos iniciales de [nombre]: «Bad Bunny» da «BB» y «Shakira», «S».
+///
+/// Se salta lo que no es letra ni cifra («¡», «(»...) y las coletillas de
+/// colaboracion («feat.», «ft.»), que no dicen nada de quien es.
+String iniciales(String nombre) {
+  final List<String> palabras = nombre
+      .split(RegExp(r'[^\p{L}\p{N}]+', unicode: true))
+      .where((String p) => p.isNotEmpty && !const <String>{'feat', 'ft'}.contains(p.toLowerCase()))
+      .take(2)
+      .toList();
+  return palabras.map((String p) => String.fromCharCode(p.runes.first).toUpperCase()).join();
+}
+
+/// La portada de lo que no trae: un degradado propio del artista con sus
+/// iniciales, para que cada cancion sin caratula se distinga de las demas.
+class _SinCaratula extends StatelessWidget {
+  const _SinCaratula({required this.clave, required this.lado, required this.icono});
+
+  final String clave;
+  final double lado;
+  final IconData icono;
+
+  @override
+  Widget build(BuildContext context) {
+    final (Color claro, Color oscuro) = colorDeArtista(clave);
+    final String letras = iniciales(clave);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[claro, oscuro],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          Align(
+            alignment: letras.isEmpty ? Alignment.center : const Alignment(0.8, 0.8),
+            child: Icon(
+              icono,
+              color: Colors.white.withValues(alpha: letras.isEmpty ? 0.3 : 0.12),
+              size: lado * (letras.isEmpty ? 0.45 : 0.3),
             ),
+          ),
+          if (letras.isNotEmpty)
+            Center(
+              child: ExcludeSemantics(
+                child: Text(
+                  letras,
+                  maxLines: 1,
+                  textScaler: TextScaler.noScaling,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.85),
+                    fontWeight: FontWeight.w800,
+                    fontSize: lado * (letras.length > 1 ? 0.34 : 0.4),
+                    height: 1,
+                    letterSpacing: lado * 0.01,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -49,7 +134,11 @@ class PortadaLocal extends StatelessWidget {
   Widget _marco(BuildContext context, Uint8List? datos) => _Marco(
     lado: lado,
     radio: radio,
-    icono: elemento.audio ? Icons.music_note : Icons.movie_creation,
+    reserva: _SinCaratula(
+      clave: elemento.artista.isNotEmpty ? elemento.artista : elemento.tema,
+      lado: lado,
+      icono: elemento.audio ? Icons.music_note : Icons.movie_creation,
+    ),
     hijo: datos == null
         ? null
         : Image.memory(
