@@ -50,6 +50,8 @@ def figura() -> tuple[Image.Image, float, float, float, float]:
     izquierda, arriba, derecha, abajo = caja
     cx, cy = (izquierda + derecha) / 2, (arriba + abajo) / 2
     puntos = luz.load()
+    if puntos is None:
+        raise RuntimeError(f"no se pudo leer {ORIGEN.name}")
     radio = max(
         math.hypot(x - cx, y - cy)
         for y in range(arriba, abajo, 2)

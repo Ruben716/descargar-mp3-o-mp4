@@ -1924,6 +1924,9 @@ class YtDlpDownloader:
                 options["cookiefile"] = self._cookies
 
             with YoutubeDL(options) as engine:
+                if caratula:
+                    # Antes de que nadie la lea: FFmpeg la abre por su extensión.
+                    engine.add_post_processor(_corrector_de_miniaturas(), when="before_dl")
                 info = _extraer(engine, request.url, download=False, process=False)
                 if info and info.get("_type") in {"playlist", "multi_video"}:
                     raise DownloadError("Pasa la URL de un video individual, no de una lista o canal.")
@@ -2348,6 +2351,62 @@ def medidas_imagen(datos: bytes) -> tuple[int, int] | None:
         return None
     jpeg = _cabecera_jpeg(datos)
     return (jpeg[1], jpeg[2]) if jpeg else None
+
+
+def corregir_extensiones_miniaturas(info: dict) -> list[str]:
+    """Renombra cada miniatura ya bajada a la extensión de lo que es por dentro.
+
+    hearthis, por ejemplo, sirve JPEG con nombre «.png». FFmpeg lee una imagen
+    según su extensión, así que al pasarla a JPEG para incrustarla fallaba y,
+    con ella, la descarga entera, con el audio ya bajado. yt-dlp ya lo corrige
+    con los WebP (``fixup_webp``), pero no con el resto. Devuelve las rutas que
+    cambió; lo que no se reconoce o no se puede leer se deja como estaba.
+    """
+    cambiadas: list[str] = []
+    por_mover = info.get("__files_to_move")
+    for miniatura in info.get("thumbnails") or []:
+        ruta = miniatura.get("filepath") if isinstance(miniatura, dict) else None
+        if not ruta:
+            continue
+        actual = Path(ruta)
+        try:
+            with actual.open("rb") as archivo:
+                real = _extension_imagen(archivo.read(16))
+        except OSError:
+            continue
+        if not real or actual.suffix.lower() in {real, ".jpeg" if real == ".jpg" else real}:
+            continue
+        nueva = actual.with_suffix(real)
+        try:
+            actual.replace(nueva)
+        except OSError:
+            continue
+        miniatura["filepath"] = str(nueva)
+        # Igual que hace yt-dlp con los WebP: al final se mueve con su nombre nuevo.
+        if isinstance(por_mover, dict) and ruta in por_mover:
+            por_mover[str(nueva)] = str(Path(por_mover.pop(ruta)).with_suffix(real))
+        cambiadas.append(str(nueva))
+    return cambiadas
+
+
+def _corrector_de_miniaturas():
+    """El postprocesador que aplica :func:`corregir_extensiones_miniaturas`.
+
+    Va en «before_dl»: las miniaturas ya están escritas y aún no las ha tocado
+    ningún conversor.
+    """
+    try:
+        from yt_dlp.postprocessor.common import PostProcessor
+    except ImportError as exc:
+        raise DownloadError(FALTAN_DEPENDENCIAS) from exc
+
+    class ExtensionRealPP(PostProcessor):
+        def run(self, info):
+            for ruta in corregir_extensiones_miniaturas(info):
+                self.to_screen(f'Miniatura renombrada a su formato real: "{ruta}"')
+            return [], info
+
+    return ExtensionRealPP()
 
 
 def _extension_imagen(datos: bytes) -> str:

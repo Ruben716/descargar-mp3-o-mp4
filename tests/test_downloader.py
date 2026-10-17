@@ -64,6 +64,7 @@ from descargador.infrastructure import (
     PREFIJOS_BUSQUEDA,
     YtDlpDownloader,
     _consultar,
+    _corrector_de_miniaturas,
     _extractor_ccmixter,
     _extractor_ytmusic,
     _extraer,
@@ -83,6 +84,7 @@ from descargador.infrastructure import (
     clave_jamendo,
     codec_legible,
     con_miniaturas_grandes,
+    corregir_extensiones_miniaturas,
     datos_ytmusic,
     descargar_portada,
     enlace_de_archive,
@@ -2698,6 +2700,60 @@ class CabeceraTests(unittest.TestCase):
         ruta = self._escribir(self._flac(96000, 24))
         calidad = YtDlpDownloader._calidad_bajada({"acodec": "flac", "ext": "flac"}, (ruta,))
         self.assertEqual(calidad, AudioQuality("flac", None, 96000, 24))
+
+
+class ExtensionMiniaturaTests(unittest.TestCase):
+    """Una miniatura con la extensión de otro formato tumbaba la descarga.
+
+    hearthis sirve JPEG con nombre «.png»: FFmpeg la abría como PNG al pasarla a
+    JPEG para incrustarla y fallaba la descarga entera, con el audio ya bajado.
+    """
+
+    JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 12
+    PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8
+
+    def test_un_jpeg_con_nombre_png_pasa_a_jpg(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            disfrazada = Path(carpeta) / "Mezcla [1].temp.png"
+            disfrazada.write_bytes(self.JPEG)
+            final = str(Path(carpeta) / "Mezcla [1].png")
+            info = {
+                "thumbnails": [{"url": "https://x/a.png", "filepath": str(disfrazada)}],
+                "__files_to_move": {str(disfrazada): final},
+            }
+
+            cambiadas = corregir_extensiones_miniaturas(info)
+
+            nueva = str(Path(carpeta) / "Mezcla [1].temp.jpg")
+            self.assertEqual(cambiadas, [nueva])
+            self.assertEqual(info["thumbnails"][0]["filepath"], nueva)
+            self.assertTrue(Path(nueva).is_file())
+            self.assertFalse(disfrazada.exists())
+            self.assertEqual(info["__files_to_move"], {nueva: str(Path(carpeta) / "Mezcla [1].jpg")})
+
+    def test_lo_que_ya_cuadra_o_no_se_reconoce_no_se_toca(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            png = Path(carpeta) / "a.png"
+            png.write_bytes(self.PNG)
+            jpeg = Path(carpeta) / "b.jpeg"
+            jpeg.write_bytes(self.JPEG)
+            rara = Path(carpeta) / "c.png"
+            rara.write_bytes(b"GIF89a" + b"\x00" * 10)
+            info = {"thumbnails": [
+                {"filepath": str(png)},
+                {"filepath": str(jpeg)},
+                {"filepath": str(rara)},
+                {"filepath": str(Path(carpeta) / "no-esta.png")},
+                {"url": "https://x/sin-bajar.jpg"},
+            ]}
+
+            self.assertEqual(corregir_extensiones_miniaturas(info), [])
+            self.assertTrue(png.is_file() and jpeg.is_file() and rara.is_file())
+
+    def test_la_descarga_la_corrige_antes_de_convertir(self):
+        info = {"thumbnails": []}
+        corrector = _corrector_de_miniaturas()
+        self.assertEqual(corrector.run(info), ([], info))
 
 
 if __name__ == "__main__":
