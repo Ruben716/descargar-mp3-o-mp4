@@ -4514,10 +4514,9 @@ void main() {
 
   // --- La marca: azul y negro ---------------------------------------------
 
-  test('el esquema de la marca no tiene nada violeta', () {
-    // fromSeed gira el tono del terciario: sin fijarlo, una semilla azul deja
-    // contenedores rosa lila. Todo rol con color tiene que caer en el azul o
-    // el cian; solo el rojo del error va aparte.
+  test('el esquema de la marca es neutro: el color lo ponen las portadas', () {
+    // fromSeed tine los roles que no se fijan, aunque la semilla sea blanca.
+    // Todo rol tiene que ser gris; solo el rojo del error va aparte.
     final ColorScheme e = Tema.esquema;
     final Map<String, Color> roles = <String, Color>{
       'primary': e.primary,
@@ -4550,8 +4549,8 @@ void main() {
       'inversePrimary': e.inversePrimary,
     };
     roles.forEach((String rol, Color color) {
-      final double tono = HSLColor.fromColor(color).hue;
-      expect(tono, inInclusiveRange(190, 235), reason: '$rol sale con tono $tono');
+      final double saturacion = HSLColor.fromColor(color).saturation;
+      expect(saturacion, lessThanOrEqualTo(0.12), reason: '$rol sale con saturacion $saturacion');
     });
     expect(Paleta.neutra, same(Tema.esquema));
   });
@@ -4580,8 +4579,8 @@ void main() {
     // blanco: el blanco sobre el acento o el rojo se queda en 3:1.
     for (final Color color in <Color>[
       Tema.acento,
-      Tema.acentoHielo,
-      Tema.azulProfundo,
+      Tema.acentoClaro,
+      Tema.acentoGris,
       Tema.peligro,
       Tema.oro,
       Tema.exito,

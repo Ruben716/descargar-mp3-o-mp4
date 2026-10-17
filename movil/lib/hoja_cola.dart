@@ -115,7 +115,7 @@ class _Cabecera extends StatelessWidget {
                   color: Tema.superficieAlta,
                   icon: Icon(
                     Icons.queue_music_rounded,
-                    color: estado.modoDj == null ? Colors.white38 : Tema.acentoHielo,
+                    color: estado.modoDj == null ? Colors.white38 : Tema.acentoClaro,
                   ),
                   onSelected: (ModoDj modo) => estado.ordenarColaDj(modo),
                   itemBuilder: (BuildContext context) => <PopupMenuEntry<ModoDj>>[
@@ -223,15 +223,26 @@ class _Fila extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Text(
-                          elemento.etiqueta,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                            color: activa ? Tema.acento : Colors.white,
-                          ),
+                        Row(
+                          children: <Widget>[
+                            if (activa)
+                              const Padding(
+                                padding: EdgeInsets.only(right: 6),
+                                child: Icon(Icons.graphic_eq_rounded, size: 15, color: Tema.acento),
+                              ),
+                            Flexible(
+                              child: Text(
+                                elemento.etiqueta,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: activa ? FontWeight.w800 : FontWeight.w600,
+                                  fontSize: 13,
+                                  color: Tema.texto,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(

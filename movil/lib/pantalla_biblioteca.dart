@@ -738,7 +738,7 @@ class _FilaLista extends StatelessWidget {
                       gradient: Tema.degradado,
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: const Icon(Icons.queue_music_rounded, color: Color(0x73040814)),
+                    child: const Icon(Icons.queue_music_rounded, color: Color(0x730B0B0C)),
                   )
                 else
                   PortadaLocal(elemento: pistas.first, lado: 52, radio: 14),

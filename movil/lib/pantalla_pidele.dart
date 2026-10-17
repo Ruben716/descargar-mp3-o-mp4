@@ -184,7 +184,7 @@ class _PantallaPideleState extends State<PantallaPidele> {
             onSubmitted: _pedir,
             decoration: InputDecoration(
               hintText: 'Que quieres oir?',
-              prefixIcon: const Icon(Icons.auto_awesome_rounded, color: Tema.acentoHielo),
+              prefixIcon: const Icon(Icons.auto_awesome_rounded, color: Tema.acentoClaro),
               suffixIcon: IconButton(
                 tooltip: 'Pedir',
                 icon: const Icon(Icons.arrow_forward_rounded),

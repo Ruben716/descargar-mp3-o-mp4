@@ -314,7 +314,7 @@ class _PantallaPreviaState extends State<PantallaPrevia> {
             child: _cargando
                 ? const Padding(
                     padding: EdgeInsets.all(22),
-                    child: CircularProgressIndicator(strokeWidth: 3, color: Color(0x99040814)),
+                    child: CircularProgressIndicator(strokeWidth: 3, color: Color(0x990B0B0C)),
                   )
                 : Icon(
                     sonando ? Icons.pause_rounded : Icons.play_arrow_rounded,

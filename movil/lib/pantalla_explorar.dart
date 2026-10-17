@@ -58,25 +58,25 @@ const List<DestinoExplorar> rutasSinPerdida = <DestinoExplorar>[
       radio: 'Sin perdida', subtitulo: 'En directo y sin perdida, como Radio Paradise'),
   DestinoExplorar('Audius', Icons.graphic_eq_rounded, Tema.acento,
       fuente: Fuente.audius, subtitulo: 'A 320 y a veces el original sin perdida'),
-  DestinoExplorar('Jamendo', Icons.library_music_rounded, Tema.acentoHielo,
+  DestinoExplorar('Jamendo', Icons.library_music_rounded, Tema.acentoClaro,
       fuente: Fuente.jamendo, subtitulo: 'Musica libre en FLAC, si el artista la deja bajar'),
-  DestinoExplorar('Archive', Icons.account_balance_rounded, Tema.azulProfundo,
+  DestinoExplorar('Archive', Icons.account_balance_rounded, Tema.acentoGris,
       fuente: Fuente.archive, subtitulo: 'Conciertos y musica libre en FLAC, a veces de 24 bits'),
   DestinoExplorar('Commons', Icons.public_rounded, Tema.acento,
       fuente: Fuente.commons, subtitulo: 'Clasica y dominio publico, el archivo original'),
-  DestinoExplorar('Bandcamp', Icons.storefront_rounded, Tema.acentoHielo,
+  DestinoExplorar('Bandcamp', Icons.storefront_rounded, Tema.acentoClaro,
       fuente: Fuente.bandcamp, subtitulo: 'Independientes; algunos regalan el FLAC'),
 ];
 
 /// Musica que el artista deja bajar y compartir.
 const List<DestinoExplorar> rutasMusicaLibre = <DestinoExplorar>[
-  DestinoExplorar('Jamendo', Icons.library_music_rounded, Tema.acentoHielo,
+  DestinoExplorar('Jamendo', Icons.library_music_rounded, Tema.acentoClaro,
       fuente: Fuente.jamendo, subtitulo: 'Musica libre en FLAC, si el artista la deja bajar'),
   DestinoExplorar('ccMixter', Icons.multitrack_audio_rounded, Tema.acento,
       fuente: Fuente.ccmixter, subtitulo: 'Remixes, a cappellas e instrumentales libres'),
-  DestinoExplorar('Commons', Icons.public_rounded, Tema.azulProfundo,
+  DestinoExplorar('Commons', Icons.public_rounded, Tema.acentoGris,
       fuente: Fuente.commons, subtitulo: 'Clasica y dominio publico, el archivo original'),
-  DestinoExplorar('Netlabels', Icons.album_rounded, Tema.acentoHielo,
+  DestinoExplorar('Netlabels', Icons.album_rounded, Tema.acentoClaro,
       fuente: Fuente.archive, texto: 'netlabel', subtitulo: 'Sellos que publican gratis, en el Archive'),
 ];
 
@@ -93,24 +93,24 @@ const DestinoExplorar categoriaSinPerdida = DestinoExplorar(
 /// Las categorias de arriba, en el orden en que se ensenian.
 const List<DestinoExplorar> categoriasExplorar = <DestinoExplorar>[
   DestinoExplorar('Radio en vivo', Icons.radio_rounded, Tema.acento, radio: 'Populares'),
-  DestinoExplorar('Podcasts', Icons.podcasts_rounded, Tema.azulProfundo, fuente: Fuente.podcasts),
+  DestinoExplorar('Podcasts', Icons.podcasts_rounded, Tema.acentoGris, fuente: Fuente.podcasts),
   categoriaSinPerdida,
-  DestinoExplorar('Musica libre', Icons.volunteer_activism_rounded, Tema.acentoHielo,
+  DestinoExplorar('Musica libre', Icons.volunteer_activism_rounded, Tema.acentoClaro,
       subtitulo: 'Lo que el artista deja bajar y compartir', opciones: rutasMusicaLibre),
-  DestinoExplorar('Sesiones de DJ', Icons.headphones_rounded, Tema.acentoHielo,
+  DestinoExplorar('Sesiones de DJ', Icons.headphones_rounded, Tema.acentoClaro,
       fuente: Fuente.hearthis, texto: 'dj set'),
-  DestinoExplorar('Conciertos', Icons.stadium_rounded, Tema.azulProfundo, fuente: Fuente.archive, texto: 'live'),
+  DestinoExplorar('Conciertos', Icons.stadium_rounded, Tema.acentoGris, fuente: Fuente.archive, texto: 'live'),
   DestinoExplorar('YouTube Music', Icons.music_video_rounded, Tema.acento, fuente: Fuente.ytmusic),
 ];
 
 /// Los generos: emisoras en vivo de cada uno.
 const List<DestinoExplorar> generosExplorar = <DestinoExplorar>[
   DestinoExplorar('Salsa', Icons.nightlife_rounded, Tema.acento, radio: 'Salsa'),
-  DestinoExplorar('Reggaeton', Icons.speaker_rounded, Tema.azulProfundo, radio: 'Reggaeton'),
-  DestinoExplorar('Rock', Icons.electric_bolt_rounded, Tema.acentoHielo, radio: 'Rock'),
-  DestinoExplorar('Lofi', Icons.coffee_rounded, Tema.azulProfundo, radio: 'Lofi'),
+  DestinoExplorar('Reggaeton', Icons.speaker_rounded, Tema.acentoGris, radio: 'Reggaeton'),
+  DestinoExplorar('Rock', Icons.electric_bolt_rounded, Tema.acentoClaro, radio: 'Rock'),
+  DestinoExplorar('Lofi', Icons.coffee_rounded, Tema.acentoGris, radio: 'Lofi'),
   DestinoExplorar('Jazz', Icons.piano_rounded, Tema.acento, radio: 'Jazz'),
-  DestinoExplorar('Clasica', Icons.queue_music_rounded, Tema.acentoHielo, radio: 'Clasica'),
+  DestinoExplorar('Clasica', Icons.queue_music_rounded, Tema.acentoClaro, radio: 'Clasica'),
 ];
 
 /// Va a donde dice [destino].

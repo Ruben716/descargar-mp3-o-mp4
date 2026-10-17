@@ -160,6 +160,18 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **«Pídele a Tumbao» son reglas, no IA** (`pidele.dart`): sin red y probado con funciones puras. Relajar una
   petición nunca deja sin filtros lo pedido: si solo se pidió un género o un ritmo que no hay, sale vacío y se
   ofrece buscar en internet, en vez de devolver la biblioteca entera.
+- **«Descubre» es la radio de YouTube Music, no una recomendación propia** (`descubre.dart`): la lista
+  `RDAMVM<video>` de una canción de cada artista más oído, leída con `importarLista` como cualquier otra. Las
+  semillas salen de la tabla `descargas` (`Catalogo.videos`, por video); lo que no se bajó de YouTube se busca
+  antes en `ytmusic`. Se guarda en `SharedPreferences` y Inicio solo lee eso: la red va en las tareas de fondo
+  de `main.dart`, una vez por semana. Si no llega nada, se queda la lista de antes.
+- **La portada grande va aparte de la miniatura** (`portada_grande.dart`): se baja una vez, con wifi, a la
+  carpeta privada con `Nucleo.clavePortada` (FNV-1a, no `hashCode`, que cambia entre ejecuciones). Ojo con
+  `whenComplete(() => mapa.remove(clave))`: devolver el futuro quitado hace que se espere a sí mismo.
+- **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
+  el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
+  un icono (`graphic_eq`), y encima del acento va siempre `Tema.tinta`: un `Switch` con `activeThumbColor:
+  Tema.acento` quedaría blanco sobre blanco.
 - **Lo comprimido no se reconvierte.** El formato de fábrica de la app es `best` («Original»): el
   Opus o AAC llega tal cual. Pasarlo a MP3 lo comprimiría por segunda vez.
 - Opciones que son decisiones de producto, no detalles: `noplaylist` + `match_filter` rechazan listas,

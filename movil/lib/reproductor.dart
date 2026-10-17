@@ -690,7 +690,7 @@ class _MezclaDj extends StatelessWidget {
                         fontSize: 72,
                         fontWeight: FontWeight.w800,
                         color: Colors.white,
-                        shadows: <Shadow>[Shadow(color: Tema.acentoHielo, blurRadius: 28)],
+                        shadows: <Shadow>[Shadow(color: Tema.acentoClaro, blurRadius: 28)],
                       ),
                     ),
                   ),

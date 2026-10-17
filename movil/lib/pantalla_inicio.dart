@@ -420,7 +420,7 @@ class PantallaInicioState extends State<PantallaInicio> {
               gradient: Tema.degradado,
               borderRadius: BorderRadius.circular(28),
             ),
-            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x73040814)),
+            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x730B0B0C)),
           ),
           const SizedBox(height: 22),
           Text(

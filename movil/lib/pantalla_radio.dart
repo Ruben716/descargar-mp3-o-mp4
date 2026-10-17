@@ -281,7 +281,7 @@ class LogoEmisora extends StatelessWidget {
       width: lado,
       height: lado,
       decoration: BoxDecoration(gradient: Tema.degradado, borderRadius: BorderRadius.circular(lado / 4)),
-      child: Icon(Icons.radio_rounded, color: const Color(0x73040814), size: lado / 2),
+      child: Icon(Icons.radio_rounded, color: const Color(0x730B0B0C), size: lado / 2),
     );
     if (!emisora.logo.startsWith('http')) return reserva;
     return ClipRRect(

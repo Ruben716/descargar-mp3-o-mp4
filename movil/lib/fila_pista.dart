@@ -98,15 +98,27 @@ class FilaPista extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Text(
-                            partes.tema,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: activo ? Tema.acento : Colors.white,
-                            ),
+                          Row(
+                            children: <Widget>[
+                              // Con el acento blanco, el color ya no dice cual suena: lo dice el icono.
+                              if (activo)
+                                const Padding(
+                                  padding: EdgeInsets.only(right: 6),
+                                  child: Icon(Icons.graphic_eq_rounded, size: 16, color: Tema.acento),
+                                ),
+                              Flexible(
+                                child: Text(
+                                  partes.tema,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontWeight: activo ? FontWeight.w800 : FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Tema.texto,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                           const SizedBox(height: 3),
                           Row(

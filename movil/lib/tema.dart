@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// Identidad visual de la app: azul electrico sobre negro azulado.
+/// Identidad visual de la app: «Onix», negro y blanco.
 ///
-/// Sigue las ideas de Material 3 Expressive: fondo casi negro para que la
-/// caratula mande, un acento vibrante, formas muy redondeadas y tipografia
-/// con contraste fuerte entre titulo y apoyo. Todos los colores de la app
+/// El color lo ponen las portadas, como en Apple Music o Tidal: la app no
+/// compite con la musica. Un solo acento (el blanco), sin degradados ni
+/// brillos de color, y el dorado suave solo para el sello de calidad. Formas
+/// muy redondeadas y tipografia con contraste fuerte entre titulo y apoyo. Todos los colores de la app
 /// salen de aqui: repetir un hex en cada pantalla es como acabo habiendo tres
 /// rojos distintos para lo mismo.
 class Tema {
@@ -12,78 +13,69 @@ class Tema {
 
   // Superficies: cuanto mas alta, mas clara, como hace Spotify. Asi la
   // profundidad se lee sin sombras grises, que sobre un fondo casi negro solo
-  // ensucian. Todas llevan un poco de azul para que el negro no quede muerto.
-  static const Color fondo = Color(0xFF05070D);
-  static const Color superficie = Color(0xFF0C1322);
-  static const Color superficieAlta = Color(0xFF152036);
-  static const Color superficieMaxima = Color(0xFF1F2C48);
+  // ensucian. Grises neutros, sin tinte: el color es cosa de las portadas.
+  static const Color fondo = Color(0xFF0B0B0C);
+  static const Color superficie = Color(0xFF18181A);
+  static const Color superficieAlta = Color(0xFF232326);
+  static const Color superficieMaxima = Color(0xFF2E2E32);
 
   /// Filetes de 1 px, divisores y la pista apagada del deslizador.
-  static const Color contorno = Color(0xFF2A3A5E);
+  static const Color contorno = Color(0xFF34343A);
 
   /// Pista apagada de deslizadores y barras de progreso. El contorno no
-  /// llegaba al 3:1 que piden los componentes; este da 4,7:1 o mas.
-  static const Color pista = Color(0xFF6B7A9A);
+  /// llegaba al 3:1 que piden los componentes; este da 3,3:1 o mas.
+  static const Color pista = Color(0xFF7E7E85);
 
-  /// El azul de texto e iconos activos.
-  ///
-  /// No es el azul profundo del logo: un azul muy saturado «vibra» sobre negro
-  /// y se queda corto de contraste. Este da AA (4,5:1) en las cuatro
-  /// superficies, incluso en la mas clara.
-  static const Color acento = Color(0xFF4D94FF);
+  /// El acento: blanco roto, para texto e iconos activos y los botones.
+  static const Color acento = Color(0xFFF5F5F6);
 
-  /// Cian hielo: el arranque del degradado de marca y el color de «Me gusta».
-  static const Color acentoHielo = Color(0xFF45C8FF);
+  /// Gris claro: el segundo plano de los iconos de las fichas y los mixes.
+  static const Color acentoClaro = Color(0xFFC9C9CF);
 
-  /// El final del degradado de los botones.
-  static const Color azulProfundo = Color(0xFF3A7BFF);
+  /// Gris medio, para alternar con [acentoClaro] en fichas y mixes.
+  static const Color acentoGris = Color(0xFF8E8E95);
 
-  /// Texto e iconos encima del acento, del degradado, del oro y del rojo.
-  ///
-  /// El blanco sobre el acento o sobre el rojo se queda en 3:1, que no se lee
-  /// bien al sol; esta tinta da 5:1 o mas en todos. Es tambien la del logo.
-  static const Color tinta = Color(0xFF040814);
+  /// Texto e iconos encima del acento, de los grises, del oro y del rojo.
+  static const Color tinta = Color(0xFF0B0B0C);
 
-  static const Color texto = Color(0xFFE8EDF8);
-  static const Color textoSecundario = Color(0xFFA9B6D0);
+  static const Color texto = Color(0xFFF5F5F6);
+  static const Color textoSecundario = Color(0xFFA3A3A9);
 
   /// Para el texto pequenio de apoyo, en lugar de [Colors.white38].
   ///
   /// El blanco al 38 % da 3,5:1 sobre estos fondos y no llega al minimo para
-  /// texto; este gris azulado da 4,6:1 o mas en todas las superficies.
-  static const Color textoTenue = Color(0xFF8896B3);
+  /// texto; este gris da 4,7:1 o mas en todas las superficies.
+  static const Color textoTenue = Color(0xFF98989F);
 
   // Estados. Van aqui y no repetidos por pantallas para que «borrar» sea el
   // mismo rojo en toda la app.
   static const Color exito = Color(0xFF57D9A3);
-  static const Color peligro = Color(0xFFFF5D5D);
+  static const Color peligro = Color(0xFFFF6666);
   static const Color peligroFondo = Color(0xFF4A1717);
 
-  /// Solo para HI-RES, SIN PERDIDA y puntuaciones: es el complementario del
-  /// azul y se reconoce como sello de calidad, como el amarillo de Tidal.
-  static const Color oro = Color(0xFFFFC857);
-  static const Color meGusta = acentoHielo;
+  /// Solo para HI-RES, SIN PERDIDA y puntuaciones: un dorado champan, suave,
+  /// que se reconoce como sello de calidad sin gritar sobre el negro.
+  static const Color oro = Color(0xFFD9C38F);
+  static const Color meGusta = acento;
 
   /// Las dos primeras paradas del velo sobre una portada difuminada.
-  static const Color veloSuave = Color(0xCC05070D);
-  static const Color veloDenso = Color(0xF205070D);
+  static const Color veloSuave = Color(0xCC0B0B0C);
+  static const Color veloDenso = Color(0xF20B0B0C);
 
-  /// Degradado de marca, usado en botones y cabeceras.
+  /// El relleno de los botones principales. Plano a proposito: el degradado
+  /// de color en cada boton era lo que hacia ver la app recargada.
   static const LinearGradient degradado = LinearGradient(
-    colors: <Color>[acentoHielo, azulProfundo],
+    colors: <Color>[acento, acento],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
 
-  /// Destello azul arriba a la izquierda, detras de las cabeceras.
-  ///
-  /// Es lo que hace YouTube Music en su Inicio: un poco de color de marca que
-  /// se funde con el negro y da profundidad sin tapar nada. Va tan suave que
-  /// el texto de encima sigue por encima de 14:1.
+  /// Un velo blanquecino apenas visible arriba a la izquierda, detras de las
+  /// cabeceras: da algo de profundidad sin poner color.
   static const RadialGradient resplandor = RadialGradient(
     center: Alignment(-0.6, -1.1),
     radius: 1.2,
-    colors: <Color>[Color(0x244D94FF), Color(0x004D94FF)],
+    colors: <Color>[Color(0x0DFFFFFF), Color(0x00FFFFFF)],
   );
 
   /// Antetitulos como «SONANDO AHORA»: pequenios, en mayusculas y espaciados.
@@ -96,31 +88,30 @@ class Tema {
 
   /// El esquema de color completo, fijado rol a rol.
   ///
-  /// `fromSeed` por si solo no basta: su variante gira el tono del terciario y,
-  /// con una semilla azul, el terciario y sus contenedores salen rosa lila.
-  /// Fijados aqui, todos los roles quedan en azul o cian salvo el rojo del
-  /// error. Tambien hay que fijar `onPrimary`: el que sale de la semilla se
-  /// queda en 4:1 sobre el acento y los botones rellenos lo usan para el texto.
+  /// `fromSeed` por si solo no basta: con una semilla blanca saca tonos al
+  /// azar en el terciario y sus contenedores. Fijados aqui, todos los roles
+  /// quedan en grises salvo el rojo del error. Tambien hay que fijar
+  /// `onPrimary`: los botones rellenos lo usan para el texto sobre el blanco.
   static final ColorScheme esquema = ColorScheme.fromSeed(
     seedColor: acento,
     brightness: Brightness.dark,
   ).copyWith(
     primary: acento,
     onPrimary: tinta,
-    primaryContainer: const Color(0xFF123A80),
-    onPrimaryContainer: const Color(0xFFD6E4FF),
-    secondary: acentoHielo,
+    primaryContainer: const Color(0xFF3A3A40),
+    onPrimaryContainer: texto,
+    secondary: acentoClaro,
     onSecondary: tinta,
-    secondaryContainer: const Color(0xFF173463),
-    onSecondaryContainer: const Color(0xFFD6E4FF),
-    tertiary: acentoHielo,
+    secondaryContainer: const Color(0xFF3A3A40),
+    onSecondaryContainer: texto,
+    tertiary: acentoClaro,
     onTertiary: tinta,
-    tertiaryContainer: const Color(0xFF0E3A52),
-    onTertiaryContainer: const Color(0xFFCDEFFF),
-    tertiaryFixed: const Color(0xFFCDEFFF),
-    tertiaryFixedDim: acentoHielo,
-    onTertiaryFixed: const Color(0xFF001E2C),
-    onTertiaryFixedVariant: const Color(0xFF0E3A52),
+    tertiaryContainer: const Color(0xFF2E2E32),
+    onTertiaryContainer: texto,
+    tertiaryFixed: const Color(0xFFE4E4E7),
+    tertiaryFixedDim: acentoClaro,
+    onTertiaryFixed: tinta,
+    onTertiaryFixedVariant: const Color(0xFF2E2E32),
     error: peligro,
     onError: tinta,
     errorContainer: peligroFondo,
@@ -129,18 +120,28 @@ class Tema {
     onSurface: texto,
     onSurfaceVariant: textoSecundario,
     surfaceDim: fondo,
-    surfaceBright: const Color(0xFF26324F),
-    surfaceContainerLowest: const Color(0xFF020308),
-    surfaceContainerLow: const Color(0xFF090E19),
+    surfaceBright: const Color(0xFF38383D),
+    surfaceContainerLowest: const Color(0xFF050506),
+    surfaceContainerLow: const Color(0xFF121214),
     surfaceContainer: superficie,
     surfaceContainerHigh: superficieAlta,
     surfaceContainerHighest: superficieMaxima,
     outline: pista,
     outlineVariant: contorno,
-    inverseSurface: const Color(0xFFE3EAF8),
+    inverseSurface: const Color(0xFFE9E9EC),
     onInverseSurface: superficie,
-    inversePrimary: const Color(0xFF1F5FD6),
-    surfaceTint: acento,
+    inversePrimary: const Color(0xFF3A3A40),
+    // Sin tinte de elevacion: un blanco sobre cada tarjeta elevada la volveria gris lavado.
+    surfaceTint: Colors.transparent,
+    // Los «fijos» tambien: si no, salen del blanco de la semilla con un tinte.
+    primaryFixed: const Color(0xFFE4E4E7),
+    primaryFixedDim: acentoClaro,
+    onPrimaryFixed: tinta,
+    onPrimaryFixedVariant: const Color(0xFF2E2E32),
+    secondaryFixed: const Color(0xFFE4E4E7),
+    secondaryFixedDim: acentoClaro,
+    onSecondaryFixed: tinta,
+    onSecondaryFixedVariant: const Color(0xFF2E2E32),
   );
 
   static ThemeData construir() {
@@ -186,7 +187,7 @@ class Tema {
       // contenido. Lo que no esta elegido va en el gris tenue, no en blanco.
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: veloDenso,
-        indicatorColor: acento.withValues(alpha: 0.20),
+        indicatorColor: acento.withValues(alpha: 0.14),
         height: 68,
         iconTheme: WidgetStateProperty.resolveWith(
           (Set<WidgetState> estados) => IconThemeData(
@@ -212,13 +213,13 @@ class Tema {
       progressIndicatorTheme: const ProgressIndicatorThemeData(linearTrackColor: pista),
       // Los interruptores no necesitan tema propio: con onPrimary en tinta y
       // surfaceContainerHighest en superficieMaxima, el de Material 3 ya sale
-      // con pulgar oscuro sobre pista azul, y apagado sobre el azul mas claro.
+      // con pulgar oscuro sobre pista blanca, y apagado sobre el gris.
       // Fijarlos aqui romperia el tinte de la caratula en el ecualizador.
       chipTheme: ChipThemeData(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         // Sin selectedColor: el de Material ya es secondaryContainer, y asi
         // dentro del reproductor sigue el tinte de la caratula.
-        // Un filete en las fichas sin elegir: sin el, sobre el negro azulado
+        // Un filete en las fichas sin elegir: sin el, sobre el negro
         // no se ve donde empieza una y acaba la otra.
         side: WidgetStateBorderSide.resolveWith(
           (Set<WidgetState> estados) => estados.contains(WidgetState.selected)
@@ -250,7 +251,7 @@ class Tema {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: superficieMaxima,
         contentTextStyle: const TextStyle(color: texto, fontSize: 14),
-        actionTextColor: acentoHielo,
+        actionTextColor: acento,
         closeIconColor: textoSecundario,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -319,18 +320,8 @@ class BotonDegradado extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: Tema.degradado,
           borderRadius: BorderRadius.circular(22),
-          // Un filete blanco muy tenue da al boton aspecto de cristal sobre el
-          // negro, y el brillo azul debajo lo despega del fondo sin sombra gris.
+          // Plano y sin brillo debajo: un halo blanco sobre el negro se ve barato.
           border: Border.all(color: const Color(0x1FFFFFFF)),
-          boxShadow: activo
-              ? <BoxShadow>[
-                  BoxShadow(
-                    color: Tema.acento.withValues(alpha: 0.45),
-                    blurRadius: 28,
-                    offset: const Offset(0, 10),
-                  ),
-                ]
-              : null,
         ),
         child: Material(
           color: Colors.transparent,
