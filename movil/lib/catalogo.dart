@@ -291,6 +291,18 @@ class Catalogo {
     return (filas.first['n'] as int?) ?? 0;
   }
 
+  /// Los videos de YouTube que se bajaron como audio, con el URI de cada uno.
+  ///
+  /// «Descubre» pide la radio de esos videos sin tener que buscarlos, y no
+  /// ofrece los que ya estan.
+  Future<Map<String, String>> videos() async {
+    final List<Map<String, Object?>> filas =
+        await (await _abierta).query(_tabla, columns: <String>['id', 'uri'], where: 'audio = 1');
+    return <String, String>{
+      for (final Map<String, Object?> f in filas) f['id']! as String: f['uri']! as String,
+    };
+  }
+
   // --- Letras -------------------------------------------------------------
 
   /// Lo guardado para esa pista, o `null` si nunca se busco.

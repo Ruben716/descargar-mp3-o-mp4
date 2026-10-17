@@ -195,7 +195,7 @@ class CuadroIcono extends StatelessWidget {
       width: lado,
       height: lado,
       decoration: BoxDecoration(gradient: Tema.degradado, borderRadius: BorderRadius.circular(radio)),
-      child: Icon(icono, color: const Color(0x73040814), size: lado * 0.32),
+      child: Icon(icono, color: const Color(0x730B0B0C), size: lado * 0.32),
     );
   }
 }
@@ -255,8 +255,8 @@ extension AspectoMix on ClaseMix {
 
   Color get color => switch (this) {
         ClaseMix.diario || ClaseMix.repeticion || ClaseMix.concentrarte => Tema.acento,
-        ClaseMix.redescubre || ClaseMix.moverse || ClaseMix.sesionDj => Tema.acentoHielo,
-        ClaseMix.sinEscuchar || ClaseMix.artista || ClaseMix.tranqui => Tema.azulProfundo,
+        ClaseMix.redescubre || ClaseMix.moverse || ClaseMix.sesionDj => Tema.acentoClaro,
+        ClaseMix.sinEscuchar || ClaseMix.artista || ClaseMix.tranqui => Tema.acentoGris,
       };
 }
 

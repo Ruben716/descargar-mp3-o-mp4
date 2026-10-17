@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'calidad.dart';
 import 'catalogo.dart';
+import 'descubre.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
 import 'formato.dart';
@@ -12,10 +13,12 @@ import 'hecho_para_ti.dart';
 import 'listas.dart';
 import 'nucleo.dart';
 import 'pantalla_ajustes.dart';
+import 'pantalla_descubre.dart';
 import 'pantalla_explorar.dart';
 import 'pantalla_lista.dart';
 import 'pantalla_lista_auto.dart';
 import 'pantalla_mix.dart';
+import 'pantalla_previa.dart';
 import 'pantalla_radio.dart';
 import 'portadas.dart';
 import 'posiciones.dart';
@@ -56,6 +59,7 @@ class PantallaInicioState extends State<PantallaInicio> {
   final RadiosFavoritas _radios = RadiosFavoritas.instancia;
   final Favoritas _favoritas = Favoritas.instancia;
   final Ritmos _ritmos = Ritmos.instancia;
+  final Descubre _descubre = Descubre.instancia;
 
   List<Elemento> _elementos = <Elemento>[];
 
@@ -94,7 +98,10 @@ class PantallaInicioState extends State<PantallaInicio> {
     _radios.addListener(_refrescar);
     _favoritas.addListener(_refrescar);
     _ritmos.addListener(_alCambiarRitmos);
+    _descubre.addListener(_refrescar);
     _listas.cargar();
+    // Lo guardado, no la red: se rehace de fondo una vez por semana.
+    unawaited(_descubre.cargar());
     // De la memoria del telefono, no del catalogo: no hace esperar a nada.
     unawaited(_radios.cargar());
     recargar();
@@ -107,6 +114,7 @@ class PantallaInicioState extends State<PantallaInicio> {
     _radios.removeListener(_refrescar);
     _favoritas.removeListener(_refrescar);
     _ritmos.removeListener(_alCambiarRitmos);
+    _descubre.removeListener(_refrescar);
     super.dispose();
   }
 
@@ -334,6 +342,7 @@ class PantallaInicioState extends State<PantallaInicio> {
             RejillaAccesos(accesos: _accesos(canciones)),
             if (_continuar != null) _continuarEscuchando(context, _continuar!),
             if (_hechoParaTi.isNotEmpty) _estanteMixes('Hecho para ti', _hechoParaTi),
+            if (_descubre.pistas.isNotEmpty) _carruselDescubre(),
             _recienDescargado(canciones),
             if (tusMixes.isNotEmpty) _estanteMixes('Tus mixes', tusMixes),
             if (_radios.todas.isNotEmpty) _radioFavorita(),
@@ -411,7 +420,7 @@ class PantallaInicioState extends State<PantallaInicio> {
               gradient: Tema.degradado,
               borderRadius: BorderRadius.circular(28),
             ),
-            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x73040814)),
+            child: const Icon(Icons.music_note_rounded, size: 46, color: Color(0x730B0B0C)),
           ),
           const SizedBox(height: 22),
           Text(
@@ -580,6 +589,27 @@ class PantallaInicioState extends State<PantallaInicio> {
         mix: mixes[i],
         alPulsar: () => _abrirMix(mixes[i]),
       ),
+    );
+  }
+
+  /// Canciones que no tienes, de la radio de tus artistas. Es la lista
+  /// guardada: abrir Inicio no sale a la red.
+  Widget _carruselDescubre() {
+    final List<Resultado> pistas = _descubre.pistas.take(12).toList();
+    return Estante(
+      titulo: 'Descubre',
+      alVerTodo: () => _abrir(const PantallaDescubre()),
+      cuantos: pistas.length,
+      construir: (BuildContext context, int i) {
+        final Resultado r = pistas[i];
+        final ({String artista, String tema}) p = Descubre.partesDe(r);
+        return TarjetaEstante(
+          titulo: p.tema,
+          subtitulo: p.artista,
+          portada: PortadaRemota(url: Descubre.portadaDe(r), ancho: 130, alto: 130),
+          alPulsar: () => _abrir(PantallaPrevia(resultado: r)),
+        );
+      },
     );
   }
 

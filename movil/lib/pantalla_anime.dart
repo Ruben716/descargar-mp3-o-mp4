@@ -77,7 +77,7 @@ class _PantallaAnimeState extends State<PantallaAnime> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: <Color>[Color(0x66040814), Color(0x00040814), Tema.fondo],
+                        colors: <Color>[Color(0x660B0B0C), Color(0x000B0B0C), Tema.fondo],
                         stops: <double>[0, 0.45, 1],
                       ),
                     ),

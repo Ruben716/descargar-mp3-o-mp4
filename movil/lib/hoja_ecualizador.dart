@@ -108,7 +108,7 @@ class _ParaQueSalida extends StatelessWidget {
           padding: const EdgeInsets.only(top: 2, bottom: 4),
           child: Row(
             children: <Widget>[
-              Icon(icono, size: 18, color: Tema.acentoHielo),
+              Icon(icono, size: 18, color: Tema.acentoClaro),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(

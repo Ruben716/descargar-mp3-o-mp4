@@ -4,7 +4,9 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/descubre.dart';
 import 'package:descargador_movil/dj.dart';
+import 'package:descargador_movil/pantalla_descubre.dart';
 import 'package:descargador_movil/hecho_para_ti.dart';
 import 'package:descargador_movil/navegacion.dart';
 import 'package:descargador_movil/pantalla_explorar.dart';
@@ -156,6 +158,7 @@ void main() {
     Favoritas.instancia.reiniciar();
     VolumenParejo.instancia.reiniciar();
     Ritmos.instancia.reiniciar();
+    Descubre.instancia.reiniciar();
     // Sin animaciones sin fin: pumpAndSettle no acabaria nunca.
     Movimiento.bucles = false;
     tareasDeFondo = false;
@@ -4511,10 +4514,9 @@ void main() {
 
   // --- La marca: azul y negro ---------------------------------------------
 
-  test('el esquema de la marca no tiene nada violeta', () {
-    // fromSeed gira el tono del terciario: sin fijarlo, una semilla azul deja
-    // contenedores rosa lila. Todo rol con color tiene que caer en el azul o
-    // el cian; solo el rojo del error va aparte.
+  test('el esquema de la marca es neutro: el color lo ponen las portadas', () {
+    // fromSeed tine los roles que no se fijan, aunque la semilla sea blanca.
+    // Todo rol tiene que ser gris; solo el rojo del error va aparte.
     final ColorScheme e = Tema.esquema;
     final Map<String, Color> roles = <String, Color>{
       'primary': e.primary,
@@ -4547,8 +4549,8 @@ void main() {
       'inversePrimary': e.inversePrimary,
     };
     roles.forEach((String rol, Color color) {
-      final double tono = HSLColor.fromColor(color).hue;
-      expect(tono, inInclusiveRange(190, 235), reason: '$rol sale con tono $tono');
+      final double saturacion = HSLColor.fromColor(color).saturation;
+      expect(saturacion, lessThanOrEqualTo(0.12), reason: '$rol sale con saturacion $saturacion');
     });
     expect(Paleta.neutra, same(Tema.esquema));
   });
@@ -4577,8 +4579,8 @@ void main() {
     // blanco: el blanco sobre el acento o el rojo se queda en 3:1.
     for (final Color color in <Color>[
       Tema.acento,
-      Tema.acentoHielo,
-      Tema.azulProfundo,
+      Tema.acentoClaro,
+      Tema.acentoGris,
       Tema.peligro,
       Tema.oro,
       Tema.exito,
@@ -4966,6 +4968,137 @@ void main() {
       await tester.pumpAndSettle();
       expect(pedidas.single.queryParameters.containsKey('tag'), isFalse);
       expect(tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, 'Populares')).selected, isTrue);
+    });
+  });
+
+  group('descubre', () {
+    const String conArtistas = '{"ok":true,"elementos":['
+        '{"nombre":"Marc Anthony - Vivir Mi Vida [v1].opus","tamano":100,"duracion":250,"audio":true,"uri":"content://audio/1"},'
+        '{"nombre":"Marc Anthony - Valio La Pena [v2].opus","tamano":100,"duracion":250,"audio":true,"uri":"content://audio/2"},'
+        '{"nombre":"Celia Cruz - La Negra Tiene Tumbao [v3].opus","tamano":100,"duracion":250,"audio":true,"uri":"content://audio/3"}]}';
+    String pista(String video, String titulo, String autor, {int duracion = 240}) =>
+        '{"titulo":"$titulo","autor":"$autor","duracion":$duracion,'
+        '"url":"https://www.youtube.com/watch?v=$video","miniatura":""}';
+    String lista(List<String> pistas) => '{"ok":true,"titulo":"Mix","resultados":[${pistas.join(',')}]}';
+
+    /// Lo que deja guardado una semana ya armada.
+    final String guardada = jsonEncode(<String, Object>{
+      'hecha': DateTime.now().millisecondsSinceEpoch,
+      'artistas': <String>['Marc Anthony', 'Celia Cruz'],
+      'pistas': <Map<String, Object>>[
+        for (final (String v, String t, String a) in <(String, String, String)>[
+          ('n1', 'Aguanile', 'Marc Anthony - Topic'),
+          ('n2', 'Quimbara', 'Celia Cruz - Topic'),
+          ('n3', 'Idilio', 'Willie Colon - Topic'),
+        ])
+          <String, Object>{
+            'titulo': t,
+            'autor': a,
+            'duracion': 240,
+            'url': 'https://www.youtube.com/watch?v=$v',
+            'miniatura': '',
+          },
+      ],
+    });
+
+    test('se arma con la radio de tus artistas, sin lo que ya tienes', () async {
+      biblioteca = conArtistas;
+      for (final String v in <String>['1', '2', '3']) {
+        await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=v$v', audio: true, uri: 'content://audio/$v');
+      }
+      final String deMarc = lista(<String>[
+        pista('v1', 'Vivir Mi Vida', 'Marc Anthony - Topic'),
+        pista('x9', 'Marc Anthony - Valió La Pena (Official Video)', 'MarcAnthonyVEVO'),
+        pista('n1', 'Aguanile', 'Marc Anthony - Topic'),
+        pista('n3', 'Idilio', 'Willie Colón - Topic'),
+      ]);
+      listas = <String, String>{
+        Descubre.radioDe('v1'): deMarc,
+        Descubre.radioDe('v2'): deMarc,
+        Descubre.radioDe('v3'): lista(<String>[
+          pista('v3', 'La Negra Tiene Tumbao', 'Celia Cruz - Topic'),
+          pista('n2', 'Quimbara', 'Celia Cruz - Topic'),
+          pista('n4', 'Willie Colón - Idilio (Video Oficial)', 'WillieColonVEVO'),
+          pista('n5', 'Salsa mix 1 hora', 'Salsa Siempre', duracion: 3600),
+        ]),
+      };
+
+      await Descubre.instancia.rehacer();
+
+      final Descubre d = Descubre.instancia;
+      expect(d.pistas.map((Resultado r) => r.titulo), <String>['Aguanile', 'Quimbara', 'Idilio']);
+      expect(d.artistas, <String>['Marc Anthony', 'Celia Cruz']);
+      expect(llamadas.where((MethodCall c) => c.method == 'buscar'), isEmpty,
+          reason: 'las semillas se bajaron de YouTube: su radio sale sin buscar');
+
+      // Queda guardada: la proxima vez no hace falta la red.
+      d.reiniciar();
+      await d.cargar();
+      expect(d.pistas, hasLength(3));
+      llamadas.clear();
+      await d.rehacerSiToca();
+      expect(llamadas.where((MethodCall c) => c.method == 'importarLista'), isEmpty, reason: 'aun no paso la semana');
+    });
+
+    test('sin red se queda la lista de antes', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{Descubre.clave: guardada});
+      biblioteca = conArtistas;
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=v1', audio: true, uri: 'content://audio/1');
+      listas = <String, String>{
+        for (final String v in <String>['v1', 'v2', 'v3']) Descubre.radioDe(v): '{"ok":false,"error":"sin red"}',
+      };
+      respuestas = <String, String>{'ytmusic': '{"ok":false,"error":"sin red"}'};
+      await Descubre.instancia.cargar();
+      await Descubre.instancia.rehacer();
+      expect(Descubre.instancia.pistas, hasLength(3));
+      expect(Descubre.instancia.armando, isFalse);
+    });
+
+    testWidgets('Inicio la ensenia de lo guardado sin salir a la red', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{Descubre.clave: guardada});
+      biblioteca = conArtistas;
+      await abrirInicio(tester);
+
+      final Finder titulo = find.widgetWithText(TituloEstante, 'Descubre');
+      await tester.scrollUntilVisible(titulo, 300, scrollable: find.byType(Scrollable).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Aguanile'), findsOneWidget);
+      expect(find.text('Marc Anthony'), findsWidgets);
+      expect(llamadas.where((MethodCall c) => c.method == 'importarLista' || c.method == 'buscar'), isEmpty);
+
+      await tester.tap(find.descendant(of: titulo, matching: find.text('Ver todo')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PantallaDescubre), findsOneWidget);
+      expect(find.text('Canciones que no tienes, parecidas a lo que oyes de Marc Anthony y Celia Cruz.'), findsOneWidget);
+    });
+
+    testWidgets('bajar va en cola y marca las que ya tienes', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{Descubre.clave: guardada});
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const PantallaDescubre()));
+      await tester.pumpAndSettle();
+
+      Finder bajar(String titulo) =>
+          find.descendant(of: find.widgetWithText(ListTile, titulo), matching: find.byTooltip('Bajar'));
+      await tester.tap(bajar('Aguanile'));
+      await tester.pump();
+      await tester.tap(bajar('Quimbara'));
+      await tester.pump();
+      expect(find.byIcon(Icons.schedule_rounded), findsOneWidget, reason: 'espera a que acabe la primera');
+
+      // El catalogo responde de verdad (SQLite): hay que dejarle tiempo real.
+      for (int i = 0; i < 40 && find.byIcon(Icons.check_circle_rounded).evaluate().length < 2; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      final List<String> bajadas = <String>[
+        for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'descargar'))
+          '${(c.arguments as Map<dynamic, dynamic>)['url']}',
+      ];
+      expect(bajadas, <String>['https://www.youtube.com/watch?v=n1', 'https://www.youtube.com/watch?v=n2']);
+      expect(find.byIcon(Icons.check_circle_rounded), findsNWidgets(2));
+      expect(bajar('Idilio'), findsOneWidget);
     });
   });
 }

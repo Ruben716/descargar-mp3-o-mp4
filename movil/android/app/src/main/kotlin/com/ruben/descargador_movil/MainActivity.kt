@@ -221,10 +221,22 @@ class MainActivity : AudioServiceActivity() {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> medirVolumen(puente, uri) }
                     }
+                    "caratulaGrande" -> {
+                        val artista = llamada.argument<String>("artista").orEmpty()
+                        val titulo = llamada.argument<String>("titulo").orEmpty()
+                        val clave = llamada.argument<String>("clave").orEmpty()
+                        enHilo(respuesta) { puente -> caratulaGrande(puente, artista, titulo, clave) }
+                    }
                     "analizarAudio" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> analizarAudio(puente, uri) }
                     }
+                    // La tarjeta de una frase de la letra, ya en PNG.
+                    "compartirImagen" -> compartirImagen(
+                        llamada.argument<ByteArray>("png") ?: ByteArray(0),
+                        llamada.argument<String>("nombre").orEmpty(),
+                        respuesta,
+                    )
                     "guardarCopia" -> {
                         val nombre = llamada.argument<String>("nombre").orEmpty()
                         val contenido = llamada.argument<String>("contenido").orEmpty()
@@ -449,6 +461,27 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
+     * Baja la caratula oficial de una cancion en grande, para el reproductor.
+     *
+     * La miniatura de MediaStore no pasa de 512 px y, en lo bajado de YouTube,
+     * es el fotograma del video. Se guarda en la carpeta privada de la app con
+     * la clave que da Flutter, que la lee de ahi sin volver a pedirla. La clave
+     * no puede llevar barras: no debe salirse de la carpeta.
+     */
+    private fun caratulaGrande(puente: PyObject, artista: String, titulo: String, clave: String): String {
+        if (!clave.matches(Regex("[A-Za-z0-9_-]+"))) return fallo("Clave de portada no valida.")
+        if (artista.isBlank() && titulo.isBlank()) return fallo("Falta la cancion.")
+        val destino = File(File(filesDir, "portadas").apply { mkdirs() }, "$clave.jpg")
+        return try {
+            // FFmpeg recorta y recomprime la que no llega ya cuadrada.
+            asegurarFfmpeg(puente)
+            puente.callAttr("caratula_grande", artista, titulo, destino.absolutePath).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo bajar la portada: ${error.message}")
+        }
+    }
+
+    /**
      * Pulso, energia y sonoridad de una cancion, para el DJ automatico.
      *
      * Como [medirVolumen], sobre una copia en la cache, pero con otro nombre:
@@ -507,6 +540,92 @@ class MainActivity : AudioServiceActivity() {
             JSONObject().put("ok", true).put("ruta", "Descargas/Tumbao/$nombre").toString()
         } catch (error: Exception) {
             fallo("No se pudo guardar la copia: ${error.message}")
+        }
+    }
+
+    /**
+     * Guarda una imagen en Pictures/Tumbao y la manda a otra app.
+     *
+     * Guardar va en un hilo aparte (es disco) y el selector se abre en el
+     * principal. Pasa por MediaStore, y no por un archivo de la cache, porque
+     * asi la imagen se queda en la galeria y el URI ya se puede compartir sin
+     * un FileProvider. Desde Android 10 no hace falta ningun permiso.
+     */
+    private fun compartirImagen(png: ByteArray, nombre: String, respuesta: MethodChannel.Result) {
+        if (png.isEmpty() || nombre.isEmpty() || nombre.contains('/')) {
+            respuesta.success(fallo("No hay imagen que compartir."))
+            return
+        }
+        thread {
+            var motivo = ""
+            val imagen = try {
+                guardarImagen(png, nombre)
+            } catch (error: Throwable) {
+                motivo = "${error.message}"
+                null
+            }
+            try {
+                runOnUiThread {
+                    val salida = if (imagen == null) {
+                        fallo("No se pudo guardar la imagen. $motivo".trim())
+                    } else {
+                        try {
+                            val envio = Intent(Intent.ACTION_SEND).apply {
+                                type = "image/png"
+                                putExtra(Intent.EXTRA_STREAM, imagen)
+                                // Con esto el selector ensenia la imagen arriba.
+                                clipData = android.content.ClipData.newRawUri(nombre, imagen)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(envio, "Compartir"))
+                            JSONObject().put("ok", true).put("ruta", "Pictures/Tumbao/$nombre").toString()
+                        } catch (error: Throwable) {
+                            fallo("${error.message}")
+                        }
+                    }
+                    try {
+                        respuesta.success(salida)
+                    } catch (error: Throwable) {
+                        // Nadie escuchando; la imagen quedo guardada igualmente.
+                    }
+                }
+            } catch (error: Throwable) {
+                // La actividad ya no esta; no debe tumbar el hilo.
+            }
+        }
+    }
+
+    /** Escribe el PNG en Pictures/Tumbao. Null si MediaStore no lo admitio. */
+    private fun guardarImagen(png: ByteArray, nombre: String): Uri? {
+        val coleccion = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val destino = contentResolver.insert(
+            coleccion,
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/png")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Tumbao/")
+                // Pendiente mientras se escribe: la galeria no ensenia una imagen a medias.
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            },
+        ) ?: return null
+        return try {
+            contentResolver.openOutputStream(destino, "w")?.use { salida -> salida.write(png) }
+                ?: throw IllegalStateException("No se pudo escribir la imagen.")
+            contentResolver.update(
+                destino,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            destino
+        } catch (error: Throwable) {
+            // Sin esto quedaria una entrada vacia en la galeria.
+            try {
+                contentResolver.delete(destino, null, null)
+            } catch (otro: Throwable) {
+                // Ya no se puede hacer mas.
+            }
+            throw error
         }
     }
 

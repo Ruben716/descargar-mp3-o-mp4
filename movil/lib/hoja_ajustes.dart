@@ -185,7 +185,6 @@ class _HojaAjustesState extends State<HojaAjustes> {
           title: const Text('Caratula oficial'),
           subtitle: const Text('La del disco en vez del fotograma del video'),
           contentPadding: EdgeInsets.zero,
-          activeThumbColor: Tema.acento,
         ),
         SwitchListTile(
           value: _a.porCapitulos,
@@ -193,7 +192,6 @@ class _HojaAjustesState extends State<HojaAjustes> {
           title: const Text('Una pista por capitulo'),
           subtitle: const Text('Un album o un mix entero sale cancion a cancion, si trae capitulos'),
           contentPadding: EdgeInsets.zero,
-          activeThumbColor: Tema.acento,
         ),
       ];
 
@@ -214,7 +212,6 @@ class _HojaAjustesState extends State<HojaAjustes> {
                 'no se puede: elige MP3, FLAC o WAV, o usa Volumen parejo en Ajustes',
       ),
       contentPadding: EdgeInsets.zero,
-      activeThumbColor: Tema.acento,
     );
   }
 
@@ -241,7 +238,6 @@ class _HojaAjustesState extends State<HojaAjustes> {
           title: const Text('Quitar patrocinios'),
           subtitle: const Text('Recorta los segmentos marcados en SponsorBlock'),
           contentPadding: EdgeInsets.zero,
-          activeThumbColor: Tema.acento,
         ),
       ];
 }

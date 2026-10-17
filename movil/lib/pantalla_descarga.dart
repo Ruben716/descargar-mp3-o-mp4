@@ -1442,7 +1442,7 @@ class _Vacio extends StatelessWidget {
                 onPressed: () => irADestino(context, categoriaSinPerdida),
               ),
               ActionChip(
-                avatar: const Icon(Icons.explore_rounded, size: 18, color: Tema.acentoHielo),
+                avatar: const Icon(Icons.explore_rounded, size: 18, color: Tema.acentoClaro),
                 label: const Text('Explorar todo'),
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const PantallaExplorar()),

@@ -27,7 +27,7 @@ from descargador.domain import (
 )
 from descargador.infrastructure import (
     YtDlpDownloader,
-    buscar_portada,
+    candidatas_portada,
     configurar_entorno,
     descargar_portada,
     escribir_etiquetas,
@@ -35,6 +35,7 @@ from descargador.infrastructure import (
     necesita_portada_oficial,
     nombre_con_etiquetas,
     partes_del_nombre,
+    preparar_portada,
 )
 
 #: Ultimo avance publicado por el motor. Kotlin lo consulta mientras descarga.
@@ -438,27 +439,54 @@ def _ponerPortadaOficial(archivo: Path) -> Path:
     """Cambia el fotograma de YouTube por la caratula oficial del tema.
 
     Si algo falla se devuelve el archivo tal cual: la descarga ya salio bien y
-    quedarse sin la portada buena no es motivo para perderla.
+    quedarse sin la portada buena no es motivo para perderla. Si la candidata
+    mejor no se puede bajar, se prueba la siguiente.
     """
     try:
         artista, titulo = partes_del_nombre(archivo.name)
-        direccion = buscar_portada(artista, titulo)
-        if not direccion:
-            return archivo
-
         imagen = archivo.with_name(f"{archivo.stem}.portada.jpg")
-        if not descargar_portada(direccion, imagen):
-            return archivo
-
         conPortada = archivo.with_name(f"{archivo.stem}.conportada{archivo.suffix}")
+        lista = imagen
         try:
-            incrustar_portada(archivo, conPortada, imagen)
+            if not descargar_portada(candidatas_portada(artista, titulo), imagen):
+                return archivo
+            # Un JPEG cuadrado de 1400 como mucho, sin recomprimir lo que ya lo es.
+            lista = preparar_portada(imagen)
+            incrustar_portada(archivo, conPortada, lista)
             # Se ocupa el sitio del original para que arriba no cambie nada.
             archivo.unlink()
             conPortada.rename(archivo)
         finally:
             imagen.unlink(missing_ok=True)
+            lista.unlink(missing_ok=True)
             conPortada.unlink(missing_ok=True)
         return archivo
     except Exception:
         return archivo
+
+
+def caratula_grande(artista: str, titulo: str, destino: str) -> str:
+    """Baja la caratula oficial del tema y la deja como JPEG en «destino».
+
+    Es la portada grande del reproductor: la que va dentro del archivo suele
+    ser el fotograma del video, y la miniatura de Android no pasa de 512 px.
+    Nunca lanza: sin portada oficial se responde con el motivo.
+    """
+    salida = Path(destino)
+    bajada = salida.with_name(f"{salida.stem}.bajada.jpg")
+    lista = bajada
+    try:
+        salida.parent.mkdir(parents=True, exist_ok=True)
+        if not descargar_portada(candidatas_portada(artista, titulo), bajada):
+            # «sinPortada» separa esto de un fallo cualquiera: la app lo
+            # recuerda y no vuelve a preguntar por ella en un tiempo.
+            return _respuesta({"ok": False, "sinPortada": True, "error": "No tiene portada oficial."})
+        lista = preparar_portada(bajada)
+        lista.replace(salida)
+        return _respuesta({"ok": True, "ruta": str(salida)})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+    finally:
+        bajada.unlink(missing_ok=True)
+        if lista != salida:
+            lista.unlink(missing_ok=True)
