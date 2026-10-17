@@ -1,5 +1,8 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
 import 'catalogo.dart';
 import 'estado_reproductor.dart';
 import 'letras.dart';
@@ -23,7 +26,9 @@ class _PanelLetrasState extends State<PanelLetras> {
 
   /// Alto fijo por linea: hace falta saberlo para poder centrar la que suena
   /// sin medir el texto, que con lineas de dos renglones seria un lio.
-  static const double _alto = 46;
+  // Cabe un verso de dos lineas al tamanio del que suena (19 x 1,25 x 2): con
+  // 46 se salia por dos pixeles.
+  static const double _alto = 54;
 
   Letra? _letra;
   int _resaltada = -1;
@@ -200,6 +205,9 @@ class _PanelLetrasState extends State<PanelLetras> {
   }
 
   Widget _versos(Letra letra) {
+    // El desenfoque de lo ya cantado es un adorno: fuera con «Quitar
+    // animaciones» y en las pruebas, donde solo estorba.
+    final bool desenfoca = Movimiento.continuas(context);
     return StreamBuilder<Duration>(
       stream: _estado.motor.positionStream,
       builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
@@ -218,54 +226,106 @@ class _PanelLetrasState extends State<PanelLetras> {
           itemExtent: _altoLinea,
           itemBuilder: (BuildContext context, int i) {
             final bool suena = i == activa;
+            final bool pasada = i < activa;
+            final String texto = letra.lineas[i].texto.isEmpty ? '·' : letra.lineas[i].texto;
+            Widget verso = AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 220),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: suena ? 19 : 16,
+                height: 1.25,
+                fontWeight: suena ? FontWeight.w800 : FontWeight.w500,
+                // El que suena va en blanco entero: lo tiñe la mascara.
+                color: suena ? Colors.white : (pasada ? Colors.white24 : Colors.white60),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  if (suena)
+                    VersoKaraoke(texto: texto, cantado: fraccionCantada(letra, i, ahora))
+                  else
+                    Text(texto, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+                  if (_traduccion case final List<String> t when i < t.length && t[i].trim().isNotEmpty)
+                    Text(
+                      t[i],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        fontStyle: FontStyle.italic,
+                        color: suena ? Tema.acento.withValues(alpha: 0.8) : Tema.textoTenue,
+                      ),
+                    ),
+                ],
+              ),
+            );
+            // Lo ya cantado se aleja un poco: queda ahi, pero sin competir.
+            if (pasada && desenfoca) {
+              verso = ImageFiltered(imageFilter: ImageFilter.blur(sigmaX: 1.2, sigmaY: 1.2), child: verso);
+            }
             return GestureDetector(
               // Tocar una linea salta a ese momento: es la forma mas comoda
               // de repetir el trozo que no se pillo.
               onTap: () => _estado.motor.seek(letra.lineas[i].desde),
               behavior: HitTestBehavior.opaque,
-              child: Align(
-                alignment: Alignment.center,
-                child: AnimatedDefaultTextStyle(
-                  duration: const Duration(milliseconds: 220),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: suena ? 19 : 16,
-                    height: 1.25,
-                    fontWeight: suena ? FontWeight.w800 : FontWeight.w500,
-                    color: suena
-                        ? Tema.acento
-                        : (i < activa ? Colors.white24 : Colors.white60),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        letra.lineas[i].texto.isEmpty ? '·' : letra.lineas[i].texto,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                      ),
-                      if (_traduccion case final List<String> t when i < t.length && t[i].trim().isNotEmpty)
-                        Text(
-                          t[i],
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            fontStyle: FontStyle.italic,
-                            color: suena ? Tema.acento.withValues(alpha: 0.8) : Tema.textoTenue,
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
+              child: Align(alignment: Alignment.center, child: verso),
             );
           },
         );
       },
+    );
+  }
+}
+
+/// Cuanto se lleva cantado del verso [linea] en [instante], de 0 a 1.
+///
+/// El verso dura hasta que entra el siguiente; el ultimo no tiene siguiente,
+/// asi que se le dan 4 segundos. Tiene en cuenta el desfase de la letra, igual
+/// que [Letra.lineaEn], para que el relleno vaya a la par del resaltado.
+double fraccionCantada(Letra letra, int linea, Duration instante) {
+  if (linea < 0 || linea >= letra.lineas.length) return 0;
+  final Duration ajustado = instante - letra.desfase;
+  final Duration desde = letra.lineas[linea].desde;
+  final Duration hasta = linea + 1 < letra.lineas.length
+      ? letra.lineas[linea + 1].desde
+      : desde + const Duration(seconds: 4);
+  final int total = (hasta - desde).inMilliseconds;
+  if (total <= 0) return 1;
+  return ((ajustado - desde).inMilliseconds / total).clamp(0.0, 1.0);
+}
+
+/// El verso que suena, llenandose de color de izquierda a derecha como en un
+/// karaoke: lo cantado en el acento y lo que falta en blanco tenue.
+///
+/// La posicion del motor llega a saltos de unas decimas; entre una y otra el
+/// relleno se desliza solo, para que avance seguido y no a tirones. Solo se
+/// repinta la mascara: el texto no se vuelve a maquetar.
+class VersoKaraoke extends StatelessWidget {
+  const VersoKaraoke({required this.texto, required this.cantado, super.key});
+
+  final String texto;
+
+  /// De 0 a 1: lo que lleva cantado. Ver [fraccionCantada].
+  final double cantado;
+
+  static const Color _falta = Color(0x99FFFFFF);
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(end: cantado),
+      duration: Movimiento.de(context, const Duration(milliseconds: 200)),
+      builder: (BuildContext context, double f, Widget? hijo) => ShaderMask(
+        blendMode: BlendMode.srcIn,
+        shaderCallback: (Rect zona) => LinearGradient(
+          colors: const <Color>[Tema.acento, Tema.acento, _falta, _falta],
+          stops: <double>[0, f, f, 1],
+        ).createShader(zona),
+        child: hijo,
+      ),
+      child: Text(texto, maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
     );
   }
 }

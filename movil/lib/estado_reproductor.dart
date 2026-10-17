@@ -476,6 +476,20 @@ class EstadoReproductor extends ChangeNotifier {
   }
 
   bool get haySiguiente => motor.hasNext;
+
+  /// La que sonara despues, si la hay (con el aleatorio, la que toca de verdad).
+  Elemento? get siguienteElemento {
+    final int? i = motor.nextIndex;
+    return i != null && i >= 0 && i < _cola.length ? _cola[i] : null;
+  }
+
+  /// Donde empieza en el archivo lo que suena de [e]: el corte al compas si
+  /// se cargo recortada, o el principio. La posicion del motor cuenta desde ahi.
+  Duration inicioDelTramo(Elemento e) =>
+      _recortadas.contains(e.uri) ? corteDe(e)?.inicio ?? Duration.zero : Duration.zero;
+
+  /// El corte de [e] solo si su fuente se cargo recortada.
+  CorteAlCompas? corteCargado(Elemento e) => _recortadas.contains(e.uri) ? corteDe(e) : null;
   bool get hayAnterior => motor.hasPrevious;
 
   LoopMode get repeticion => motor.loopMode;

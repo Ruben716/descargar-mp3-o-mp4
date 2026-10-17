@@ -92,11 +92,20 @@ class _DeslizarParaCambiarState extends State<DeslizarParaCambiar>
           behavior: HitTestBehavior.translucent,
           onHorizontalDragUpdate: _arrastrar,
           onHorizontalDragEnd: _soltar,
+          // Con profundidad: al irse gira un poco sobre su eje y se aleja,
+          // como una carta que se pasa, en vez de inclinarse plana.
           child: Opacity(
-            opacity: 1 - avance * 0.5,
+            opacity: 1 - avance * 0.45,
             child: Transform.translate(
               offset: Offset(_x, 0),
-              child: Transform.rotate(angle: _x / _ancho * 0.06, child: widget.child),
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.0012)
+                  ..rotateY(-_x / _ancho * 0.55)
+                  ..scaleByDouble(1 - avance * 0.08, 1 - avance * 0.08, 1, 1),
+                child: widget.child,
+              ),
             ),
           ),
         );

@@ -1,4 +1,7 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'animaciones.dart';
 import 'estado_reproductor.dart';
@@ -143,12 +146,50 @@ class _PantallaListaAutoState extends State<PantallaListaAuto> {
   }
 }
 
-/// El boton del corazon. Late al marcarlo.
-class BotonMeGusta extends StatelessWidget {
+/// El boton del corazon. Al marcarlo da un saltito y suelta unas chispas.
+///
+/// Solo al marcar: quitar un Me gusta no es para celebrarlo, asi que solo
+/// cambia el icono con un fundido.
+class BotonMeGusta extends StatefulWidget {
   const BotonMeGusta({required this.uri, this.color, super.key});
 
   final String uri;
   final Color? color;
+
+  @override
+  State<BotonMeGusta> createState() => _BotonMeGustaState();
+}
+
+class _BotonMeGustaState extends State<BotonMeGusta> with SingleTickerProviderStateMixin {
+  /// Empieza acabada (en 1): asi, en reposo, el corazon esta a su tamano y
+  /// no hay chispas que pintar.
+  late final AnimationController _estallido =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 500), value: 1);
+
+  /// 0,7 → 1,2 → 1 en los primeros 420 ms; el resto lo ocupan las chispas.
+  late final Animation<double> _escala = TweenSequence<double>(<TweenSequenceItem<double>>[
+    TweenSequenceItem<double>(
+      tween: Tween<double>(begin: 0.7, end: 1.2).chain(CurveTween(curve: Curves.easeOutCubic)),
+      weight: 40,
+    ),
+    TweenSequenceItem<double>(
+      tween: Tween<double>(begin: 1.2, end: 1).chain(CurveTween(curve: Curves.easeOutBack)),
+      weight: 60,
+    ),
+  ]).animate(CurvedAnimation(parent: _estallido, curve: const Interval(0, 0.84)));
+
+  @override
+  void dispose() {
+    _estallido.dispose();
+    super.dispose();
+  }
+
+  void _alternar(bool marcada) {
+    Favoritas.instancia.alternar(widget.uri);
+    if (marcada) return;
+    HapticFeedback.lightImpact();
+    if (!Movimiento.reducido(context)) _estallido.forward(from: 0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -156,27 +197,57 @@ class BotonMeGusta extends StatelessWidget {
     return ListenableBuilder(
       listenable: favoritas,
       builder: (BuildContext context, _) {
-        final bool marcada = favoritas.contiene(uri);
+        final bool marcada = favoritas.contiene(widget.uri);
         return IconButton(
           tooltip: marcada ? 'Quitar de Me gusta' : 'Me gusta',
-          onPressed: () => favoritas.alternar(uri),
-          icon: AnimatedSwitcher(
-            duration: Movimiento.de(context, Movimiento.medio),
-            transitionBuilder: (Widget hijo, Animation<double> a) => ScaleTransition(
-              scale: TweenSequence<double>(<TweenSequenceItem<double>>[
-                TweenSequenceItem<double>(tween: Tween<double>(begin: 0.4, end: 1.25), weight: 60),
-                TweenSequenceItem<double>(tween: Tween<double>(begin: 1.25, end: 1), weight: 40),
-              ]).animate(a),
-              child: hijo,
-            ),
-            child: Icon(
-              marcada ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-              key: ValueKey<bool>(marcada),
-              color: marcada ? Tema.meGusta : color,
+          onPressed: () => _alternar(marcada),
+          // Lo que se mueve va aparte: el estallido no repinta la fila entera.
+          icon: RepaintBoundary(
+            child: CustomPaint(
+              painter: _Chispas(_estallido, Tema.meGusta),
+              child: ScaleTransition(
+                scale: _escala,
+                child: AnimatedSwitcher(
+                  duration: Movimiento.de(context, Movimiento.corto),
+                  child: Icon(
+                    marcada ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    key: ValueKey<bool>(marcada),
+                    color: marcada ? Tema.meGusta : widget.color,
+                  ),
+                ),
+              ),
             ),
           ),
         );
       },
     );
   }
+}
+
+/// Ocho chispas en corro que se alejan del corazon y se apagan.
+class _Chispas extends CustomPainter {
+  _Chispas(this.avance, this.color) : super(repaint: avance);
+
+  final Animation<double> avance;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double t = avance.value;
+    if (t <= 0 || t >= 1) return;
+    final double sale = Curves.easeOutCubic.transform(t);
+    final Offset centro = size.center(Offset.zero);
+    final Paint pincel = Paint();
+    for (int i = 0; i < 8; i++) {
+      // Desfasadas medio paso: ni en cruz ni en aspa, que se ve mas natural.
+      final double angulo = (i + 0.5) * pi / 4;
+      final double distancia = 8 + 14 * sale;
+      final double radio = (i.isEven ? 2.2 : 1.6) * (1 - 0.6 * t);
+      pincel.color = color.withValues(alpha: (1 - t) * (i.isEven ? 0.9 : 0.6));
+      canvas.drawCircle(centro + Offset(cos(angulo), sin(angulo)) * distancia, radio, pincel);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_Chispas antes) => antes.avance != avance || antes.color != color;
 }

@@ -5,8 +5,11 @@
 /// solo de canciones de la biblioteca (ver la prueba de las 3 caratulas).
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
 import 'estado_reproductor.dart';
 import 'hecho_para_ti.dart';
 import 'nucleo.dart';
@@ -506,12 +509,7 @@ class PastillaPidele extends StatelessWidget {
                             style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            '«${frases.first}»',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Tema.textoTenue, fontSize: 12),
-                          ),
+                          EjemploQueSeEscribe(frases: frases),
                         ],
                       ),
                     ),
@@ -543,6 +541,118 @@ class PastillaPidele extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Los ejemplos de la pastilla, escribiendose solos uno tras otro.
+///
+/// Letra a letra, una pausa para leerlo, se borra deprisa y entra el
+/// siguiente, con un cursor fino como el de un campo de texto. Sin animaciones
+/// sin fin (pruebas, «Quitar animaciones») se queda el primero entero y quieto.
+class EjemploQueSeEscribe extends StatefulWidget {
+  const EjemploQueSeEscribe({required this.frases, super.key});
+
+  final List<String> frases;
+
+  /// Cada cuanto avanza: una letra al escribir, dos al borrar.
+  static const Duration paso = Duration(milliseconds: 55);
+
+  /// Lo que se deja leida la frase entera antes de borrarla.
+  static const Duration pausa = Duration(milliseconds: 1600);
+
+  @override
+  State<EjemploQueSeEscribe> createState() => _EjemploQueSeEscribeState();
+}
+
+class _EjemploQueSeEscribeState extends State<EjemploQueSeEscribe> {
+  static const TextStyle _estilo = TextStyle(color: Tema.textoTenue, fontSize: 12);
+  static final int _pasosDePausa =
+      EjemploQueSeEscribe.pausa.inMilliseconds ~/ EjemploQueSeEscribe.paso.inMilliseconds;
+
+  Timer? _reloj;
+  int _frase = 0;
+  int _letras = 0;
+  bool _borrando = false;
+
+  /// Pasos que lleva quieta con la frase entera; tambien marca el parpadeo.
+  int _quieta = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bool mueve = Movimiento.continuas(context) && widget.frases.isNotEmpty;
+    if (mueve && _reloj == null) {
+      _reloj = Timer.periodic(EjemploQueSeEscribe.paso, (_) => _avanzar());
+    } else if (!mueve) {
+      _reloj?.cancel();
+      _reloj = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _reloj?.cancel();
+    super.dispose();
+  }
+
+  void _avanzar() {
+    if (!mounted) return;
+    final String actual = widget.frases[_frase % widget.frases.length];
+    if (_borrando) {
+      _letras = (_letras - 2).clamp(0, actual.length);
+      if (_letras == 0) {
+        _borrando = false;
+        _frase = (_frase + 1) % widget.frases.length;
+      }
+    } else if (_letras < actual.length) {
+      _letras++;
+    } else if (++_quieta >= _pasosDePausa) {
+      _quieta = 0;
+      _borrando = true;
+    } else if (_quieta % 9 != 0) {
+      // Parada y sin que toque parpadear: no hay nada nuevo que pintar.
+      return;
+    }
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_reloj == null || widget.frases.isEmpty) {
+      final String primera = widget.frases.isEmpty ? '' : widget.frases.first;
+      return Text('«$primera»', maxLines: 1, overflow: TextOverflow.ellipsis, style: _estilo);
+    }
+    final String actual = widget.frases[_frase % widget.frases.length];
+    final String escrito = actual.substring(0, _letras.clamp(0, actual.length));
+    // Mientras escribe o borra el cursor no parpadea, como en un campo de
+    // verdad; parado, se enciende y se apaga cada medio segundo.
+    final bool cursor = _quieta == 0 || (_quieta ~/ 9).isEven;
+    return Semantics(
+      // Para el lector de pantalla, la frase entera y una sola vez: no letra a letra.
+      label: '«$actual»',
+      excludeSemantics: true,
+      child: Text.rich(
+        TextSpan(children: <InlineSpan>[
+          TextSpan(text: '«$escrito'),
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Opacity(
+              opacity: cursor ? 1 : 0,
+              child: Container(
+                width: 1.2,
+                height: 13,
+                margin: const EdgeInsets.symmetric(horizontal: 1),
+                color: Tema.acento,
+              ),
+            ),
+          ),
+          const TextSpan(text: '»'),
+        ]),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: _estilo,
       ),
     );
   }

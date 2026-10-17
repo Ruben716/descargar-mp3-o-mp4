@@ -21,6 +21,7 @@ import 'panel_letras.dart';
 import 'portadas.dart';
 import 'hoja_fundido.dart';
 import 'hoja_mejor_calidad.dart';
+import 'movimiento_reproductor.dart';
 import 'posiciones.dart';
 import 'ritmos.dart';
 import 'tema.dart';
@@ -219,21 +220,32 @@ class _Fondo extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: <Widget>[
-        FutureBuilder<Uint8List?>(
-          future: Nucleo.caratula(elemento.uri),
-          builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) {
-            if (imagen.data == null) {
-              return const ColoredBox(color: Tema.fondo);
-            }
-            return ImageFiltered(
-              imageFilter: ImageFilter.blur(sigmaX: 48, sigmaY: 48),
-              child: Image.memory(imagen.data!, fit: BoxFit.cover),
-            );
-          },
+        // Al cambiar de cancion, el fondo de una se funde con el de la otra.
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 700),
+          child: FutureBuilder<Uint8List?>(
+            key: ValueKey<String>(elemento.uri),
+            future: Nucleo.caratula(elemento.uri),
+            builder: (BuildContext context, AsyncSnapshot<Uint8List?> imagen) {
+              if (imagen.data == null) {
+                return const ColoredBox(color: Tema.fondo);
+              }
+              // Se desenfoca una vez y queda en su capa: lo que se mueve
+              // encima no obliga a desenfocarla de nuevo.
+              return RepaintBoundary(
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 48, sigmaY: 48),
+                  child: Image.memory(imagen.data!, fit: BoxFit.cover, gaplessPlayback: true),
+                ),
+              );
+            },
+          ),
         ),
         // Velo: sin el, el texto sobre la caratula no se lee. Va tenido con
         // el color de la propia portada en vez de con un gris.
         const VeloDePaleta(),
+        // Los colores de la portada, moviendose despacio por encima del velo.
+        const FondoVivo(),
         SafeArea(child: hijo),
       ],
     );
@@ -291,7 +303,7 @@ class _AudioState extends State<_Audio> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            SelloCalidad(calidad: calidad),
+            SelloCalidad(calidad: calidad, brillo: true),
             if (inflado)
               Text(
                 '  en ${extension.toUpperCase()}',
@@ -312,7 +324,7 @@ class _AudioState extends State<_Audio> {
         final bool dj = _estado.modoDj != null;
         if (bpm == null && !dj) return const SizedBox.shrink();
         return Text(
-          '  ·  ${<String>[if (dj) _estado.alCompas ? 'DJ al compas' : 'DJ', ?bpm].join('  ·  ')}',
+          <String>[if (dj) _estado.alCompas ? 'DJ al compas' : 'DJ', ?bpm].join('  ·  '),
           style: const TextStyle(color: Tema.textoTenue, fontSize: 10, letterSpacing: 0.3),
         );
       },
@@ -326,7 +338,8 @@ class _AudioState extends State<_Audio> {
       fit: BoxFit.scaleDown,
       child: Row(
         mainAxisSize: MainAxisSize.min,
-        children: <Widget>[_sello(widget.elemento.nombre), _ritmo()],
+        // Un hueco y no un punto entre los dos: sin sello, el punto quedaba suelto.
+        children: <Widget>[_sello(widget.elemento.nombre), const SizedBox(width: 10), _ritmo()],
       ),
     );
   }
@@ -340,7 +353,8 @@ class _AudioState extends State<_Audio> {
 
     // Sin hueco para la barra: el Scaffold ya mete su alto en el SafeArea del
     // fondo (extendBodyBehindAppBar), y con otro mas quedaba una franja vacia.
-    return Column(
+    return ConLatido(
+      child: Column(
       children: <Widget>[
         if (widget.letras)
           Expanded(child: PanelLetras(elemento: widget.elemento))
@@ -354,11 +368,7 @@ class _AudioState extends State<_Audio> {
             alAnterior: _estado.hayAnterior ? _estado.irALaAnterior : null,
             child: Hero(
               tag: widget.elemento.uri,
-              child: PortadaLocal(
-                elemento: widget.elemento,
-                lado: MediaQuery.of(context).size.width,
-                radio: 0,
-              ),
+              child: _PortadaViva(elemento: widget.elemento, lado: MediaQuery.of(context).size.width),
             ),
           ),
         // Centrado cuando cabe y con desplazamiento cuando no: un titulo
@@ -404,10 +414,13 @@ class _AudioState extends State<_Audio> {
               final double maximo = total.inMilliseconds.toDouble();
               return Column(
                 children: <Widget>[
-                  Slider(
-                    value: actual.inMilliseconds.clamp(0, maximo.toInt()).toDouble(),
-                    max: maximo <= 0 ? 1 : maximo,
-                    onChanged: (double v) => motor.seek(Duration(milliseconds: v.round())),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: BarraOndulada(
+                      valor: maximo <= 0 ? 0 : (actual.inMilliseconds / maximo).clamp(0.0, 1.0),
+                      sonando: _estado.sonando,
+                      alSoltar: (double f) => motor.seek(Duration(milliseconds: (maximo * f).round())),
+                    ),
                   ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -504,6 +517,7 @@ class _AudioState extends State<_Audio> {
             ),
         ),
       ],
+      ),
     );
   }
 
@@ -511,7 +525,12 @@ class _AudioState extends State<_Audio> {
   /// si no caben); con la letra, solo lo justo, para que ella crezca.
   static Widget _ocupar({required bool letras, required Widget hijo}) => letras
       ? hijo
-      : Expanded(child: Center(child: SingleChildScrollView(child: hijo)));
+      : Expanded(
+          child: Align(
+            alignment: const Alignment(0, -0.2),
+            child: SingleChildScrollView(child: hijo),
+          ),
+        );
 }
 
 class _BotonGrande extends StatelessWidget {
@@ -532,9 +551,35 @@ class _BotonGrande extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ColorScheme colores = Theme.of(context).colorScheme;
+    final Latido? latido = Latido.de(context);
+    // Un brillo alrededor y no una sombra desplazada, que parecia un segundo
+    // boton debajo. Con pulso, brilla en cada golpe de la cancion.
+    BoxDecoration brillo(double golpe) => BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: colores.primary.withValues(alpha: 0.22 + 0.30 * golpe),
+              blurRadius: 26 + 18 * golpe,
+              spreadRadius: 4 * golpe,
+            ),
+          ],
+        );
+    final Widget circulo = _circulo(colores);
     return GestureDetector(
       onTap: alPulsar,
-      child: Container(
+      child: latido == null
+          ? DecoratedBox(decoration: brillo(0), child: circulo)
+          : ValueListenableBuilder<double>(
+              valueListenable: latido.golpe,
+              child: circulo,
+              builder: (BuildContext context, double golpe, Widget? hijo) =>
+                  DecoratedBox(decoration: brillo(golpe), child: hijo),
+            ),
+    );
+  }
+
+  Widget _circulo(ColorScheme colores) {
+    return Container(
         width: 76,
         height: 76,
         decoration: BoxDecoration(
@@ -550,13 +595,6 @@ class _BotonGrande extends StatelessWidget {
             end: Alignment.bottomRight,
           ),
           shape: BoxShape.circle,
-          boxShadow: <BoxShadow>[
-            BoxShadow(
-              color: colores.primary.withValues(alpha: 0.45),
-              blurRadius: 28,
-              offset: const Offset(0, 10),
-            ),
-          ],
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 180),
@@ -567,7 +605,104 @@ class _BotonGrande extends StatelessWidget {
             color: Tema.tinta,
           ),
         ),
+    );
+  }
+}
+
+/// La portada del reproductor: se funde con el fondo por abajo, respira con
+/// cada pulso y, en el ultimo compas de una mezcla DJ, deja ver la siguiente.
+class _PortadaViva extends StatelessWidget {
+  const _PortadaViva({required this.elemento, required this.lado});
+
+  final Elemento elemento;
+  final double lado;
+
+  @override
+  Widget build(BuildContext context) {
+    // Sin corte de golpe por abajo: no queda una franja entre ella y el titulo.
+    final Widget portada = RepaintBoundary(
+      child: ShaderMask(
+        blendMode: BlendMode.dstIn,
+        shaderCallback: (Rect r) => const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: <Color>[Colors.white, Colors.white, Colors.transparent],
+          stops: <double>[0, 0.84, 1],
+        ).createShader(r),
+        child: PortadaLocal(elemento: elemento, lado: lado, radio: 0),
       ),
+    );
+    final Latido? latido = Latido.de(context);
+    // En el vuelo del Hero no hay latido: va quieta, que es lo que toca.
+    if (latido == null) return portada;
+    return Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        ValueListenableBuilder<double>(
+          valueListenable: latido.golpe,
+          child: portada,
+          builder: (BuildContext context, double golpe, Widget? hijo) =>
+              Transform.scale(scale: 1 + 0.012 * golpe, child: hijo),
+        ),
+        Positioned.fill(child: _MezclaDj(latido: latido, lado: lado)),
+      ],
+    );
+  }
+}
+
+/// El ultimo compas de una mezcla DJ, a la vista: la siguiente portada va
+/// apareciendo encima y una cuenta 4·3·2·1 sigue el pulso hasta el corte.
+class _MezclaDj extends StatelessWidget {
+  const _MezclaDj({required this.latido, required this.lado});
+
+  final Latido latido;
+  final double lado;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int?>(
+      valueListenable: latido.cuenta,
+      builder: (BuildContext context, int? cuenta, _) {
+        final Elemento? siguiente = EstadoReproductor.instancia.siguienteElemento;
+        if (cuenta == null || siguiente == null) return const SizedBox.shrink();
+        return IgnorePointer(
+          child: Stack(
+            alignment: Alignment.center,
+            children: <Widget>[
+              ValueListenableBuilder<double>(
+                valueListenable: latido.mezcla,
+                builder: (BuildContext context, double mezcla, Widget? hijo) =>
+                    Opacity(opacity: mezcla * 0.85, child: hijo),
+                child: PortadaLocal(elemento: siguiente, lado: lado, radio: 0),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 160),
+                    transitionBuilder: (Widget hijo, Animation<double> a) =>
+                        ScaleTransition(scale: Tween<double>(begin: 1.4, end: 1).animate(a), child: FadeTransition(opacity: a, child: hijo)),
+                    child: Text(
+                      '$cuenta',
+                      key: ValueKey<int>(cuenta),
+                      style: const TextStyle(
+                        fontSize: 72,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        shadows: <Shadow>[Shadow(color: Tema.acentoHielo, blurRadius: 28)],
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    'MEZCLANDO AL COMPAS',
+                    style: TextStyle(fontSize: 11, letterSpacing: 2, fontWeight: FontWeight.w700, color: Colors.white70),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

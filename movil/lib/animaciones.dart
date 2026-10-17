@@ -18,6 +18,16 @@ class Movimiento {
 
   static bool reducido(BuildContext context) => MediaQuery.of(context).disableAnimations;
 
+  /// Si se permiten las animaciones que no acaban nunca (el latido, el fondo
+  /// vivo, la barra ondulada, el brillo del sello...). Las pruebas lo apagan:
+  /// `pumpAndSettle` esperaria a que terminen, y no terminan.
+  @visibleForTesting
+  static bool bucles = true;
+
+  /// Si en este sitio puede ir una animacion sin fin: no con «Quitar
+  /// animaciones» del sistema, ni en las pruebas.
+  static bool continuas(BuildContext context) => bucles && !reducido(context);
+
   static Duration de(BuildContext context, Duration d) => reducido(context) ? Duration.zero : d;
 }
 

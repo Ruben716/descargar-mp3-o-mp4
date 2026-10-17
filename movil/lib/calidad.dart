@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'animaciones.dart';
 import 'tema.dart';
 
 /// Cuanta calidad tiene el audio de verdad.
@@ -188,10 +191,16 @@ bool reconvierte(CalidadAudio origen, String formato) {
 
 /// El sello de calidad, pequenio, para tarjetas, filas y el reproductor.
 class SelloCalidad extends StatelessWidget {
-  const SelloCalidad({required this.calidad, this.grande = false, super.key});
+  const SelloCalidad({required this.calidad, this.grande = false, this.brillo = false, super.key});
 
   final CalidadAudio calidad;
   final bool grande;
+
+  /// Un reflejo que cruza el sello de vez en cuando, solo si es sin perdida.
+  ///
+  /// Para un sello suelto (el del reproductor): en una lista serian cientos
+  /// de animaciones a la vez para nada.
+  final bool brillo;
 
   @override
   Widget build(BuildContext context) {
@@ -204,7 +213,7 @@ class SelloCalidad extends StatelessWidget {
       NivelCalidad.basica => (calidad.etiqueta, Tema.textoTenue),
     };
     final bool destaca = nivel == NivelCalidad.hiRes || nivel == NivelCalidad.sinPerdida;
-    return Container(
+    final Widget sello = Container(
       padding: EdgeInsets.symmetric(horizontal: grande ? 10 : 7, vertical: grande ? 4 : 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: destaca ? 0.18 : 0.10),
@@ -239,5 +248,98 @@ class SelloCalidad extends StatelessWidget {
         ],
       ),
     );
+    if (!brillo || !destaca || !Movimiento.continuas(context)) return sello;
+    return _Reflejo(radio: 6, child: sello);
   }
+}
+
+/// Un brillo diagonal que cruza al hijo cada pocos segundos, como la luz
+/// sobre una chapa dorada.
+///
+/// Cruza en menos de un segundo y luego descansa sin pedir fotogramas: el
+/// controlador se para y un temporizador lo vuelve a lanzar.
+class _Reflejo extends StatefulWidget {
+  const _Reflejo({required this.radio, required this.child});
+
+  final double radio;
+  final Widget child;
+
+  @override
+  State<_Reflejo> createState() => _ReflejoState();
+}
+
+class _ReflejoState extends State<_Reflejo> with SingleTickerProviderStateMixin {
+  static const Duration _cruce = Duration(milliseconds: 900);
+  static const Duration _descanso = Duration(milliseconds: 2600);
+
+  late final AnimationController _paso = AnimationController(vsync: this, duration: _cruce)
+    ..addStatusListener(_alAcabar);
+  Timer? _espera;
+
+  @override
+  void initState() {
+    super.initState();
+    // El primero tarda un poco: que no brille justo al abrir, sino despues.
+    _espera = Timer(const Duration(milliseconds: 1200), _cruzar);
+  }
+
+  void _cruzar() {
+    if (mounted) _paso.forward(from: 0);
+  }
+
+  void _alAcabar(AnimationStatus estado) {
+    if (estado == AnimationStatus.completed) _espera = Timer(_descanso, _cruzar);
+  }
+
+  @override
+  void dispose() {
+    _espera?.cancel();
+    _paso.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: CustomPaint(
+          foregroundPainter: _PintorReflejo(_paso, widget.radio),
+          child: widget.child,
+        ),
+      );
+}
+
+class _PintorReflejo extends CustomPainter {
+  _PintorReflejo(this.paso, this.radio) : super(repaint: paso);
+
+  final Animation<double> paso;
+  final double radio;
+
+  static const Color _luz = Color(0x59FFF3D6);
+  static const Color _nada = Color(0x00FFF3D6);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double t = paso.value;
+    if (t <= 0 || t >= 1) return;
+    final double avance = Curves.easeInOutCubic.transform(t);
+    // La franja va de fuera a fuera, inclinada: entra por la izquierda y sale
+    // por la derecha sin asomarse quieta en ningun borde.
+    final double banda = size.height * 1.4;
+    final double x = -banda + avance * (size.width + 2 * banda);
+    final Rect zona = Offset.zero & size;
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndRadius(zona, Radius.circular(radio)));
+    canvas.drawRect(
+      zona,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: <Color>[_nada, _luz, _nada],
+        ).createShader(Rect.fromPoints(Offset(x - banda / 2, 0), Offset(x + banda / 2, size.height))),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_PintorReflejo antes) => antes.paso != paso || antes.radio != radio;
 }
