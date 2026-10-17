@@ -108,4 +108,5 @@ flutter_launcher_icons:
   # El margen de la zona segura ya lo deja generar_icono.py, asi que el
   # plugin no debe anadir el suyo: si no, la figura sale diminuta.
   adaptive_icon_foreground_inset: 0
-  adaptive_icon_monochrome: "assets/icono_primer_plano.png"
+  # Sin version monocroma: el icono es una imagen a color, y en gris perderia
+  # el atardecer. Con los iconos tematicos de Android 13, se ve a color.

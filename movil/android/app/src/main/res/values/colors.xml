@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- El negro azulado de la app (Tema.fondo). Lo usa la ventana mientras
+    <!-- El negro de la app (Tema.fondo). Lo usa la ventana mientras
          arranca Flutter: sin el, con el telefono en modo claro, se veia un
          fogonazo blanco antes del primer fotograma. -->
-    <color name="fondo">#05070D</color>
-    <!-- Fondo de los iconos de los atajos: un azul noche de la misma familia,
-         para que el glifo azul destaque sin salirse de la marca. -->
-    <color name="atajo_fondo">#13213D</color>
-    <color name="atajo_fondo_me_gusta">#0B2A3D</color>
+    <color name="fondo">#0B0B0C</color>
+    <!-- Fondo de los iconos de los atajos: gris grafito con el glifo blanco,
+         como el resto del tema Onix. -->
+    <color name="atajo_fondo">#232326</color>
+    <color name="atajo_fondo_me_gusta">#232326</color>
 </resources>
