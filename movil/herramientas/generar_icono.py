@@ -1,99 +1,73 @@
-"""Genera el icono de Tumbao a partir del dibujo original.
+"""Genera el icono de Tumbao a partir de la imagen original.
 
 Se deja como script y no como imagenes sueltas para que el icono sea
-reproducible: si cambia el color de la app, se vuelve a ejecutar y ya.
+reproducible: si cambia la imagen, se vuelve a ejecutar y ya.
 
     python movil/herramientas/generar_icono.py
+    cd movil && dart run flutter_launcher_icons
 
-El dibujo de partida (`icono_origen.jpeg`) es trazo blanco sobre fondo negro.
-De ahi se saca la silueta: lo claro es la figura y lo oscuro se descarta. Luego
-se repinta en tinta sobre el degradado azul de la marca, igual que los botones
-principales, porque asi se lee mucho mejor en la parrilla de aplicaciones que
-un trazo fino y blanco perdido entre iconos oscuros. Por eso tampoco se usa la
-version en neon (la figura azul sobre negro): a 48 px, sobre un fondo de
-pantalla oscuro, se perdia.
+La imagen de partida (`icono_origen.jpg`) son unos audifonos con un atardecer
+dentro, sobre negro puro. Va tal cual, a color: encaja con el tema Onix (negro
+y blanco, el color lo pone la portada). El encuadre no se fija a mano: se busca
+donde hay luz y se centra la figura.
 """
+import math
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-#: Los mismos colores que tema.dart, para que el icono no vaya por libre.
-ACENTO_HIELO = (69, 200, 255)  # #45C8FF, Tema.acentoHielo
-AZUL_PROFUNDO = (58, 123, 255)  # #3A7BFF, Tema.azulProfundo
-AZUL_NOCHE = (37, 99, 255)  # #2563FF, solo aqui y en el widget
-PARADAS = (ACENTO_HIELO, AZUL_PROFUNDO, AZUL_NOCHE)
-"""El degradado del icono, de arriba a la izquierda a abajo a la derecha.
-
-Lleva una parada mas que el de los botones: el azul noche de la esquina le da
-peso al icono entre los demas de la parrilla. Ahi no va texto, solo la figura,
-y la tinta sigue dando mas de 4:1 incluso en esa esquina.
-"""
-TINTA = (4, 8, 20)  # #040814, Tema.tinta
+NEGRO = (0, 0, 0)
+"""El fondo de la imagen original. El del icono tiene que ser el mismo, o se
+notaria el borde del recorte."""
 
 LADO = 1024
-AIRE = 1.34
-"""Cuanto se abre el recorte respecto al dibujo, para que no vaya pegado al borde."""
+
+AIRE_CLASICO = 1.2
+"""Cuanto mas grande que la figura es el icono clasico, para que no vaya pegada al borde."""
+
+ZONA_SEGURA = 0.62
+"""Lo que puede ocupar la figura (su circulo) en el icono adaptativo.
+
+Android dibuja la capa a 108 dp y la recorta con la mascara del fabricante
+(circulo, gota, cuadrado...); lo que cae dentro de 66 dp se ve siempre. Se
+mide el circulo que envuelve la figura, no su caja: las orejas de los
+audifonos llegan a las esquinas de la caja y un circulo se las comeria."""
 
 BASE = Path(__file__).resolve().parent
-ORIGEN = BASE / "icono_origen.jpeg"
+ORIGEN = BASE / "icono_origen.jpg"
 SALIDA = BASE.parent / "assets"
 
 
-def degradado(lado: int) -> Image.Image:
-    """Degradado en diagonal, de cian hielo a azul electrico."""
-    # El color solo depende de x+y, asi que la rampa se calcula una vez y luego
-    # cada pixel la consulta: pintarla punto a punto tarda un mundo.
-    pasos = 2 * (lado - 1)
-    tramos = len(PARADAS) - 1
-    rampa: list[tuple[int, ...]] = []
-    for diagonal in range(pasos + 1):
-        # Por tramos: se ve en que par de paradas cae la diagonal y cuanto
-        # avanza dentro de el.
-        t = diagonal / pasos * tramos
-        i = min(int(t), tramos - 1)
-        f = t - i
-        rampa.append(
-            tuple(
-                round(inicio + (fin - inicio) * f)
-                for inicio, fin in zip(PARADAS[i], PARADAS[i + 1], strict=True)
-            )
-        )
-
-    base = Image.new("RGB", (lado, lado))
-    base.putdata([rampa[x + y] for y in range(lado) for x in range(lado)])
-    return base
-
-
-def silueta(lado: int) -> Image.Image:
-    """Recorta el dibujo del original y lo devuelve en transparente.
-
-    El original viene con mucho fondo negro arriba y abajo, asi que el encuadre
-    no se fija a mano: se busca donde hay luz y se cuadra alrededor de eso.
-    """
-    imagen = Image.open(ORIGEN).convert("L")
-
-    # Umbral bajo: basta con distinguir el trazo del negro del fondo.
-    caja = imagen.point(lambda v: 255 if v > 45 else 0).getbbox()
+def figura() -> tuple[Image.Image, float, float, float, float]:
+    """La imagen, el centro de la figura, su alto y el radio que la envuelve."""
+    imagen = Image.open(ORIGEN).convert("RGB")
+    gris = imagen.convert("L")
+    # Umbral bajo: basta con distinguir la figura del negro del fondo.
+    luz = gris.point(lambda v: 255 if v > 20 else 0)
+    caja = luz.getbbox()
     if caja is None:
-        raise RuntimeError(f"{ORIGEN.name} esta en negro, no hay dibujo que recortar")
-
+        raise RuntimeError(f"{ORIGEN.name} esta en negro, no hay figura que recortar")
     izquierda, arriba, derecha, abajo = caja
-    medida = round(max(derecha - izquierda, abajo - arriba) * AIRE)
-    centro_x, centro_y = (izquierda + derecha) // 2, (arriba + abajo) // 2
-    recorte = imagen.crop(
-        (
-            centro_x - medida // 2,
-            centro_y - medida // 2,
-            centro_x + medida // 2,
-            centro_y + medida // 2,
-        )
-    ).resize((lado, lado), Image.Resampling.LANCZOS)
+    cx, cy = (izquierda + derecha) / 2, (arriba + abajo) / 2
+    puntos = luz.load()
+    radio = max(
+        math.hypot(x - cx, y - cy)
+        for y in range(arriba, abajo, 2)
+        for x in range(izquierda, derecha, 2)
+        if puntos[x, y]
+    )
+    return imagen, cx, cy, float(abajo - arriba), radio
 
-    # El brillo pasa a ser opacidad: el trazo queda solido y el fondo desaparece.
-    # El x1.25 compensa el borde gris del JPEG, que si no deja el trazo lavado.
-    figura = Image.new("RGBA", (lado, lado), (*TINTA, 0))
-    figura.putalpha(recorte.point(lambda v: min(255, round(v * 1.25))))
-    return figura
+
+def recorte(imagen: Image.Image, cx: float, cy: float, medida: float) -> Image.Image:
+    """Un cuadrado de [medida] centrado en la figura, a [LADO] px.
+
+    Si se sale de la imagen, lo de fuera es negro, igual que el fondo.
+    """
+    lado = round(medida)
+    lienzo = Image.new("RGB", (lado, lado), NEGRO)
+    lienzo.paste(imagen, (round(lado / 2 - cx), round(lado / 2 - cy)))
+    return lienzo.resize((LADO, LADO), Image.Resampling.LANCZOS)
 
 
 def esquinas(imagen: Image.Image, radio: int) -> Image.Image:
@@ -108,22 +82,17 @@ def esquinas(imagen: Image.Image, radio: int) -> Image.Image:
 
 def main() -> None:
     SALIDA.mkdir(parents=True, exist_ok=True)
-    fondo = degradado(LADO)
+    imagen, cx, cy, alto, radio = figura()
 
-    # Icono clasico: degradado con esquinas y la figura encima.
-    clasico = esquinas(fondo.copy(), radio=round(LADO * 0.22))
-    clasico.alpha_composite(silueta(LADO))
-    clasico.save(SALIDA / "icono.png")
+    # Icono clasico: la figura con algo de aire y las esquinas redondeadas.
+    clasico = recorte(imagen, cx, cy, alto * AIRE_CLASICO)
+    esquinas(clasico, radio=round(LADO * 0.22)).save(SALIDA / "icono.png")
 
-    # Adaptativo: Android recorta hasta un 33%, asi que el fondo va a sangre y
-    # la figura, mas pequenia y centrada, para que no le corte la cabeza.
-    fondo.save(SALIDA / "icono_fondo.png")
-
-    primer_plano = Image.new("RGBA", (LADO, LADO), (0, 0, 0, 0))
-    reducida = silueta(round(LADO * 0.62))
-    margen = (LADO - reducida.width) // 2
-    primer_plano.alpha_composite(reducida, (margen, margen))
-    primer_plano.save(SALIDA / "icono_primer_plano.png")
+    # Adaptativo: el fondo, negro liso a sangre; delante, la figura entera
+    # dentro de la zona segura. Como su fondo tambien es negro, no se nota
+    # donde acaba una capa y empieza la otra aunque el sistema las mueva.
+    Image.new("RGB", (LADO, LADO), NEGRO).save(SALIDA / "icono_fondo.png")
+    recorte(imagen, cx, cy, 2 * radio / ZONA_SEGURA).save(SALIDA / "icono_primer_plano.png")
 
     print(f"iconos generados en {SALIDA}")
 
