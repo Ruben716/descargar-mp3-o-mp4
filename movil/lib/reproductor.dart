@@ -18,6 +18,7 @@ import 'nucleo.dart';
 import 'pantalla_lista_auto.dart';
 import 'paleta.dart';
 import 'panel_letras.dart';
+import 'portada_grande.dart';
 import 'portadas.dart';
 import 'hoja_fundido.dart';
 import 'hoja_mejor_calidad.dart';
@@ -629,7 +630,7 @@ class _PortadaViva extends StatelessWidget {
           colors: <Color>[Colors.white, Colors.white, Colors.transparent],
           stops: <double>[0, 0.84, 1],
         ).createShader(r),
-        child: PortadaLocal(elemento: elemento, lado: lado, radio: 0),
+        child: PortadaGrande(elemento: elemento, lado: lado),
       ),
     );
     final Latido? latido = Latido.de(context);

@@ -136,6 +136,54 @@ class Nucleo {
     }
   }
 
+  /// El nombre del archivo de la portada grande de [uri]: estable entre
+  /// ejecuciones y sin barras, para que no se salga de su carpeta.
+  ///
+  /// `hashCode` no vale: Dart no promete que sea el mismo de una vez a otra,
+  /// y la portada guardada no se volveria a encontrar. Son dos FNV-1a de 32
+  /// bits, uno de ida y otro de vuelta: 64 bits, sin choques en la practica.
+  static String clavePortada(String uri) {
+    final List<int> letras = uri.codeUnits;
+    int ida = 0x811c9dc5;
+    int vuelta = 0x811c9dc5;
+    for (int i = 0; i < letras.length; i++) {
+      ida = ((ida ^ letras[i]) * 0x01000193) & 0xFFFFFFFF;
+      vuelta = ((vuelta ^ letras[letras.length - 1 - i]) * 0x01000193) & 0xFFFFFFFF;
+    }
+    return '${ida.toRadixString(16).padLeft(8, '0')}${vuelta.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  /// La caratula oficial en grande (hasta 1400 px), que Kotlin deja en la
+  /// carpeta privada de la app. Devuelve la ruta, o null si no se pudo.
+  static Future<String?> caratulaGrande(
+    String uri, {
+    required String artista,
+    required String titulo,
+  }) async =>
+      (await pedirCaratulaGrande(uri, artista: artista, titulo: titulo)).ruta;
+
+  /// Como [caratulaGrande], y ademas dice si es que no tiene portada oficial,
+  /// que se recuerda para no volver a preguntar, o fue otro fallo.
+  static Future<({String? ruta, bool sinPortada})> pedirCaratulaGrande(
+    String uri, {
+    required String artista,
+    required String titulo,
+  }) async {
+    try {
+      final String crudo = await _canal.invokeMethod<String>('caratulaGrande', <String, dynamic>{
+            'artista': artista,
+            'titulo': titulo,
+            'clave': clavePortada(uri),
+          }) ??
+          '{}';
+      final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
+      final String ruta = datos['ok'] == true ? datos['ruta']?.toString() ?? '' : '';
+      return (ruta: ruta.isEmpty ? null : ruta, sinPortada: datos['sinPortada'] == true);
+    } catch (_) {
+      return (ruta: null, sinPortada: false);
+    }
+  }
+
   /// Guarda la copia de seguridad en Descargas/Tumbao. Devuelve donde quedo.
   static Future<String> guardarCopia(String nombre, String contenido) async {
     final Map<String, dynamic> datos = await _pedir(

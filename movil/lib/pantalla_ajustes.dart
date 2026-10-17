@@ -8,6 +8,7 @@ import 'hoja_ecualizador.dart';
 import 'hoja_dj.dart';
 import 'hoja_fundido.dart';
 import 'nucleo.dart';
+import 'portada_grande.dart';
 import 'suscripciones.dart';
 import 'ritmos.dart';
 import 'tema.dart';
@@ -205,6 +206,7 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
           ),
           const _Titulo('LISTAS QUE SIGUES'),
           ListenableBuilder(listenable: _suscripciones, builder: (BuildContext context, _) => _listasQueSigues()),
+          _portadasGrandes(),
           const _Titulo('COPIA DE SEGURIDAD'),
           _copiaDeSeguridad(),
           const _Titulo('ACERCA DE'),
@@ -291,6 +293,38 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
         ),
       ],
     );
+  }
+
+  /// Baja la portada oficial en grande de toda la biblioteca, en segundo plano.
+  Widget _portadasGrandes() {
+    return ValueListenableBuilder<({int hechas, int total})?>(
+      valueListenable: PortadasGrandes.avance,
+      builder: (BuildContext context, ({int hechas, int total})? avance, _) => ListTile(
+        leading: const Icon(Icons.photo_size_select_large_rounded),
+        title: const Text('Portadas en alta resolucion'),
+        subtitle: Text(
+          avance == null
+              ? 'Baja la portada oficial de cada cancion para el reproductor. De una en una y solo con wifi.'
+              : avance.total == 0
+                  ? 'Mirando la biblioteca...'
+                  : 'Llevo ${avance.hechas} de ${avance.total}...',
+        ),
+        trailing: avance == null
+            ? const Icon(Icons.download_rounded)
+            : const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+        onTap: avance != null ? null : _bajarPortadas,
+      ),
+    );
+  }
+
+  Future<void> _bajarPortadas() async {
+    if (!await Nucleo.redSinLimite()) {
+      if (mounted) avisar(context, 'Conectate a una wifi para bajar las portadas.');
+      return;
+    }
+    if (mounted) avisar(context, 'Bajando las portadas en segundo plano.');
+    final int listas = await PortadasGrandes.bajarTodas();
+    if (mounted) avisar(context, '$listas canciones con portada en alta resolucion.');
   }
 
   Widget _copiaDeSeguridad() {
