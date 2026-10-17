@@ -12,6 +12,7 @@ import 'package:descargador_movil/pantalla_mix.dart';
 import 'package:descargador_movil/pantalla_pidele.dart';
 import 'package:descargador_movil/secciones_inicio.dart';
 import 'package:descargador_movil/ritmos.dart';
+import 'package:descargador_movil/animaciones.dart';
 import 'package:descargador_movil/salida_audio.dart';
 import 'package:descargador_movil/posiciones.dart';
 import 'package:descargador_movil/m3u.dart';
@@ -155,6 +156,8 @@ void main() {
     Favoritas.instancia.reiniciar();
     VolumenParejo.instancia.reiniciar();
     Ritmos.instancia.reiniciar();
+    // Sin animaciones sin fin: pumpAndSettle no acabaria nunca.
+    Movimiento.bucles = false;
     tareasDeFondo = false;
     Suscripciones.instancia.reiniciar();
     AutoEq.olvidar();
