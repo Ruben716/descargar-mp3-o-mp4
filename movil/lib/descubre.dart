@@ -235,7 +235,7 @@ class Descubre extends ChangeNotifier {
       );
       if (semillas.isEmpty) return;
       final List<List<Resultado>> radios = await Future.wait(<Future<List<Resultado>>>[
-        for (final Semilla s in semillas) _radio(s),
+        for (final Semilla s in semillas) radioDeSemilla(s),
       ]);
       final List<Resultado> lista = armar(
         radios,
@@ -255,7 +255,9 @@ class Descubre extends ChangeNotifier {
     }
   }
 
-  static Future<List<Resultado>> _radio(Semilla s) async {
+  /// La radio de una semilla; si no se bajo de YouTube, se busca antes en
+  /// YouTube Music. Vacia si no se pudo.
+  static Future<List<Resultado>> radioDeSemilla(Semilla s) async {
     try {
       String? video = s.video;
       if (video == null) {

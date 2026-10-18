@@ -165,10 +165,13 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   semillas salen de la tabla `descargas` (`Catalogo.videos`, por video); lo que no se bajó de YouTube se busca
   antes en `ytmusic`. Se guarda en `SharedPreferences` y Inicio solo lee eso: la red va en las tareas de fondo
   de `main.dart`, una vez por semana. Si no llega nada, se queda la lista de antes.
-- **Las descargas inteligentes solo borran lo que bajaron ellas** (`descargas_inteligentes.dart`): bajan con wifi
-  las primeras de Descubre y apuntan cada una con su semana. Al renovar, lo de semanas anteriores que nadie
-  escuchó, marcó Me gusta ni metió en otra lista se borra; lo tocado pasa a ser del usuario y se suelta. En
-  `main.dart` van detrás de las listas que sigues y de Descubre, una tras otra: comparten `ControlDescarga`.
+- **Las descargas inteligentes solo borran lo que bajaron ellas** (`descargas_inteligentes.dart`): varias
+  `MezclaInteligente` (para ti, por género o por artista), cada una con su cantidad, sus días y su lista con su
+  nombre. Salen de la radio de YouTube Music de sus semillas (`semillasDe`, que cambian con `vueltas`) y cada
+  canción se apunta con la `tanda` (la `renovada` de su mezcla). Al renovar, lo de tandas anteriores que nadie
+  escuchó, marcó Me gusta ni metió en otra lista se borra; lo tocado, o lo de «Guardar como lista», pasa a ser
+  del usuario y se suelta. Sin red no se renueva: se arma antes de borrar. En `main.dart` van detrás de las
+  listas que sigues y de Descubre, una tras otra: comparten `ControlDescarga`.
 - **La portada grande va aparte de la miniatura** (`portada_grande.dart`): se baja una vez, con wifi, a la
   carpeta privada con `Nucleo.clavePortada` (FNV-1a, no `hashCode`, que cambia entre ejecuciones). Ojo con
   `whenComplete(() => mapa.remove(clave))`: devolver el futuro quitado hace que se espere a sí mismo.

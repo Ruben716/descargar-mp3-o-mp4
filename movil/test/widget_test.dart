@@ -8,6 +8,7 @@ import 'package:descargador_movil/descargas_inteligentes.dart';
 import 'package:descargador_movil/descubre.dart';
 import 'package:descargador_movil/dj.dart';
 import 'package:descargador_movil/pantalla_descubre.dart';
+import 'package:descargador_movil/pantalla_inteligentes.dart';
 import 'package:descargador_movil/hecho_para_ti.dart';
 import 'package:descargador_movil/navegacion.dart';
 import 'package:descargador_movil/pantalla_explorar.dart';
@@ -5226,42 +5227,70 @@ void main() {
       expect(Descubre.instancia.armando, isFalse);
     });
 
-    test('las descargas inteligentes bajan las primeras de Descubre y las meten en su lista', () async {
+    /// La biblioteca de conArtistas con sus videos, y la radio de cada uno.
+    Future<void> conRadios() async {
+      biblioteca = conArtistas;
+      for (final String v in <String>['1', '2', '3']) {
+        await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=v$v', audio: true, uri: 'content://audio/$v');
+      }
+      final String deMarc = lista(<String>[
+        pista('v1', 'Vivir Mi Vida', 'Marc Anthony - Topic'),
+        pista('n1', 'Aguanile', 'Marc Anthony - Topic'),
+        pista('n3', 'Idilio', 'Willie Colón - Topic'),
+      ]);
+      listas = <String, String>{
+        Descubre.radioDe('v1'): deMarc,
+        Descubre.radioDe('v2'): deMarc,
+        Descubre.radioDe('v3'): lista(<String>[
+          pista('v3', 'La Negra Tiene Tumbao', 'Celia Cruz - Topic'),
+          pista('n2', 'Quimbara', 'Celia Cruz - Topic'),
+        ]),
+      };
+    }
+
+    String mezclas(List<MezclaInteligente> m) =>
+        jsonEncode(<Map<String, Object>>[for (final MezclaInteligente x in m) x.aJson()]);
+
+    List<String> descargadas() => <String>[
+          for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'descargar'))
+            '${(c.arguments as Map<dynamic, dynamic>)['url']}',
+        ];
+
+    test('una mezcla baja de las radios de tus artistas y deja sus canciones en su lista', () async {
+      await conRadios();
       SharedPreferences.setMockInitialValues(<String, Object>{
-        Descubre.clave: guardada,
-        DescargasInteligentes.claveActivas: true,
-        DescargasInteligentes.claveCuantas: 2,
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi, cuantas: 2),
+        ]),
       });
       final DescargasInteligentes d = DescargasInteligentes.instancia;
 
       expect(await d.revisar(), 2);
 
-      expect(
-        <String>[
-          for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'descargar'))
-            '${(c.arguments as Map<dynamic, dynamic>)['url']}',
-        ],
-        <String>['https://www.youtube.com/watch?v=n1', 'https://www.youtube.com/watch?v=n2'],
-      );
-      expect(d.bajadas, hasLength(2));
-      expect(Listas.instancia.contiene(DescargasInteligentes.lista, 'content://audio/99'), isTrue);
+      expect(descargadas(), hasLength(2));
+      expect(descargadas().toSet(), hasLength(2), reason: 'sin repetir');
+      expect(d.deMezcla('para-ti'), hasLength(2));
+      expect(Listas.instancia.contiene('Lo mio', 'content://audio/99'), isTrue);
+      expect(d.mezcla('para-ti')!.renovada, greaterThan(0));
+      expect(d.mezcla('para-ti')!.vueltas, 1);
 
-      // Otra vez la misma semana: ya estan, no se baja nada mas.
+      // Aun no le toca y ya tiene las suyas: no se baja nada mas.
       llamadas.clear();
       expect(await d.revisar(), 0);
-      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
+      expect(descargadas(), isEmpty);
     });
 
-    test('cada semana se borra lo que bajo sola y no tocaste; lo escuchado se queda', () async {
-      final int semana = Descubre.semanaDe(DateTime.now());
+    test('al renovarse se borra lo que bajo y no tocaste; lo escuchado se queda', () async {
+      await conRadios();
+      final int hace8Dias = DateTime.now().subtract(const Duration(days: 8)).millisecondsSinceEpoch;
       SharedPreferences.setMockInitialValues(<String, Object>{
-        Descubre.clave: guardada,
-        DescargasInteligentes.claveActivas: true,
-        DescargasInteligentes.claveCuantas: 1,
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi, cuantas: 1, renovada: hace8Dias),
+        ]),
         DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
-          const BajadaInteligente(url: 'https://www.youtube.com/watch?v=v7', uri: 'content://audio/7', semana: 0)
+          BajadaInteligente(url: 'https://www.youtube.com/watch?v=v7', uri: 'content://audio/7', mezcla: 'para-ti', tanda: hace8Dias)
               .aJson(),
-          const BajadaInteligente(url: 'https://www.youtube.com/watch?v=v8', uri: 'content://audio/8', semana: 0)
+          BajadaInteligente(url: 'https://www.youtube.com/watch?v=v8', uri: 'content://audio/8', mezcla: 'para-ti', tanda: hace8Dias)
               .aJson(),
         ]),
       });
@@ -5278,25 +5307,94 @@ void main() {
         <String>['content://audio/7'],
         reason: 'la escuchada no se borra nunca',
       );
-      expect(d.bajadas.map((BajadaInteligente b) => (b.uri, b.semana)), <(String, int)>[('content://audio/99', semana)],
-          reason: 'la escuchada ya es tuya y entra una nueva de esta semana');
+      final MezclaInteligente m = d.mezcla('para-ti')!;
+      expect(m.renovada, greaterThan(hace8Dias));
+      expect(d.bajadas.map((BajadaInteligente b) => (b.uri, b.tanda)), <(String, int)>[('content://audio/99', m.renovada)],
+          reason: 'la escuchada ya es tuya y entra una nueva de esta tanda');
+    });
+
+    test('renombrar cambia su lista y guardar como lista las hace tuyas', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Descargas inteligentes', tipo: TipoMezcla.paraTi, activa: false),
+        ]),
+        DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
+          for (final String n in <String>['5', '6'])
+            BajadaInteligente(url: 'https://www.youtube.com/watch?v=v$n', uri: 'content://audio/$n', mezcla: 'para-ti', tanda: 1)
+                .aJson(),
+        ]),
+      });
+      await Listas.instancia.anadirVarias('Descargas inteligentes', <String>['content://audio/5', 'content://audio/6']);
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      await d.cargar();
+
+      await d.cambiar(d.mezcla('para-ti')!.copiar(nombre: 'Mis joyas'));
+      expect(Listas.instancia.nombres, contains('Mis joyas'));
+      expect(Listas.instancia.nombres, isNot(contains('Descargas inteligentes')));
+      expect(Listas.instancia.todas['Mis joyas'], <String>['content://audio/5', 'content://audio/6']);
+
+      expect(await d.guardarComoLista('para-ti', 'Para siempre'), 2);
+      expect(Listas.instancia.todas['Para siempre'], <String>['content://audio/5', 'content://audio/6']);
+      expect(d.deMezcla('para-ti'), isEmpty, reason: 'ya son tuyas: no se borraran al renovarse');
+      expect(await d.guardarComoLista('para-ti', 'Para siempre'), -1, reason: 'el nombre ya existe');
+    });
+
+    test('lo de la primera version pasa a ser la mezcla «Para ti», sin borrar nada', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveActivas: true,
+        DescargasInteligentes.claveCuantas: 30,
+        DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
+          <String, Object>{'url': 'https://www.youtube.com/watch?v=v9', 'uri': 'content://audio/9', 'semana': 2900},
+        ]),
+      });
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      await d.cargar();
+      final MezclaInteligente m = d.mezclas.single;
+      expect((m.id, m.nombre, m.activa, m.cuantas, m.dias), ('para-ti', 'Descargas inteligentes', true, 30, 7));
+      expect(d.bajadas.single.tanda, m.renovada, reason: 'es de esta tanda: no se borra al momento');
+      expect(m.tocaRenovar(DateTime.now()), isFalse);
     });
 
     test('apagadas o sin wifi no bajan nada', () async {
-      SharedPreferences.setMockInitialValues(<String, Object>{Descubre.clave: guardada});
+      await conRadios();
       final DescargasInteligentes d = DescargasInteligentes.instancia;
       await d.revisarSiToca();
-      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
+      expect(d.mezclas.single.activa, isFalse, reason: 'de fabrica, apagada');
+      expect(descargadas(), isEmpty);
 
       redSinLimite = false;
       d.reiniciar();
       SharedPreferences.setMockInitialValues(<String, Object>{
-        Descubre.clave: guardada,
-        DescargasInteligentes.claveActivas: true,
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi),
+        ]),
       });
       expect(await d.revisar(), 0);
       expect(d.aviso, contains('wifi'));
-      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
+      expect(descargadas(), isEmpty);
+    });
+
+    testWidgets('en su pantalla se cambia cantidad, cada cuanto y se anade por genero', (WidgetTester tester) async {
+      redSinLimite = false;
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const PantallaInteligentes()));
+      await tester.pumpAndSettle();
+      expect(find.text('Descargas inteligentes'), findsWidgets);
+
+      await tester.tap(find.text('Nueva mezcla'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ActionChip, 'Salsa'));
+      await tester.pumpAndSettle();
+      // Se abre su hoja para ajustarla.
+      await tester.tap(find.widgetWithText(ChoiceChip, '50'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Cada 3 dias'));
+      await tester.pumpAndSettle();
+
+      final MezclaInteligente salsa = DescargasInteligentes.instancia.mezcla('genero:salsa')!;
+      expect((salsa.nombre, salsa.cuantas, salsa.dias, salsa.activa), ('Mezcla de salsa', 50, 3, true));
+      final SharedPreferences prefs = await tester.runAsync(SharedPreferences.getInstance) as SharedPreferences;
+      expect(prefs.getString(DescargasInteligentes.claveMezclas), contains('"cuantas":50'));
     });
 
     testWidgets('Inicio la ensenia de lo guardado sin salir a la red', (WidgetTester tester) async {
