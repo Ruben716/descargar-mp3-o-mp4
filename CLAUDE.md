@@ -190,10 +190,13 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   regulares muchos ajustes puntúan casi igual, y sin esa ventaja salían falsos de 4 s en temas sin voz.
 - **El video de la letra lo pinta Flutter y lo une FFmpeg** (`video_letra.dart`, `video_letra.py`): un PNG de
   720x1280 por verso (`FotogramaVideo`, 360x640 puntos a `pixelRatio` 2) desde `desde + desfase`, y en la lista
-  del concat el último va repetido o dura un instante. La onda la pinta FFmpeg en la franja que el fotograma deja
-  libre (`zonaOnda` = `ONDA_*` / 2: si se toca uno, el otro). El codificador va en cadena (libx264,
-  h264_mediacodec, mpeg4) porque no se sabe qué trae el FFmpeg del teléfono: si el fallo es del codificador se
-  prueba el siguiente, y si es del grafo (`FALLOS_DE_FILTRO`) se repite sin la onda. Se guarda en `Pictures/Tumbao`, con las tarjetas: `Movies/Tumbao` es carpeta de la biblioteca
+  del concat el último va repetido o dura un instante. El sitio de cada cosa lo decide `disenoLetra` (historia o
+  cuadrada; letra, vinilo o portada) y llega a Python en px (`disenoParaFfmpeg` → `diseno_de`); los `ONDA_*` de
+  Python solo valen sin diseño. La onda y lo que se mueve (el vinilo gira con `rotate`, la portada se acerca con
+  `zoompan` desde un PNG al doble) los pinta FFmpeg encima, y el fotograma ya los trae quietos en su sitio. El
+  codificador va en cadena (libx264, h264_mediacodec, mpeg4) porque no se sabe qué trae el FFmpeg del teléfono:
+  si el fallo es del codificador se prueba el siguiente, y si es del grafo (`FALLOS_DE_FILTRO`) se repite sin
+  onda ni movimiento. Se guarda en `Pictures/Tumbao`, con las tarjetas: `Movies/Tumbao` es carpeta de la biblioteca
   y `mudarVideosADcim` se lo llevaría a DCIM.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con

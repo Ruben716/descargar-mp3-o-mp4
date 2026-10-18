@@ -253,6 +253,7 @@ class MainActivity : AudioServiceActivity() {
                         (llamada.argument<Any>("inicioMs") as? Number)?.toLong() ?: 0L,
                         (llamada.argument<Any>("duracionMs") as? Number)?.toLong() ?: 0L,
                         llamada.argument<String>("fotogramas").orEmpty(),
+                        llamada.argument<String>("diseno").orEmpty(),
                         respuesta,
                     )
                     // La tarjeta de una frase de la letra, ya en PNG.
@@ -661,6 +662,7 @@ class MainActivity : AudioServiceActivity() {
         inicioMs: Long,
         duracionMs: Long,
         fotogramas: String,
+        diseno: String,
         respuesta: MethodChannel.Result,
     ) {
         if (uri.isEmpty() || duracionMs <= 0 || fotogramas.isEmpty()) {
@@ -683,7 +685,7 @@ class MainActivity : AudioServiceActivity() {
                 asegurarFfmpeg(puente)
                 val hecho = JSONObject(
                     puente.callAttr(
-                        "video_letra", copia.absolutePath, inicioMs, duracionMs, fotogramas, mp4.absolutePath,
+                        "video_letra", copia.absolutePath, inicioMs, duracionMs, fotogramas, mp4.absolutePath, diseno,
                     ).toString(),
                 )
                 salida = if (hecho.optBoolean("ok")) {
