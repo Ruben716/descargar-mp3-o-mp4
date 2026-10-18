@@ -50,6 +50,8 @@ void avisarConDeshacer(BuildContext context, String texto, Future<void> Function
         content: Text(texto),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
+        // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+        persist: false,
         action: SnackBarAction(label: 'Deshacer', onPressed: deshacer),
       ),
     );

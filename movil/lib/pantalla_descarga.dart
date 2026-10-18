@@ -277,6 +277,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
               Expanded(child: Text(mensaje, maxLines: 4, overflow: TextOverflow.ellipsis)),
             ],
           ),
+          // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+          persist: false,
           action: fallo && detalle.isNotEmpty
               ? SnackBarAction(label: 'Detalle', onPressed: () => _verDetalle(mensaje, detalle))
               : null,
@@ -310,6 +312,8 @@ class PantallaDescargaState extends State<PantallaDescarga> {
         SnackBar(
           content: Text('Sigue donde lo dejaste: ${formatoTiempo(retomada.inSeconds)}'),
           behavior: SnackBarBehavior.floating,
+          // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+          persist: false,
           action: SnackBarAction(
             label: 'Desde el principio',
             onPressed: () => _reproductor.motor.seek(Duration.zero),

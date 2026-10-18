@@ -746,6 +746,8 @@ class _VideoState extends State<_Video> {
       SnackBar(
         behavior: SnackBarBehavior.floating,
         content: Text('Retomado en ${formatoTiempo(desde.inSeconds)}'),
+        // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+        persist: false,
         action: SnackBarAction(
           label: 'Desde el principio',
           onPressed: () => _motor.seekTo(Duration.zero),
