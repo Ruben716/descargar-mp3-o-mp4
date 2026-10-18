@@ -217,11 +217,19 @@ class _PanelLetrasState extends State<PanelLetras> {
     }
   }
 
-  /// Mantener pulsado un verso lo prepara para compartirlo como tarjeta.
-  void _compartir(List<String> versos, int indice) {
+  /// Mantener pulsado un verso lo prepara para compartirlo como tarjeta y,
+  /// con la [letra] sincronizada, tambien como video: para eso van sus marcas.
+  void _compartir(List<String> versos, int indice, {Letra? letra}) {
     if (versos[indice].trim().isEmpty) return;
     Feedback.forLongPress(context);
-    abrirCompartirLetra(context, elemento: widget.elemento, versos: versos, indice: indice);
+    abrirCompartirLetra(
+      context,
+      elemento: widget.elemento,
+      versos: versos,
+      indice: indice,
+      instantes: letra == null ? null : <Duration>[for (final LineaLetra l in letra.lineas) l.desde],
+      desfase: letra?.desfase ?? Duration.zero,
+    );
   }
 
   Widget _botonTraducir() {
@@ -392,7 +400,7 @@ class _PanelLetrasState extends State<PanelLetras> {
               // de repetir el trozo que no se pillo.
               onTap: () => _saltarA(letra, i),
               // Mantenerla pulsada, en cambio, la comparte como tarjeta.
-              onLongPress: () => _compartir(versos, i),
+              onLongPress: () => _compartir(versos, i, letra: letra),
               behavior: HitTestBehavior.opaque,
               child: Align(alignment: Alignment.center, child: verso),
             );

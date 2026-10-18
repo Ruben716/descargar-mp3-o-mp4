@@ -121,6 +121,27 @@ class Nucleo {
   static Future<void> compartirImagen(Uint8List png, String nombre) =>
       _pedir('compartirImagen', <String, dynamic>{'png': png, 'nombre': nombre});
 
+  /// Hace el video de un trozo de [uri] con su letra y lo manda a otra app.
+  ///
+  /// [fotogramas] son los PNG ya pintados, cada uno con los milisegundos que
+  /// se ve; FFmpeg los une con el audio desde [inicioMs] (ver video_letra.py).
+  /// Se queda tambien en Pictures/Tumbao, con las tarjetas. Falla con
+  /// [ErrorNucleo] si no se pudo.
+  static Future<void> videoLetra({
+    required String uri,
+    required int inicioMs,
+    required int duracionMs,
+    required List<({String png, int ms})> fotogramas,
+  }) =>
+      _pedir('videoLetra', <String, dynamic>{
+        'uri': uri,
+        'inicioMs': inicioMs,
+        'duracionMs': duracionMs,
+        'fotogramas': jsonEncode(<Map<String, Object>>[
+          for (final ({String png, int ms}) f in fotogramas) <String, Object>{'png': f.png, 'ms': f.ms},
+        ]),
+      });
+
   /// Cuanto suena una cancion de la biblioteca, en LUFS. Null si no se pudo.
   static Future<double?> medirVolumen(String uri) async {
     try {
