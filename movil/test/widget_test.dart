@@ -1353,7 +1353,7 @@ void main() {
       final List<String> videos = <String>[];
       Letras.youtube = (String video) async {
         videos.add(video);
-        return (lrc: lrc, texto: '', fuente: 'LyricFind');
+        return (lrc: lrc, texto: '', fuente: 'LyricFind', completa: true);
       };
 
       final Letra letra = await buscar();
@@ -1366,7 +1366,7 @@ void main() {
 
     test('si YouTube solo la tiene de corrido, se busca una sincronizada en lrclib', () async {
       await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
-      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir\nvoy a bailar', fuente: 'LyricFind');
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir\nvoy a bailar', fuente: 'LyricFind', completa: true);
       Letras.lrclib = (String ruta, Map<String, String> consulta) async {
         pedidas.add((ruta, consulta));
         return ruta == '/api/get' ? <String, dynamic>{'syncedLyrics': lrc, 'plainLyrics': ''} : null;
@@ -1384,7 +1384,7 @@ void main() {
 
     test('de corrido de YouTube si lrclib no tiene nada mejor', () async {
       await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
-      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind');
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind', completa: true);
       final Letra letra = await buscar();
       expect(letra.sincronizada, isFalse);
       expect(letra.texto, 'Voy a reir');
@@ -1412,7 +1412,7 @@ void main() {
 
     test('la de otra version da las palabras y guarda sus tiempos para cuadrarlos', () async {
       await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
-      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind');
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind', completa: true);
       Letras.lrclib = (String ruta, Map<String, String> consulta) async => ruta != '/api/search'
           ? null
           : <dynamic>[
@@ -1435,6 +1435,54 @@ void main() {
       final Letra despues = await buscar();
       expect((despues.sincronizada, despues.desfase), (true, const Duration(seconds: 21)));
       expect((await Catalogo.instancia.letraDe(uri))!.lrc, isNot(contains('[length:')));
+    });
+
+    test('si la exacta es de corrido, se busca otra subida con tiempos', () async {
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async {
+        pedidas.add((ruta, consulta));
+        return ruta == '/api/get'
+            ? <String, dynamic>{'plainLyrics': 'voy a reir\nvoy a bailar', 'syncedLyrics': null, 'duration': 251.0}
+            : <dynamic>[
+                <String, dynamic>{'trackName': 'Vivir Mi Vida', 'artistName': 'Marc Anthony', 'duration': 252.0,
+                  'syncedLyrics': lrc},
+              ];
+      };
+      final Letra letra = await buscar();
+      expect(letra.sincronizada, isTrue, reason: 'antes se quedaba con la de corrido y no se movia');
+      expect(pedidas.map(((String, Map<String, String>) p) => p.$1), <String>['/api/get', '/api/search']);
+    });
+
+    test('si lrclib responde 503, se reintenta', () async {
+      int veces = 0;
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async {
+        if (++veces < 3) throw const HttpException('lrclib respondio 503');
+        return <String, dynamic>{'syncedLyrics': lrc};
+      };
+      expect((await buscar()).sincronizada, isTrue);
+      expect(veces, 3);
+    });
+
+    test('si una fuente falla, la de corrido se ensenia pero no se guarda', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind', completa: true);
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async =>
+          throw const HttpException('lrclib respondio 503');
+      final Letra caida = await buscar();
+      expect(caida.texto, 'Voy a reir');
+      expect(await Catalogo.instancia.letraDe(uri), isNull, reason: 'antes se quedaba de corrido para siempre');
+
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async =>
+          ruta == '/api/get' ? <String, dynamic>{'syncedLyrics': lrc} : null;
+      expect((await buscar()).sincronizada, isTrue, reason: 'la siguiente vez se vuelve a preguntar');
+      expect((await Catalogo.instancia.letraDe(uri))!.lrc, isNotEmpty);
+    });
+
+    test('la plana de YouTube porque no respondio el cliente de los tiempos no se guarda', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind', completa: false);
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async => null;
+      expect((await buscar()).texto, 'Voy a reir');
+      expect(await Catalogo.instancia.letraDe(uri), isNull);
     });
 
     test('buscar otra vez olvida lo guardado', () async {

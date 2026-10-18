@@ -263,9 +263,9 @@ def letras_lrclib() -> None:
         halladas = pedir("/api/search", {"q": f"{artista} {tema}"})
         if not isinstance(halladas, list):
             print("   búsqueda:", halladas)
-            continue
-        for d in halladas[:12]:
-            print("     ", resumen(d))
+        else:
+            for d in halladas[:12]:
+                print("     ", resumen(d))
         hallada = motor.search(SearchQuery(f"{artista} {tema}", limit=1, source="ytmusic"))
         if hallada:
             ruta = Path(__file__).resolve().parent.parent / "movil/android/app/src/main/python/letras_ytm.py"

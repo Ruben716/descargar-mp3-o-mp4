@@ -184,8 +184,10 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   etiquetas (`Elemento.partes`), no por el nombre del archivo, y descarta otro artista; si la duración difiere
   más de `margenDuracion` es otra versión (`Letra.porCuadrar`): se guarda con sus tiempos y una etiqueta
   `[length:]`, se enseña de corrido y la voz la busca a lo que difieren más 8 s (`rangoDeCuadre`). Si el ajuste
-  es claro (`seguro`, aunque sea 0 s) se da por buena con ese desfase (`Letras.cuadrar`). La posición de la letra
-  suma `inicioDelTramo`: con el fundido al compás el motor cuenta desde el corte.
+  es claro (`seguro`, aunque sea 0 s) se da por buena con ese desfase (`Letras.cuadrar`). lrclib responde 503 a
+  ratos: se reintenta (`esperaReintento`), y si una fuente falló y no hay tiempos, la letra se enseña pero **no se
+  guarda** (`guardar` de `_pedir`), o se quedaba de corrido para siempre. La posición de la letra suma
+  `inicioDelTramo`: con el fundido al compás el motor cuenta desde el corte.
 - **«Ajustar con la voz» no es reconocimiento de voz** (`voz.py`, junto al puente): mira dónde arranca algo en
   la banda de la voz en el centro de la mezcla y prueba a correr la letra ±8 s. Solo aplica si el mejor ajuste
   destaca (`CONFIANZA_MINIMA`) y le gana con claridad al mejor de los lejanos (`VENTAJA_MINIMA`): con golpes
