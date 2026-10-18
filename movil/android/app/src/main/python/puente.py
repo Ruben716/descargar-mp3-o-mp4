@@ -379,8 +379,10 @@ def analizar_audio(ruta: str) -> str:
 def sincronizar_letra(ruta: str, inicios: str) -> str:
     """Cuanto correr la letra para que vaya con la voz (ver voz.py).
 
-    [inicios] es la lista JSON de los instantes de cada verso, en ms. Nunca
-    lanza: si no se puede, la letra se queda como estaba.
+    [inicios] es la lista JSON de los instantes de cada verso, en ms, o
+    {"inicios": [...], "rango": ms} para buscar mas lejos que de costumbre
+    (una letra de otra version). Nunca lanza: si no se puede, la letra se
+    queda como estaba.
     """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -388,7 +390,12 @@ def sincronizar_letra(ruta: str, inicios: str) -> str:
     try:
         import voz
 
-        marcas = [int(t) for t in json.loads(inicios)]
+        datos = json.loads(inicios)
+        if isinstance(datos, dict):
+            marcas = [int(t) for t in datos["inicios"]]
+            rango = int(datos.get("rango", voz.RANGO_MS))
+            return _respuesta({"ok": True, **voz.sincronizar(ruta, marcas, ffmpeg=ffmpeg, rango_ms=rango)})
+        marcas = [int(t) for t in datos]
         return _respuesta({"ok": True, **voz.sincronizar(ruta, marcas, ffmpeg=ffmpeg)})
     except subprocess.TimeoutExpired:
         return _respuesta({"ok": False, "error": "El analisis tardo demasiado."})

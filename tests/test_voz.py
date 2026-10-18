@@ -115,6 +115,18 @@ class AlinearTests(unittest.TestCase):
             self.assertAlmostEqual(r["desfase"], real, delta=40, msg=f"desfase real {real}")
             self.assertGreaterEqual(r["ventaja"], voz.VENTAJA_MINIMA)
 
+    def test_una_version_con_entradilla_se_encuentra_buscando_mas_lejos(self):
+        # Un videoclip con 21 s de entrada: con el rango de siempre no se ve.
+        serie = self._entradas(0, voz_presente=False) + [0.0] * 2500
+        for t in self.INICIOS:
+            serie[(t + 21000) // 10] = 8.0
+        cerca = voz.alinear(serie, self.INICIOS)
+        self.assertNotAlmostEqual(cerca["desfase"], 21000, delta=1000)
+        lejos = voz.alinear(serie, self.INICIOS, rango_ms=29000)
+        self.assertAlmostEqual(lejos["desfase"], 21000, delta=40)
+        self.assertGreaterEqual(lejos["ventaja"], voz.VENTAJA_MINIMA)
+        self.assertGreaterEqual(lejos["confianza"], voz.CONFIANZA_MINIMA)
+
     def test_si_solo_hay_golpes_regulares_no_hay_ajuste_claro(self):
         r = voz.alinear(self._entradas(0, voz_presente=False), self.INICIOS)
         self.assertLess(r["ventaja"], voz.VENTAJA_MINIMA)
@@ -153,11 +165,13 @@ class SincronizarConFfmpegTests(unittest.TestCase):
             r = voz.sincronizar(str(cancion), [int(t * 1000) for t, _ in frases], str(FFMPEG))
             self.assertLess(abs(r["desfase"]), voz.AJUSTE_MINIMO_MS)
             self.assertFalse(r["aplicar"])
+            self.assertTrue(r["seguro"], "a la par y con voz: sus tiempos valen")
 
             base = Path(carpeta) / "base.wav"
             _cancion(base, frases, self.SEGUNDOS, con_voz=False)
             r = voz.sincronizar(str(base), inicios, str(FFMPEG))
             self.assertFalse(r["aplicar"], "sin voz no hay de donde sacar el ajuste")
+            self.assertFalse(r["seguro"])
 
 
 class PuenteSincronizarTests(unittest.TestCase):
@@ -184,13 +198,23 @@ class PuenteSincronizarTests(unittest.TestCase):
         import json
         from unittest.mock import patch
 
-        respuesta = {"desfase": 1500, "confianza": 5.0, "ventaja": 1.9, "aplicar": True}
+        respuesta = {"desfase": 1500, "confianza": 5.0, "ventaja": 1.9, "seguro": True, "aplicar": True}
         with patch.object(self.puente.shutil, "which", return_value="/bin/ffmpeg"), \
                 patch.object(voz, "sincronizar", return_value=respuesta) as sincronizar, \
                 patch.dict("sys.modules", {"voz": voz}):
             datos = json.loads(self.puente.sincronizar_letra("/tmp/x.mp3", "[1000, 2500]"))
         self.assertEqual(datos, {"ok": True, **respuesta})
         sincronizar.assert_called_once_with("/tmp/x.mp3", [1000, 2500], ffmpeg="/bin/ffmpeg")
+
+    def test_con_rango_busca_mas_lejos(self) -> None:
+        import json
+        from unittest.mock import patch
+
+        with patch.object(self.puente.shutil, "which", return_value="/bin/ffmpeg"), \
+                patch.object(voz, "sincronizar", return_value={"desfase": 0}) as sincronizar, \
+                patch.dict("sys.modules", {"voz": voz}):
+            self.puente.sincronizar_letra("/tmp/x.mp3", json.dumps({"inicios": [1000, 2500], "rango": 28000}))
+        sincronizar.assert_called_once_with("/tmp/x.mp3", [1000, 2500], ffmpeg="/bin/ffmpeg", rango_ms=28000)
 
 
 if __name__ == "__main__":

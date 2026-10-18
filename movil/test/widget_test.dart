@@ -1410,7 +1410,9 @@ void main() {
       expect(pedidas.last.$2['q'], 'Marc Anthony Vivir Mi Vida');
     });
 
-    test('la de otra version da las palabras pero sin tiempos', () async {
+    test('la de otra version da las palabras y guarda sus tiempos para cuadrarlos', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind');
       Letras.lrclib = (String ruta, Map<String, String> consulta) async => ruta != '/api/search'
           ? null
           : <dynamic>[
@@ -1418,8 +1420,21 @@ void main() {
                 'syncedLyrics': '[00:01.00] voy a reir\n[00:05.00] voy a bailar'},
             ];
       final Letra letra = await buscar();
-      expect(letra.sincronizada, isFalse);
+      expect(letra.sincronizada, isFalse, reason: 'sus tiempos irian a destiempo');
+      expect(letra.porCuadrar, isTrue, reason: 'gana a la de corrido de YouTube: trae tiempos');
+      expect(letra.otraVersion, const Duration(seconds: 49));
       expect(letra.texto, 'voy a reir\nvoy a bailar');
+      expect(Letras.rangoDeCuadre(letra), const Duration(seconds: 57));
+
+      expect((await Catalogo.instancia.letraDe(uri))!.lrc, startsWith('[length:05:00]\n'));
+      final Letra guardada = await buscar();
+      expect((guardada.porCuadrar, guardada.lineas.length), (true, 2), reason: 'al leerla sigue por cuadrar');
+
+      final Letra hecha = await Letras.cuadrar(uri, guardada, const Duration(seconds: 21));
+      expect((hecha.sincronizada, hecha.desfase), (true, const Duration(seconds: 21)));
+      final Letra despues = await buscar();
+      expect((despues.sincronizada, despues.desfase), (true, const Duration(seconds: 21)));
+      expect((await Catalogo.instancia.letraDe(uri))!.lrc, isNot(contains('[length:')));
     });
 
     test('buscar otra vez olvida lo guardado', () async {
@@ -1443,6 +1458,67 @@ void main() {
       await Catalogo.instancia.guardarLetra('content://audio/c', lrc: '[00:01.00] c', texto: '');
       await Letras.revisarGuardadas();
       expect(await Catalogo.instancia.letraDe('content://audio/c'), isNotNull, reason: 'solo la primera vez');
+    });
+
+    test('quien ya reviso, se le vuelven a buscar solo las de corrido', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{Letras.claveRevision: true});
+      await Catalogo.instancia.guardarLetra('content://audio/a', lrc: '[00:01.00] a', texto: '');
+      await Catalogo.instancia.guardarLetra('content://audio/b', lrc: '', texto: 'de corrido');
+
+      await Letras.revisarGuardadas();
+      expect(await Catalogo.instancia.letraDe('content://audio/a'), isNotNull);
+      expect(await Catalogo.instancia.letraDe('content://audio/b'), isNull);
+
+      await Catalogo.instancia.guardarLetra('content://audio/c', lrc: '', texto: 'otra');
+      await Letras.revisarGuardadas();
+      expect(await Catalogo.instancia.letraDe('content://audio/c'), isNotNull, reason: 'una sola vez');
+    });
+
+    testWidgets('la de otra version se cuadra con la voz buscando mas lejos y ya se mueve',
+        (WidgetTester tester) async {
+      const Elemento cancion = Elemento(
+        nombre: 'Marc Anthony - Vivir Mi Vida [v1].opus', uri: uri, duracion: 251, tamano: 1, audio: true);
+      final String versos = <String>[for (int i = 0; i < 8; i++) '[00:${(10 + 4 * i).toString().padLeft(2, '0')}.00] verso $i']
+          .join('\n');
+      await tester.runAsync(() => Catalogo.instancia.guardarLetra(uri, lrc: '[length:05:00]\n$versos', texto: ''));
+      final List<MethodCall> pedidasVoz = <MethodCall>[];
+      String respuesta = '{"ok":true,"desfase":0,"confianza":2.1,"ventaja":1.05,"seguro":false,"aplicar":false}';
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
+        if (llamada.method != 'sincronizarLetra') return '{"ok":true}';
+        pedidasVoz.add(llamada);
+        return respuesta;
+      });
+      Future<void> abrir() async {
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpWidget(
+            MaterialApp(theme: Tema.construir(), home: const Scaffold(body: PanelLetras(elemento: cancion))));
+        for (int i = 0; i < 6; i++) {
+          await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+          await tester.pump();
+        }
+      }
+
+      await abrir();
+      final Map<String, dynamic> pedido = jsonDecode(
+          (pedidasVoz.single.arguments as Map<dynamic, dynamic>)['inicios'] as String) as Map<String, dynamic>;
+      expect(pedido['rango'], 57000, reason: 'difieren 49 s, mas el margen de siempre');
+      expect(find.text('Cuadrar con la voz'), findsOneWidget, reason: 'sin un ajuste claro sigue de corrido');
+      expect(find.text('verso 3'), findsOneWidget);
+
+      // A mano, y esta vez la voz si lo ve claro: aunque sea a 0 s, ya vale.
+      respuesta = '{"ok":true,"desfase":19000,"confianza":6.0,"ventaja":1.8,"seguro":true,"aplicar":true}';
+      await tester.tap(find.text('Cuadrar con la voz'));
+      for (int i = 0; i < 6; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+        await tester.pump();
+      }
+      expect(find.textContaining('Letra cuadrada con la voz'), findsOneWidget);
+      expect(find.text('+19.0 s'), findsOneWidget, reason: 'ya sincronizada, con su ajuste');
+      expect(find.text('Cuadrar con la voz'), findsNothing);
+      final ({String lrc, String texto, int desfase})? guardada =
+          await tester.runAsync<({String lrc, String texto, int desfase})?>(() => Catalogo.instancia.letraDe(uri));
+      expect((guardada!.desfase, guardada.lrc.contains('[length:')), (19000, false));
     });
 
     testWidgets('la voz cuadra la letra sola y tocar un verso salta con el ajuste', (WidgetTester tester) async {

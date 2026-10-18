@@ -25,6 +25,7 @@ SALTO = 80                # 10 ms por trama
 CPS = TASA // SALTO
 MAX_SEGUNDOS = 600
 RANGO_MS = 8000           # se prueba a correr la letra hasta 8 s a cada lado
+RANGO_MAXIMO_MS = 60000   # con una letra de otra version (ver letras.dart), hasta 1 min
 PASO_MS = 20
 ANTES = 15                # el verso puede marcarse hasta 150 ms antes o despues
 DESPUES = 15              # de que cante: la ventana es simetrica para no torcer el ajuste
@@ -104,11 +105,12 @@ def _maximos(serie: list[float], antes: int, despues: int) -> list[float]:
     return salida
 
 
-def alinear(entradas: list[float], inicios_ms: Sequence[int]) -> dict[str, Any]:
+def alinear(entradas: list[float], inicios_ms: Sequence[int], rango_ms: int = RANGO_MS) -> dict[str, Any]:
     """Cuanto correr la letra para que los versos caigan en entradas de voz.
 
     Devuelve el desfase en milisegundos (positivo retrasa la letra, como el de
-    la app) y cuanto destaca sobre los demas ajustes probados.
+    la app) y cuanto destaca sobre los demas ajustes probados, de los que van
+    de -[rango_ms] a +[rango_ms].
     """
     if len(inicios_ms) < VERSOS_MINIMOS or not entradas:
         return {"desfase": 0, "confianza": 0.0, "ventaja": 0.0}
@@ -123,7 +125,8 @@ def alinear(entradas: list[float], inicios_ms: Sequence[int]) -> dict[str, Any]:
                 total += picos[i]
         return total / len(inicios_ms)
 
-    pruebas = [(d, puntuacion(d)) for d in range(-RANGO_MS, RANGO_MS + 1, PASO_MS)]
+    rango = max(PASO_MS, min(int(rango_ms), RANGO_MAXIMO_MS))
+    pruebas = [(d, puntuacion(d)) for d in range(-rango, rango + 1, PASO_MS)]
     valores = [p for _, p in pruebas]
     media = sum(valores) / len(valores)
     desviacion = math.sqrt(sum((v - media) ** 2 for v in valores) / len(valores))
@@ -146,16 +149,20 @@ def alinear(entradas: list[float], inicios_ms: Sequence[int]) -> dict[str, Any]:
     return {"desfase": mejor, "confianza": round(confianza, 2), "ventaja": round(ventaja, 2)}
 
 
-def sincronizar(ruta: str, inicios_ms: Sequence[int], ffmpeg: str, limite: float = 120) -> dict[str, Any]:
-    """Analiza el archivo y dice cuanto correr la letra; 0 si no esta claro."""
+def sincronizar(
+    ruta: str, inicios_ms: Sequence[int], ffmpeg: str, limite: float = 120, rango_ms: int = RANGO_MS,
+) -> dict[str, Any]:
+    """Analiza el archivo y dice cuanto correr la letra; 0 si no esta claro.
+
+    «seguro» dice si el ajuste destaca, aunque sea quedarse como esta: con una
+    letra de otra version, eso confirma que sus tiempos valen. «aplicar» pide
+    ademas que merezca la pena moverla.
+    """
     proceso = subprocess.run(orden_ffmpeg(ffmpeg, ruta), capture_output=True, timeout=limite, check=False)
     if proceso.returncode != 0:
         raise RuntimeError(proceso.stderr.decode("utf-8", "replace").strip()[-300:] or "FFmpeg fallo")
     centro, lados = energias(proceso.stdout)
-    resultado = alinear(entradas_de_voz(centro, lados), inicios_ms)
-    claro = (
-        resultado["confianza"] >= CONFIANZA_MINIMA
-        and resultado.get("ventaja", 0) >= VENTAJA_MINIMA
-        and abs(resultado["desfase"]) >= AJUSTE_MINIMO_MS
-    )
-    return {**resultado, "aplicar": claro}
+    resultado = alinear(entradas_de_voz(centro, lados), inicios_ms, rango_ms)
+    seguro = resultado["confianza"] >= CONFIANZA_MINIMA and resultado.get("ventaja", 0) >= VENTAJA_MINIMA
+    aplicar = seguro and abs(resultado["desfase"]) >= AJUSTE_MINIMO_MS
+    return {**resultado, "seguro": seguro, "aplicar": aplicar}

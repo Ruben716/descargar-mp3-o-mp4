@@ -323,6 +323,11 @@ class Catalogo {
     await (await _abierta).delete(_tablaLetras, where: 'uri = ?', whereArgs: <Object>[uri]);
   }
 
+  /// Olvida las letras guardadas sin tiempos y sin ajustar: las de corrido y
+  /// las que no se encontraron. Devuelve cuantas.
+  Future<int> olvidarLetrasDeCorrido() async =>
+      (await _abierta).delete(_tablaLetras, where: "lrc = '' AND desfase = 0");
+
   /// Olvida las letras guardadas que nadie ajusto a mano. Devuelve cuantas.
   Future<int> olvidarLetrasSinAjustar() async =>
       (await _abierta).delete(_tablaLetras, where: 'desfase = 0');

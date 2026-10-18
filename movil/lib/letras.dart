@@ -22,13 +22,15 @@ class Letra {
     required this.lineas,
     required this.texto,
     this.desfase = Duration.zero,
+    this.otraVersion = Duration.zero,
   });
 
   /// Letra vacia: se busco y no habia.
   const Letra.ninguna()
       : lineas = const <LineaLetra>[],
         texto = '',
-        desfase = Duration.zero;
+        desfase = Duration.zero,
+        otraVersion = Duration.zero;
 
   /// Las lineas con su marca de tiempo. Vacio si solo hay letra sin sincronizar.
   final List<LineaLetra> lineas;
@@ -43,11 +45,22 @@ class Letra {
   /// la letra, negativo la adelanta.
   final Duration desfase;
 
+  /// Cuanto dura de mas la version de la que son los tiempos (de menos si es
+  /// negativo); cero si es la misma que el archivo. Con otra version los
+  /// tiempos no se dan por buenos hasta cuadrarlos con la voz ([porCuadrar]).
+  final Duration otraVersion;
+
   Letra conDesfase(Duration nuevo) =>
-      Letra(lineas: lineas, texto: texto, desfase: nuevo);
+      Letra(lineas: lineas, texto: texto, desfase: nuevo, otraVersion: otraVersion);
+
+  /// Ya cuadrada con la voz: sus tiempos valen, corridos [desfase].
+  Letra cuadrada(Duration desfase) => Letra(lineas: lineas, texto: texto, desfase: desfase);
 
   bool get vacia => lineas.isEmpty && texto.trim().isEmpty;
-  bool get sincronizada => lineas.isNotEmpty;
+  bool get sincronizada => lineas.isNotEmpty && otraVersion == Duration.zero;
+
+  /// Trae tiempos, pero de otra version: hasta cuadrarlos se ensenia de corrido.
+  bool get porCuadrar => lineas.isNotEmpty && otraVersion != Duration.zero;
 
   /// Que linea toca en [instante], o -1 si aun no empezo.
   ///
@@ -91,6 +104,10 @@ class Letras {
   /// guardadas para siempre. La primera vez con esta version se olvidan las
   /// guardadas que no se ajustaron a mano, para buscarlas otra vez.
   static const String claveRevision = 'letras_revisadas_v2';
+
+  /// La segunda revision: las que se guardaron de corrido por ser de otra
+  /// version se vuelven a buscar, ahora con sus tiempos para cuadrarlos.
+  static const String claveRevisionDeCorrido = 'letras_revisadas_v3';
 
   static const String _servidor = 'lrclib.net';
 
@@ -236,9 +253,28 @@ class Letras {
   static const int margenDuracion = 20;
 
   /// Si [candidata] es otra version que [duracion] (ver [margenDuracion]).
-  static bool otraVersion(Map<String, dynamic> candidata, num duracion) {
-    final num suya = (candidata['duration'] as num?) ?? 0;
-    return duracion > 0 && suya > 0 && (suya - duracion).abs() > margenDuracion;
+  static bool otraVersion(Map<String, dynamic> candidata, num duracion) =>
+      diferencia((candidata['duration'] as num?) ?? 0, duracion) != Duration.zero;
+
+  /// Cuanto dura de mas la version de [suya] segundos que el archivo de
+  /// [duracion]; cero si se sabe poco o caben en [margenDuracion].
+  static Duration diferencia(num suya, num duracion) {
+    if (duracion <= 0 || suya <= 0 || (suya - duracion).abs() <= margenDuracion) return Duration.zero;
+    return Duration(milliseconds: ((suya - duracion) * 1000).round());
+  }
+
+  /// Hasta donde se busca el ajuste de una letra de otra version: lo que
+  /// difieren, mas el margen de siempre.
+  static Duration rangoDeCuadre(Letra letra) => letra.otraVersion.abs() + const Duration(seconds: 8);
+
+  /// La etiqueta LRC con la duracion de la version de los tiempos. Se guarda
+  /// con la letra para saber, al leerla, que hay que cuadrarla.
+  static final RegExp _largo = RegExp(r'^\[length:\s*(\d+):(\d{2})(?:\.(\d+))?\]', multiLine: true);
+
+  static num? largoDe(String lrc) {
+    final RegExpMatch? m = _largo.firstMatch(lrc);
+    if (m == null) return null;
+    return int.parse(m.group(1)!) * 60 + int.parse(m.group(2)!);
   }
 
   /// La letra de una pista: primero de lo guardado, si no de la red.
@@ -261,10 +297,12 @@ class Letras {
     final ({String lrc, String texto, int desfase})? guardada =
         await Catalogo.instancia.letraDe(uri);
     if (guardada != null) {
+      final List<LineaLetra> lineas = analizarLrc(guardada.lrc);
       return Letra(
-        lineas: analizarLrc(guardada.lrc),
-        texto: guardada.texto,
+        lineas: lineas,
+        texto: guardada.texto.trim().isNotEmpty ? guardada.texto : lineas.map((LineaLetra l) => l.texto).join('\n'),
         desfase: Duration(milliseconds: guardada.desfase),
+        otraVersion: diferencia(largoDe(guardada.lrc) ?? 0, duracion),
       );
     }
 
@@ -281,19 +319,44 @@ class Letras {
     );
     await Catalogo.instancia.guardarLetra(
       uri,
-      lrc: traida.lineas.isEmpty ? '' : _aLrc(traida.lineas),
+      lrc: traida.lineas.isEmpty
+          ? ''
+          : traida.porCuadrar
+              ? '${_etiquetaLargo(duracion, traida.otraVersion)}\n${_aLrc(traida.lineas)}'
+              : _aLrc(traida.lineas),
       texto: traida.texto,
     );
     return traida;
+  }
+
+  /// Da por buenos los tiempos de una letra de otra version, corridos
+  /// [desfase]: lo ha confirmado la voz. Se guarda ya sin la etiqueta.
+  static Future<Letra> cuadrar(String uri, Letra letra, Duration desfase) async {
+    final Letra hecha = letra.cuadrada(desfase);
+    await Catalogo.instancia.guardarLetra(uri, lrc: _aLrc(letra.lineas), texto: letra.texto);
+    await Catalogo.instancia.guardarDesfase(uri, desfase.inMilliseconds);
+    return hecha;
+  }
+
+  static String _etiquetaLargo(num duracion, Duration otraVersion) {
+    final int segundos = (duracion + otraVersion.inMilliseconds / 1000).round();
+    return '[length:${(segundos ~/ 60).toString().padLeft(2, '0')}:${(segundos % 60).toString().padLeft(2, '0')}]';
   }
 
   /// Una sola vez por instalacion, al arrancar (ver [claveRevision]).
   static Future<void> revisarGuardadas() async {
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(claveRevision) ?? false) return;
-      await Catalogo.instancia.olvidarLetrasSinAjustar();
+      if (!(prefs.getBool(claveRevision) ?? false)) {
+        // Esta ya se lleva tambien las de corrido.
+        await Catalogo.instancia.olvidarLetrasSinAjustar();
+      } else if (!(prefs.getBool(claveRevisionDeCorrido) ?? false)) {
+        await Catalogo.instancia.olvidarLetrasDeCorrido();
+      } else {
+        return;
+      }
       await prefs.setBool(claveRevision, true);
+      await prefs.setBool(claveRevisionDeCorrido, true);
     } catch (_) {
       // Si no se puede, se intenta la proxima vez que se abra la app.
     }
@@ -322,7 +385,9 @@ class Letras {
       if (!deYoutube.vacia) deCorrido = deYoutube;
     }
     final Letra deLrclib = await _deLrclib(partes, consulta, duracion);
-    if (deLrclib.sincronizada) return deLrclib;
+    // La de otra version tambien gana a la de corrido: trae tiempos, y la voz
+    // puede cuadrarlos.
+    if (deLrclib.sincronizada || deLrclib.porCuadrar) return deLrclib;
     return deCorrido ?? deLrclib;
   }
 
@@ -379,16 +444,19 @@ class Letras {
     final Map<String, dynamic>? elegida =
         mejorCandidata(datos, duracion, tema: partes.tema, artista: partes.artista);
     if (elegida == null) return const Letra.ninguna();
-    return otraVersion(elegida, duracion) ? _soloTexto(_desde(elegida)) : _desde(elegida);
+    final Letra letra = _desde(elegida);
+    final Duration otra = diferencia((elegida['duration'] as num?) ?? 0, duracion);
+    return otra == Duration.zero ? letra : _deOtraVersion(letra, otra);
   }
 
-  /// La letra de corrido, sin tiempos: para cuando los que trae son de otra
-  /// version y harian ir la letra a destiempo.
-  static Letra _soloTexto(Letra letra) => Letra(
-        lineas: const <LineaLetra>[],
+  /// Una letra cuyos tiempos son de otra version: irian a destiempo, asi que
+  /// se ensenia de corrido hasta que la voz diga cuanto correrlos.
+  static Letra _deOtraVersion(Letra letra, Duration otra) => Letra(
+        lineas: letra.lineas,
         texto: letra.texto.trim().isNotEmpty
             ? letra.texto
             : letra.lineas.map((LineaLetra l) => l.texto).join('\n'),
+        otraVersion: letra.lineas.isEmpty ? Duration.zero : otra,
       );
 
   static Letra _desde(Map<String, dynamic> datos) => Letra(
