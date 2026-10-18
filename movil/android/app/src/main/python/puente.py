@@ -396,6 +396,24 @@ def sincronizar_letra(ruta: str, inicios: str) -> str:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
+def video_letra(audio: str, inicio_ms: int, duracion_ms: int, fotogramas_json: str, salida: str) -> str:
+    """El video de un trozo de la cancion con su letra (ver video_letra.py).
+
+    [fotogramas_json] es la lista de los PNG que pinto Flutter, cada uno con
+    los milisegundos que se ve: [{"png": ruta, "ms": 3200}, ...]. Nunca lanza.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return _respuesta({"ok": False, "error": "FFmpeg no esta disponible."})
+    try:
+        import video_letra as video
+
+        fotogramas = [(str(f["png"]), int(f["ms"])) for f in json.loads(fotogramas_json)]
+        return _respuesta(video.crear(ffmpeg, audio, int(inicio_ms), int(duracion_ms), fotogramas, salida))
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
 def letra_youtube(video_id: str) -> str:
     """La letra de YouTube Music por el id del video (ver letras_ytm.py).
 

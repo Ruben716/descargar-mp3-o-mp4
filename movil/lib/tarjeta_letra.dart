@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -9,6 +10,7 @@ import 'nucleo.dart';
 import 'paleta.dart';
 import 'portadas.dart';
 import 'tema.dart';
+import 'video_letra.dart';
 
 /// La forma de la tarjeta: alta para las historias, cuadrada para lo demas.
 enum FormatoTarjeta {
@@ -272,14 +274,15 @@ List<String> versosDesde(List<String> versos, int indice, int cuantos) {
   return salida;
 }
 
-/// La tarjeta que hay bajo [clave], en PNG a [TarjetaLetra.anchoExportado] px.
+/// La tarjeta que hay bajo [clave], en PNG a [ancho] px (la del video de la
+/// letra, a [FotogramaVideo.anchoExportado]).
 ///
 /// El [RepaintBoundary] se pinta a su tamano propio, sin la escala de la
 /// vista previa que lo encoge: por eso basta con multiplicar su ancho.
-Future<Uint8List?> capturarTarjeta(GlobalKey clave) async {
+Future<Uint8List?> capturarTarjeta(GlobalKey clave, {double ancho = TarjetaLetra.anchoExportado}) async {
   final RenderObject? objeto = clave.currentContext?.findRenderObject();
   if (objeto is! RenderRepaintBoundary || objeto.size.isEmpty) return null;
-  final ui.Image imagen = await objeto.toImage(pixelRatio: TarjetaLetra.anchoExportado / objeto.size.width);
+  final ui.Image imagen = await objeto.toImage(pixelRatio: ancho / objeto.size.width);
   try {
     final ByteData? datos = await imagen.toByteData(format: ui.ImageByteFormat.png);
     return datos?.buffer.asUint8List();
@@ -288,12 +291,19 @@ Future<Uint8List?> capturarTarjeta(GlobalKey clave) async {
   }
 }
 
-/// Abre la hoja para compartir una frase de la letra como tarjeta.
+/// Abre la hoja para compartir una frase de la letra como tarjeta o, si la
+/// letra esta sincronizada, como video.
+///
+/// [instantes] son las marcas de la letra, alineadas con [versos], y
+/// [desfase] su ajuste de sincronia: el verso se canta en el archivo en
+/// `instantes[i] + desfase`. Sin marcas solo se ofrece la imagen.
 Future<void> abrirCompartirLetra(
   BuildContext context, {
   required Elemento elemento,
   required List<String> versos,
   required int indice,
+  List<Duration>? instantes,
+  Duration desfase = Duration.zero,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -301,15 +311,26 @@ Future<void> abrirCompartirLetra(
     showDragHandle: true,
     backgroundColor: Tema.superficie,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
-    builder: (_) => HojaCompartirLetra(elemento: elemento, versos: versos, indice: indice),
+    builder: (_) => HojaCompartirLetra(
+      elemento: elemento,
+      versos: versos,
+      indice: indice,
+      instantes: instantes,
+      desfase: desfase,
+    ),
   );
 }
+
+/// Como se comparte la frase: tarjeta quieta o video con el audio.
+enum ModoCompartir { imagen, video }
 
 class HojaCompartirLetra extends StatefulWidget {
   const HojaCompartirLetra({
     required this.elemento,
     required this.versos,
     required this.indice,
+    this.instantes,
+    this.desfase = Duration.zero,
     super.key,
   });
 
@@ -317,12 +338,18 @@ class HojaCompartirLetra extends StatefulWidget {
   final List<String> versos;
   final int indice;
 
+  /// Las marcas de la letra sincronizada, alineadas con [versos]. null si no
+  /// lo esta: entonces no hay video.
+  final List<Duration>? instantes;
+  final Duration desfase;
+
   @override
   State<HojaCompartirLetra> createState() => _HojaCompartirLetraState();
 }
 
 class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
   final GlobalKey _clave = GlobalKey();
+  final GlobalKey _claveVideo = GlobalKey();
 
   FormatoTarjeta _formato = FormatoTarjeta.historia;
   FondoTarjeta _fondo = FondoTarjeta.cancion;
@@ -330,19 +357,110 @@ class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
   late ColorScheme? _colores = Paleta.guardada(widget.elemento.uri);
   bool _enviando = false;
 
+  ModoCompartir _modo = ModoCompartir.imagen;
+  DuracionVideo _duracion = DuracionVideo.corta;
+
+  /// La caratula para el fondo del video; null mientras no llega o si no hay.
+  late ImageProvider? _portada = _proveedor(Nucleo.caratulaGuardada(widget.elemento.uri));
+
+  /// Que fotograma se esta pintando para el video; con todos ya pintados,
+  /// se estan uniendo.
+  int _pintado = 0;
+
   /// Cuantos versos con texto hay desde el elegido, hasta el maximo.
   late final int _disponibles =
       versosDesde(widget.versos, widget.indice, TarjetaLetra.maximoVersos).length;
+
+  /// El video se ofrece solo si hay marcas y el verso deja un trozo que valga.
+  late final bool _admiteVideo = _planDe(DuracionVideo.corta) != null;
 
   @override
   void initState() {
     super.initState();
     _cargarColores();
+    _cargarPortada();
   }
 
   Future<void> _cargarColores() async {
     final ColorScheme sacada = await Paleta.de(widget.elemento.uri);
     if (mounted && sacada != _colores) setState(() => _colores = sacada);
+  }
+
+  static ImageProvider? _proveedor(Uint8List? datos) =>
+      datos == null || datos.isEmpty ? null : MemoryImage(datos);
+
+  Future<void> _cargarPortada() async {
+    if (_portada != null) return;
+    final ImageProvider? traida = _proveedor(await Nucleo.caratula(widget.elemento.uri));
+    if (mounted && traida != null) setState(() => _portada = traida);
+  }
+
+  PlanVideo? _planDe(DuracionVideo duracion) {
+    final List<Duration>? instantes = widget.instantes;
+    if (instantes == null) return null;
+    return planificarVideo(
+      versos: widget.versos,
+      instantes: instantes,
+      indice: widget.indice,
+      duracion: duracion.tiempo,
+      desfase: widget.desfase,
+      total: Duration(milliseconds: (widget.elemento.duracion * 1000).round()),
+    );
+  }
+
+  /// Pinta cada fotograma en la vista previa, lo guarda en PNG y se los pasa
+  /// a FFmpeg con el trozo de audio. Al acabar, como con la imagen, se
+  /// comparte y se cierra la hoja; si falla, se cierra y se avisa.
+  Future<void> _crearVideo() async {
+    final PlanVideo? plan = _planDe(_duracion);
+    if (_enviando || plan == null) return;
+    setState(() {
+      _enviando = true;
+      _pintado = 0;
+    });
+    final NavigatorState navegador = Navigator.of(context);
+    final ScaffoldMessengerState? avisos = ScaffoldMessenger.maybeOf(context);
+    final ImageProvider? portada = _portada;
+    Directory? carpeta;
+    try {
+      // Que la caratula este ya descodificada: si no, el primer fotograma
+      // podria salir sin ella.
+      if (portada != null) await precacheImage(portada, context);
+      carpeta = await VideoLetra.carpetaNueva();
+      final List<({String png, int ms})> fotogramas = <({String png, int ms})>[];
+      for (int i = 0; i < plan.tramos.length; i++) {
+        if (!mounted) return;
+        setState(() => _pintado = i);
+        await WidgetsBinding.instance.endOfFrame;
+        final Uint8List? png = await capturarTarjeta(_claveVideo, ancho: FotogramaVideo.anchoExportado);
+        if (png == null) throw const ErrorNucleo('No se pudo pintar el video.');
+        final File archivo = File('${carpeta.path}/$i.png');
+        await archivo.writeAsBytes(png, flush: true);
+        fotogramas.add((png: archivo.path, ms: plan.tramos[i].duracion.inMilliseconds));
+      }
+      if (mounted) setState(() => _pintado = plan.tramos.length);
+      await Nucleo.videoLetra(
+        uri: widget.elemento.uri,
+        inicioMs: plan.inicio.inMilliseconds,
+        duracionMs: plan.duracion.inMilliseconds,
+        fotogramas: fotogramas,
+      );
+      if (mounted) navegador.pop();
+    } catch (_) {
+      if (!mounted) return;
+      // El aviso se daria debajo de la hoja, donde no se ve: primero se cierra.
+      navegador.pop();
+      avisos?.showSnackBar(const SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text('No se pudo crear el video.'),
+      ));
+    } finally {
+      try {
+        await carpeta?.delete(recursive: true);
+      } catch (_) {
+        // Queda en la cache, que Android vacia cuando le hace falta.
+      }
+    }
   }
 
   Future<void> _compartir() async {
@@ -367,6 +485,7 @@ class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
   }
 
   Widget _vistaPrevia(double altoMaximo) {
+    if (_modo == ModoCompartir.video) return _vistaVideo(altoMaximo);
     final TarjetaLetra tarjeta = TarjetaLetra(
       elemento: widget.elemento,
       versos: versosDesde(widget.versos, widget.indice, _cuantos),
@@ -374,11 +493,36 @@ class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
       fondo: _fondo,
       colores: _colores,
     );
+    return _marcoPrevia(altoMaximo, _formato.proporcion, RepaintBoundary(key: _clave, child: tarjeta));
+  }
+
+  /// El primer fotograma del video; mientras se hace, el que se esta pintando.
+  Widget _vistaVideo(double altoMaximo) {
+    final PlanVideo? plan = _planDe(_duracion);
+    if (plan == null || plan.tramos.isEmpty) return SizedBox(height: altoMaximo);
+    final TramoVideo tramo = plan.tramos[_enviando ? min(_pintado, plan.tramos.length - 1) : 0];
+    return _marcoPrevia(
+      altoMaximo,
+      FotogramaVideo.ancho / FotogramaVideo.alto,
+      Stack(
+        children: <Widget>[
+          RepaintBoundary(
+            key: _claveVideo,
+            child: FotogramaVideo(elemento: widget.elemento, tramo: tramo, colores: _colores, portada: _portada),
+          ),
+          // Fuera del RepaintBoundary: la de verdad la pinta FFmpeg con el audio.
+          Positioned.fromRect(rect: FotogramaVideo.zonaOnda, child: const OndaDeMuestra()),
+        ],
+      ),
+    );
+  }
+
+  Widget _marcoPrevia(double altoMaximo, double proporcion, Widget lienzo) {
     return SizedBox(
       height: altoMaximo,
       child: Center(
         child: AspectRatio(
-          aspectRatio: _formato.proporcion,
+          aspectRatio: proporcion,
           child: DecoratedBox(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
@@ -390,9 +534,7 @@ class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
             // del RepaintBoundary y la tarjeta sale con sus esquinas rectas.
             child: ClipRRect(
               borderRadius: BorderRadius.circular(18),
-              child: FittedBox(
-                child: RepaintBoundary(key: _clave, child: tarjeta),
-              ),
+              child: FittedBox(child: lienzo),
             ),
           ),
         ),
@@ -434,59 +576,125 @@ class _HojaCompartirLetraState extends State<HojaCompartirLetra> {
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 20),
             ),
             const SizedBox(height: 16),
+            if (_admiteVideo) ...<Widget>[
+              SegmentedButton<ModoCompartir>(
+                showSelectedIcon: false,
+                segments: const <ButtonSegment<ModoCompartir>>[
+                  ButtonSegment<ModoCompartir>(
+                    value: ModoCompartir.imagen,
+                    label: Text('Imagen'),
+                    icon: Icon(Icons.image_outlined),
+                  ),
+                  ButtonSegment<ModoCompartir>(
+                    value: ModoCompartir.video,
+                    label: Text('Video'),
+                    icon: Icon(Icons.movie_outlined),
+                  ),
+                ],
+                selected: <ModoCompartir>{_modo},
+                onSelectionChanged:
+                    _enviando ? null : (Set<ModoCompartir> s) => setState(() => _modo = s.first),
+              ),
+              const SizedBox(height: 16),
+            ],
             _vistaPrevia(altoVista),
             const SizedBox(height: 20),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final FormatoTarjeta f in FormatoTarjeta.values)
-                  ChoiceChip(
-                    avatar: Icon(f.icono, size: 18),
-                    label: Text(f.titulo),
-                    selected: _formato == f,
-                    onSelected: (_) => setState(() => _formato = f),
-                  ),
-                if (_cuantos < _disponibles)
-                  ActionChip(
-                    avatar: const Icon(Icons.add_rounded, size: 18),
-                    label: const Text('Verso siguiente'),
-                    onPressed: () => setState(() => _cuantos++),
-                  ),
-                if (_cuantos > 1)
-                  ActionChip(
-                    avatar: const Icon(Icons.remove_rounded, size: 18),
-                    label: const Text('Quitar verso'),
-                    onPressed: () => setState(() => _cuantos--),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final FondoTarjeta f in FondoTarjeta.values)
-                  ChoiceChip(
-                    avatar: _muestra(f),
-                    showCheckmark: false,
-                    label: Text(f.titulo),
-                    selected: _fondo == f,
-                    onSelected: (_) => setState(() => _fondo = f),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              onPressed: _enviando ? null : _compartir,
-              icon: _enviando
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.ios_share_rounded),
-              label: const Text('Compartir'),
-            ),
+            ...(_modo == ModoCompartir.video ? _ajustesVideo() : _ajustesImagen()),
           ],
         ),
       ),
     );
   }
+
+  List<Widget> _ajustesImagen() => <Widget>[
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final FormatoTarjeta f in FormatoTarjeta.values)
+              ChoiceChip(
+                avatar: Icon(f.icono, size: 18),
+                label: Text(f.titulo),
+                selected: _formato == f,
+                onSelected: (_) => setState(() => _formato = f),
+              ),
+            if (_cuantos < _disponibles)
+              ActionChip(
+                avatar: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Verso siguiente'),
+                onPressed: () => setState(() => _cuantos++),
+              ),
+            if (_cuantos > 1)
+              ActionChip(
+                avatar: const Icon(Icons.remove_rounded, size: 18),
+                label: const Text('Quitar verso'),
+                onPressed: () => setState(() => _cuantos--),
+              ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: <Widget>[
+            for (final FondoTarjeta f in FondoTarjeta.values)
+              ChoiceChip(
+                avatar: _muestra(f),
+                showCheckmark: false,
+                label: Text(f.titulo),
+                selected: _fondo == f,
+                onSelected: (_) => setState(() => _fondo = f),
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        FilledButton.icon(
+          onPressed: _enviando ? null : _compartir,
+          icon: _enviando ? const _Girando() : const Icon(Icons.ios_share_rounded),
+          label: const Text('Compartir'),
+        ),
+      ];
+
+  List<Widget> _ajustesVideo() {
+    final PlanVideo? plan = _planDe(_duracion);
+    final int versos = plan?.tramos.length ?? 0;
+    final int segundos = ((plan?.duracion.inMilliseconds ?? 0) / 1000).round();
+    final String avance = plan == null || _pintado >= versos
+        ? 'Uniendo el video'
+        : 'Pintando ${_pintado + 1} de $versos';
+    return <Widget>[
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: <Widget>[
+          for (final DuracionVideo d in DuracionVideo.values)
+            ChoiceChip(
+              label: Text(d.titulo),
+              selected: _duracion == d,
+              onSelected: _enviando ? null : (_) => setState(() => _duracion = d),
+            ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      Text(
+        '$versos ${versos == 1 ? 'verso' : 'versos'} en $segundos s, con el audio de ese trozo.',
+        style: const TextStyle(color: Tema.textoTenue, fontSize: 12.5),
+      ),
+      const SizedBox(height: 20),
+      FilledButton.icon(
+        onPressed: _enviando ? null : _crearVideo,
+        icon: _enviando ? const _Girando() : const Icon(Icons.movie_creation_outlined),
+        label: Text(_enviando ? avance : 'Crear video'),
+      ),
+    ];
+  }
+}
+
+/// La rueda de espera dentro de un boton.
+class _Girando extends StatelessWidget {
+  const _Girando();
+
+  @override
+  Widget build(BuildContext context) =>
+      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
 }
