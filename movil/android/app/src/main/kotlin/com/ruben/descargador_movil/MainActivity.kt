@@ -247,6 +247,14 @@ class MainActivity : AudioServiceActivity() {
                         val inicios = llamada.argument<String>("inicios").orEmpty()
                         enHilo(respuesta) { puente -> sincronizarLetra(puente, uri, inicios) }
                     }
+                    // Un trozo de la cancion con su letra, en MP4; los fotogramas los pinta Flutter.
+                    "videoLetra" -> videoLetra(
+                        llamada.argument<String>("uri").orEmpty(),
+                        (llamada.argument<Any>("inicioMs") as? Number)?.toLong() ?: 0L,
+                        (llamada.argument<Any>("duracionMs") as? Number)?.toLong() ?: 0L,
+                        llamada.argument<String>("fotogramas").orEmpty(),
+                        respuesta,
+                    )
                     // La tarjeta de una frase de la letra, ya en PNG.
                     "compartirImagen" -> compartirImagen(
                         llamada.argument<ByteArray>("png") ?: ByteArray(0),
@@ -630,6 +638,128 @@ class MainActivity : AudioServiceActivity() {
             } catch (error: Throwable) {
                 // La actividad ya no esta; no debe tumbar el hilo.
             }
+        }
+    }
+
+    /**
+     * Hace el video de un trozo de la cancion con su letra y lo manda a otra app.
+     *
+     * Como [analizarAudio]: FFmpeg no lee un content://, asi que el audio se
+     * copia a la cache, y el hilo va con prioridad de fondo para no cortar lo
+     * que suena. video_letra.py une los fotogramas de Flutter con el audio; el
+     * MP4 se guarda con MediaStore, como la imagen de [compartirImagen], y el
+     * selector se abre en el hilo principal. Ni la copia ni el MP4 de la cache
+     * se quedan: lo que vale es lo guardado.
+     *
+     * Va a Pictures/Tumbao, con las tarjetas, y no a Movies/Tumbao: esa es una
+     * carpeta de la biblioteca ([CARPETAS_VIDEO]), y el video saldria entre lo
+     * descargado y [mudarVideosADcim] se lo llevaria a DCIM.
+     */
+    private fun videoLetra(
+        uri: String,
+        inicioMs: Long,
+        duracionMs: Long,
+        fotogramas: String,
+        respuesta: MethodChannel.Result,
+    ) {
+        if (uri.isEmpty() || duracionMs <= 0 || fotogramas.isEmpty()) {
+            respuesta.success(fallo("No hay video que hacer."))
+            return
+        }
+        thread {
+            var salida = fallo("No se pudo hacer el video.")
+            var video: Uri? = null
+            val marca = System.currentTimeMillis()
+            val nombre = "tumbao-letra-$marca.mp4"
+            val copia = File(cacheDir, "video_letra_$marca.tmp")
+            val mp4 = File(cacheDir, nombre)
+            try {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                val entrada = contentResolver.openInputStream(Uri.parse(uri))
+                    ?: throw IllegalStateException("No se pudo abrir la cancion.")
+                entrada.use { origen -> copia.outputStream().use { destino -> origen.copyTo(destino) } }
+                val puente = Python.getInstance().getModule("puente")
+                asegurarFfmpeg(puente)
+                val hecho = JSONObject(
+                    puente.callAttr(
+                        "video_letra", copia.absolutePath, inicioMs, duracionMs, fotogramas, mp4.absolutePath,
+                    ).toString(),
+                )
+                salida = if (hecho.optBoolean("ok")) {
+                    video = guardarVideo(mp4, nombre)
+                    if (video == null) fallo("No se pudo guardar el video.") else hecho.toString()
+                } else {
+                    hecho.toString()
+                }
+            } catch (error: Throwable) {
+                salida = fallo("No se pudo hacer el video: ${error.message}")
+            } finally {
+                copia.delete()
+                mp4.delete()
+            }
+            val guardado = video
+            try {
+                runOnUiThread {
+                    val resultado = if (guardado == null) {
+                        salida
+                    } else {
+                        try {
+                            val envio = Intent(Intent.ACTION_SEND).apply {
+                                type = "video/mp4"
+                                putExtra(Intent.EXTRA_STREAM, guardado)
+                                clipData = android.content.ClipData.newRawUri(nombre, guardado)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(Intent.createChooser(envio, "Compartir"))
+                            JSONObject().put("ok", true).put("ruta", "Pictures/Tumbao/$nombre").toString()
+                        } catch (error: Throwable) {
+                            fallo("${error.message}")
+                        }
+                    }
+                    try {
+                        respuesta.success(resultado)
+                    } catch (error: Throwable) {
+                        // Nadie escuchando; el video quedo guardado igualmente.
+                    }
+                }
+            } catch (error: Throwable) {
+                // La actividad ya no esta; no debe tumbar el hilo.
+            }
+        }
+    }
+
+    /** Copia el MP4 a Pictures/Tumbao. Null si MediaStore no lo admitio. */
+    private fun guardarVideo(mp4: File, nombre: String): Uri? {
+        val coleccion = MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val destino = contentResolver.insert(
+            coleccion,
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, nombre)
+                put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Tumbao/")
+                // Pendiente mientras se escribe: la galeria no ensenia un video a medias.
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            },
+        ) ?: return null
+        return try {
+            contentResolver.openOutputStream(destino, "w")?.use { salida ->
+                mp4.inputStream().use { it.copyTo(salida) }
+            } ?: throw IllegalStateException("No se pudo escribir el video.")
+            contentResolver.update(
+                destino,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            destino
+        } catch (error: Throwable) {
+            // Sin esto quedaria una entrada vacia en la galeria.
+            try {
+                contentResolver.delete(destino, null, null)
+            } catch (otro: Throwable) {
+                // Ya no se puede hacer mas.
+            }
+            null
         }
     }
 

@@ -8,6 +8,7 @@ import 'descargas_inteligentes.dart';
 import 'descubre.dart';
 import 'formato.dart';
 import 'nucleo.dart';
+import 'pantalla_inteligentes.dart';
 import 'pantalla_previa.dart';
 import 'portadas.dart';
 import 'tema.dart';
@@ -152,7 +153,12 @@ class _PantallaDescubreState extends State<PantallaDescubre> {
             label: const Text('Bajar todas'),
           ),
           const SizedBox(height: 8),
-          const AjusteDescargasInteligentes(margen: EdgeInsets.zero),
+          AjusteDescargasInteligentes(
+            margen: EdgeInsets.zero,
+            abrir: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PantallaInteligentes()),
+            ),
+          ),
         ],
       ),
     );

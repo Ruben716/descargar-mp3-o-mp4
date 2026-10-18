@@ -9,6 +9,7 @@ import 'descargas_inteligentes.dart';
 import 'hoja_dj.dart';
 import 'hoja_fundido.dart';
 import 'nucleo.dart';
+import 'pantalla_inteligentes.dart';
 import 'portada_grande.dart';
 import 'suscripciones.dart';
 import 'ritmos.dart';
@@ -207,7 +208,11 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
           ),
           const _Titulo('LISTAS QUE SIGUES'),
           ListenableBuilder(listenable: _suscripciones, builder: (BuildContext context, _) => _listasQueSigues()),
-          const AjusteDescargasInteligentes(),
+          AjusteDescargasInteligentes(
+            abrir: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PantallaInteligentes()),
+            ),
+          ),
           _portadasGrandes(),
           const _Titulo('COPIA DE SEGURIDAD'),
           _copiaDeSeguridad(),

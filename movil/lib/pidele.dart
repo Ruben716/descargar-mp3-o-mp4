@@ -702,6 +702,15 @@ String _etiquetaUtil(String genero) {
 bool _etiquetaEs(String etiqueta, Genero g) =>
     etiqueta.isNotEmpty && g.etiquetas.any((String e) => ' $etiqueta '.contains(' $e') || etiqueta == e);
 
+/// Si [e] es de [g] con seguridad: por la etiqueta de genero del archivo o
+/// porque su artista es de los conocidos del genero. El tempo no basta.
+bool cancionDelGenero(Elemento e, Genero g, {Rasgos? rasgos}) =>
+    _etiquetaEs(_etiquetaUtil(rasgos?.genero ?? ''), g) ||
+    (artistasSemilla[g.nombre] ?? const <String>[]).contains(normalizarFrase(e.artista).trim());
+
+/// Cada genero una vez, en el orden en que se definen.
+List<Genero> get generosDistintos => generos.values.toSet().toList();
+
 /// Aplica [p] sobre [datos]. Si no sale nada, relaja por pasos y lo cuenta.
 Respuesta aplicarPeticion(Peticion p, DatosBiblioteca datos, {DateTime? ahora, Random? azar}) {
   final DateTime hoy = ahora ?? DateTime.now();
