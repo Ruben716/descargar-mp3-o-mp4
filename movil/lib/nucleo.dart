@@ -132,6 +132,7 @@ class Nucleo {
     required int inicioMs,
     required int duracionMs,
     required List<({String png, int ms})> fotogramas,
+    Map<String, Object>? diseno,
   }) =>
       _pedir('videoLetra', <String, dynamic>{
         'uri': uri,
@@ -140,6 +141,8 @@ class Nucleo {
         'fotogramas': jsonEncode(<Map<String, Object>>[
           for (final ({String png, int ms}) f in fotogramas) <String, Object>{'png': f.png, 'ms': f.ms},
         ]),
+        // El lienzo, la onda y lo que se mueve; vacio, el de siempre.
+        'diseno': diseno == null ? '' : jsonEncode(diseno),
       });
 
   /// Cuanto suena una cancion de la biblioteca, en LUFS. Null si no se pudo.
@@ -283,6 +286,16 @@ class Nucleo {
       return await _canal.invokeMethod<bool>('redSinLimite') ?? false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Si el telefono esta enchufado. Si no se puede saber, se da por que si:
+  /// mejor bajar de mas que no bajar nunca.
+  static Future<bool> estaCargando() async {
+    try {
+      return await _canal.invokeMethod<bool>('estaCargando') ?? true;
+    } catch (_) {
+      return true;
     }
   }
 

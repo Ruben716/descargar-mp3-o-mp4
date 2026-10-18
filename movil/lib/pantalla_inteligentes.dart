@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'catalogo.dart';
 import 'descargas_inteligentes.dart';
 import 'dialogos.dart';
+import 'formato.dart';
 import 'hecho_para_ti.dart';
 import 'hoja_listas.dart';
 import 'nucleo.dart';
@@ -23,10 +24,89 @@ class PantallaInteligentes extends StatefulWidget {
 class _PantallaInteligentesState extends State<PantallaInteligentes> {
   final DescargasInteligentes _d = DescargasInteligentes.instancia;
 
+  /// Lo que pesa cada archivo de la biblioteca, para decir cuanto ocupan.
+  Map<String, int> _pesos = const <String, int>{};
+
   @override
   void initState() {
     super.initState();
     unawaited(_d.cargar());
+    unawaited(_leerPesos());
+  }
+
+  Future<void> _leerPesos() async {
+    try {
+      final Map<String, int> pesos = <String, int>{for (final Elemento e in await Nucleo.biblioteca()) e.uri: e.tamano};
+      if (mounted) setState(() => _pesos = pesos);
+    } catch (_) {
+      // Sin biblioteca no se dice cuanto ocupan; lo demas sigue igual.
+    }
+  }
+
+  Future<void> _viaje() async {
+    final ({int horas, MezclaInteligente plantilla})? pedido =
+        await showModalBottomSheet<({int horas, MezclaInteligente plantilla})>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const HojaViaje(),
+    );
+    if (pedido == null || !mounted) return;
+    final ScaffoldMessengerState avisos = ScaffoldMessenger.of(context);
+    final ({String lista, int canciones}) r = await _d.modoViaje(horas: pedido.horas, plantilla: pedido.plantilla);
+    if (!mounted) return;
+    unawaited(_leerPesos());
+    avisos.showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      content: Text(r.canciones == 0 ? _d.aviso : 'Listo: «${r.lista}» con ${r.canciones} canciones para el viaje.'),
+    ));
+  }
+
+  Widget _ajustes() {
+    final int ocupado = _d.ocupado(_pesos);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const Padding(padding: EdgeInsets.fromLTRB(20, 24, 20, 4), child: Text('AJUSTES', style: Tema.antetitulo)),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          value: _d.soloCargando,
+          onChanged: (bool v) => unawaited(_d.ponerAjustes(soloCargando: v)),
+          secondary: const Icon(Icons.battery_charging_full_rounded),
+          title: const Text('Solo cargando'),
+          subtitle: const Text('Bajan cuando el telefono esta enchufado y con wifi'),
+        ),
+        SwitchListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          value: _d.mejorCalidad,
+          onChanged: (bool v) => unawaited(_d.ponerAjustes(mejorCalidad: v)),
+          secondary: const Icon(Icons.high_quality_rounded),
+          title: const Text('Buscar mejor calidad'),
+          subtitle: const Text('Despues de bajar, busca la misma sin perdida en otras fuentes libres y la cambia. Tarda mas'),
+        ),
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          leading: const Icon(Icons.sd_storage_rounded),
+          title: const Text('Limite de espacio'),
+          subtitle: Text('Ahora ocupan ${formatoTamano(ocupado)}'),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(72, 0, 20, 8),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: <Widget>[
+              for (final int mb in DescargasInteligentes.opcionesLimiteMb)
+                ChoiceChip(
+                  label: Text(DescargasInteligentes.textoLimite(mb)),
+                  selected: _d.limiteMb == mb,
+                  onSelected: (_) => unawaited(_d.ponerAjustes(limiteMb: mb)),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _editar(MezclaInteligente m) async {
@@ -93,6 +173,18 @@ class _PantallaInteligentesState extends State<PantallaInteligentes> {
                   style: const TextStyle(color: Tema.textoSecundario, fontSize: 13, height: 1.4),
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.flight_takeoff_rounded),
+                    title: const Text('Modo viaje'),
+                    subtitle: const Text('Baja de una vez unas horas de musica para ir sin senal'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: _d.trabajando ? null : _viaje,
+                  ),
+                ),
+              ),
               for (final MezclaInteligente m in _d.mezclas)
                 _FilaMezcla(
                   mezcla: m,
@@ -101,6 +193,7 @@ class _PantallaInteligentesState extends State<PantallaInteligentes> {
                   alTocar: () => _editar(m),
                   alEncender: (bool v) => unawaited(_d.cambiar(m.copiar(activa: v))),
                 ),
+              _ajustes(),
             ],
           );
         },
@@ -128,6 +221,7 @@ class _FilaMezcla extends StatelessWidget {
         TipoMezcla.paraTi => Icons.auto_awesome_rounded,
         TipoMezcla.genero => Icons.album_rounded,
         TipoMezcla.artista => Icons.person_rounded,
+        TipoMezcla.animo => Icons.bolt_rounded,
       };
 
   @override
@@ -343,7 +437,16 @@ class _HojaNuevaMezclaState extends State<HojaNuevaMezcla> {
                 subtitle: const Text('De tus artistas mas escuchados'),
                 onTap: () => _elegir(TipoMezcla.paraTi),
               ),
-              const Padding(padding: EdgeInsets.only(top: 12, bottom: 8), child: Text('POR GENERO', style: Tema.antetitulo)),
+              const Padding(padding: EdgeInsets.only(top: 12, bottom: 8), child: Text('POR ANIMO', style: Tema.antetitulo)),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  for (final Animo a in animos)
+                    ActionChip(label: Text(a.titulo), onPressed: () => _elegir(TipoMezcla.animo, clave: a.clave)),
+                ],
+              ),
+              const Padding(padding: EdgeInsets.only(top: 16, bottom: 8), child: Text('POR GENERO', style: Tema.antetitulo)),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -363,6 +466,109 @@ class _HojaNuevaMezclaState extends State<HojaNuevaMezcla> {
                   ],
                 ),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pedir el modo viaje: cuantas horas y de que.
+class HojaViaje extends StatefulWidget {
+  const HojaViaje({super.key});
+
+  @override
+  State<HojaViaje> createState() => _HojaViajeState();
+}
+
+class _HojaViajeState extends State<HojaViaje> {
+  int _horas = 2;
+  MezclaInteligente _de = DescargasInteligentes.instancia.nueva(TipoMezcla.paraTi);
+  bool? _conWifi;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(Nucleo.redSinLimite().then((bool w) {
+      if (mounted) setState(() => _conWifi = w);
+    }));
+  }
+
+  void _elegir(TipoMezcla tipo, [String clave = '']) =>
+      setState(() => _de = DescargasInteligentes.instancia.nueva(tipo, clave: clave));
+
+  bool _es(TipoMezcla tipo, [String clave = '']) => _de.tipo == tipo && _de.clave == clave;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text('Modo viaje', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 4),
+              const Text(
+                'Se baja todo de una vez a una lista nueva que es tuya: no se renueva ni se borra.',
+                style: TextStyle(color: Tema.textoSecundario, fontSize: 13),
+              ),
+              const Padding(padding: EdgeInsets.only(top: 16, bottom: 8), child: Text('CUANTO', style: Tema.antetitulo)),
+              Wrap(
+                spacing: 8,
+                children: <Widget>[
+                  for (final int h in DescargasInteligentes.opcionesHorasViaje)
+                    ChoiceChip(
+                      label: Text('$h ${h == 1 ? 'hora' : 'horas'}'),
+                      selected: _horas == h,
+                      onSelected: (_) => setState(() => _horas = h),
+                    ),
+                ],
+              ),
+              const Padding(padding: EdgeInsets.only(top: 16, bottom: 8), child: Text('DE QUE', style: Tema.antetitulo)),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  ChoiceChip(
+                    label: const Text('Para ti'),
+                    selected: _es(TipoMezcla.paraTi),
+                    onSelected: (_) => _elegir(TipoMezcla.paraTi),
+                  ),
+                  for (final Animo a in animos)
+                    ChoiceChip(
+                      label: Text(a.titulo),
+                      selected: _es(TipoMezcla.animo, a.clave),
+                      onSelected: (_) => _elegir(TipoMezcla.animo, a.clave),
+                    ),
+                  for (final Genero g in generosDistintos)
+                    ChoiceChip(
+                      label: Text(g.titulo),
+                      selected: _es(TipoMezcla.genero, g.nombre),
+                      onSelected: (_) => _elegir(TipoMezcla.genero, g.nombre),
+                    ),
+                ],
+              ),
+              if (_conWifi == false)
+                const Padding(
+                  padding: EdgeInsets.only(top: 14),
+                  child: Text(
+                    'No estas con wifi: se usaran tus datos moviles.',
+                    style: TextStyle(color: Tema.peligro, fontSize: 13),
+                  ),
+                ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.of(context).pop((horas: _horas, plantilla: _de)),
+                  icon: const Icon(Icons.download_rounded),
+                  label: Text('Bajar $_horas ${_horas == 1 ? 'hora' : 'horas'} de musica'),
+                ),
+              ),
             ],
           ),
         ),

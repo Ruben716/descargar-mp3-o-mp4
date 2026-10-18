@@ -253,6 +253,7 @@ class MainActivity : AudioServiceActivity() {
                         (llamada.argument<Any>("inicioMs") as? Number)?.toLong() ?: 0L,
                         (llamada.argument<Any>("duracionMs") as? Number)?.toLong() ?: 0L,
                         llamada.argument<String>("fotogramas").orEmpty(),
+                        llamada.argument<String>("diseno").orEmpty(),
                         respuesta,
                     )
                     // La tarjeta de una frase de la letra, ya en PNG.
@@ -273,6 +274,7 @@ class MainActivity : AudioServiceActivity() {
                         enHiloSuelto(respuesta) { guardarLista(nombre, contenido) }
                     }
                     "redSinLimite" -> respuesta.success(redSinLimite())
+                    "estaCargando" -> respuesta.success(estaCargando())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
                         abrirEnlace(llamada.argument<String>("url").orEmpty()),
@@ -660,6 +662,7 @@ class MainActivity : AudioServiceActivity() {
         inicioMs: Long,
         duracionMs: Long,
         fotogramas: String,
+        diseno: String,
         respuesta: MethodChannel.Result,
     ) {
         if (uri.isEmpty() || duracionMs <= 0 || fotogramas.isEmpty()) {
@@ -682,7 +685,7 @@ class MainActivity : AudioServiceActivity() {
                 asegurarFfmpeg(puente)
                 val hecho = JSONObject(
                     puente.callAttr(
-                        "video_letra", copia.absolutePath, inicioMs, duracionMs, fotogramas, mp4.absolutePath,
+                        "video_letra", copia.absolutePath, inicioMs, duracionMs, fotogramas, mp4.absolutePath, diseno,
                     ).toString(),
                 )
                 salida = if (hecho.optBoolean("ok")) {
@@ -892,6 +895,12 @@ class MainActivity : AudioServiceActivity() {
     private fun redSinLimite(): Boolean {
         val gestor = getSystemService(ConnectivityManager::class.java) ?: return false
         return gestor.activeNetwork != null && !gestor.isActiveNetworkMetered
+    }
+
+    /** Si el telefono esta enchufado: las descargas inteligentes pueden esperar a eso. */
+    private fun estaCargando(): Boolean {
+        val bateria = getSystemService(android.os.BatteryManager::class.java) ?: return true
+        return bateria.isCharging
     }
 
     private fun versionApp(): String = try {

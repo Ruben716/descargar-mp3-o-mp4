@@ -15,9 +15,9 @@ from __future__ import annotations
 import contextlib
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 ANCHO = 720
 ALTO = 1280
@@ -37,7 +37,67 @@ ONDA_COLOR = "white@0.55"
 ONDA_PASO_BAJO_HZ = 1000
 ONDA_VOLUMEN = 0.8
 
+#: Lo que tarda el vinilo en dar una vuelta: 33 1/3 revoluciones por minuto.
+VUELTA_VINILO_S = 1.8
+#: Cuanto se acerca la portada por segundo: en 15 s, un 12 %; apenas se nota
+#: que se mueve, pero el video deja de parecer una foto.
+ZOOM_POR_S = 0.008
+
 LIMITE_S = 120
+
+
+class Movil(NamedTuple):
+    """Lo que FFmpeg mueve encima de los fotogramas, en su sitio (px).
+
+    El fotograma ya lo trae pintado quieto en ese mismo sitio: si el FFmpeg del
+    telefono no sabe moverlo, el video sale igual, solo que sin movimiento.
+    """
+
+    png: str
+    tipo: str  # «girar» (el vinilo) o «zoom» (la portada)
+    x: int
+    y: int
+    ancho: int
+    alto: int
+
+
+class Diseno(NamedTuple):
+    """El lienzo del video y donde van la onda y lo que se mueve, en px."""
+
+    ancho: int = ANCHO
+    alto: int = ALTO
+    onda: tuple[int, int, int, int] | None = (
+        (ANCHO - ONDA_ANCHO) // 2, ALTO - ONDA_ALTO - ONDA_MARGEN, ONDA_ANCHO, ONDA_ALTO,
+    )
+    movil: Movil | None = None
+
+
+def _par(valor: Any) -> int:
+    """yuv420p pide medidas pares."""
+    return max(2, int(valor) // 2 * 2)
+
+
+def diseno_de(datos: Mapping[str, Any] | None) -> Diseno:
+    """El [Diseno] que manda Flutter: {"ancho", "alto", "onda": [x, y, w, h],
+    "movil": {"png", "tipo", "x", "y", "ancho", "alto"}}. Sin datos, el de
+    siempre: 720x1280 con la onda abajo."""
+    if not datos:
+        return Diseno()
+    onda = datos.get("onda")
+    movil = datos.get("movil")
+    return Diseno(
+        ancho=_par(datos.get("ancho", ANCHO)),
+        alto=_par(datos.get("alto", ALTO)),
+        onda=tuple(_par(v) for v in onda) if onda else None,  # type: ignore[arg-type]
+        movil=Movil(
+            png=str(movil["png"]),
+            tipo="girar" if movil.get("tipo") == "girar" else "zoom",
+            x=int(movil["x"]),
+            y=int(movil["y"]),
+            ancho=_par(movil["ancho"]),
+            alto=_par(movil["alto"]),
+        ) if movil else None,
+    )
 
 #: Del mejor al que siempre esta. El nombre y como se le pide la calidad.
 CODIFICADORES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -115,30 +175,55 @@ def texto_concat(fotogramas: Sequence[tuple[str, int]]) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def filtro(duracion_ms: int, onda: bool = True) -> str:
-    """El grafo de FFmpeg: fundidos, la onda y la onda encima de los fotogramas.
+def _mover(movil: Movil) -> str:
+    """El trozo del grafo que mueve [movil] (entrada 2) y lo deja en [m].
+
+    El vinilo gira en el sentido de las agujas, con las esquinas
+    transparentes. La portada llega al doble de su tamano y se va acercando
+    desde el centro: con el doble de pixeles, el redondeo de zoompan no tiembla.
+    """
+    if movil.tipo == "girar":
+        return f"[2:v]format=rgba,rotate=a=2*PI*t/{VUELTA_VINILO_S}:c=black@0[m]"
+    return (
+        f"[2:v]zoompan=z=1+{ZOOM_POR_S}*on/{FPS}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2)"
+        f":d=1:s={movil.ancho}x{movil.alto}:fps={FPS},format=rgba[m]"
+    )
+
+
+def filtro(duracion_ms: int, extras: bool = True, diseno: Diseno | None = None) -> str:
+    """El grafo de FFmpeg: fundidos, lo que se mueve y la onda encima de los
+    fotogramas.
 
     El audio se rellena con silencio (apad) por si la cancion acaba antes de
     lo pedido: el corte lo da «-t», y asi video y audio duran siempre igual.
-    Sin [onda], solo los fotogramas.
+    Sin [extras], solo los fotogramas: ni onda ni movimiento.
     """
+    d = diseno or Diseno()
     segundos = duracion_ms / 1000
     fundido = min(FUNDIDO_MS / 1000, segundos / 2)
-    y = ALTO - ONDA_ALTO - ONDA_MARGEN
     audio = (
         f"[1:a]apad,afade=t=in:st=0:d={fundido:.3f},"
         f"afade=t=out:st={segundos - fundido:.3f}:d={fundido:.3f}"
     )
-    if not onda:
-        return f"{audio}[a];[0:v]scale={ANCHO}:{ALTO},setsar=1,fps={FPS},format=yuv420p[v]"
-    return (
-        f"{audio},asplit=2[a][w];"
+    fondo = f"[0:v]scale={d.ancho}:{d.alto},setsar=1,fps={FPS}"
+    if not extras or (d.onda is None and d.movil is None):
+        return f"{audio}[a];{fondo},format=yuv420p[v]"
+    partes = [f"{fondo}[f0]"]
+    capa = "f0"
+    if d.movil is not None:
+        partes.append(_mover(d.movil))
+        partes.append(f"[{capa}][m]overlay=x={d.movil.x}:y={d.movil.y}:format=auto[f1]")
+        capa = "f1"
+    if d.onda is None:
+        return f"{audio}[a];" + ";".join(partes) + f";[{capa}]format=yuv420p[v]"
+    x, y, ancho, alto = d.onda
+    partes.append(
         f"[w]aformat=channel_layouts=mono,lowpass=f={ONDA_PASO_BAJO_HZ},volume={ONDA_VOLUMEN},"
-        f"showwaves=s={ONDA_ANCHO}x{ONDA_ALTO}:mode=cline:colors={ONDA_COLOR}"
-        f":rate={FPS}:scale=sqrt:draw=full[onda];"
-        f"[0:v]scale={ANCHO}:{ALTO},setsar=1,fps={FPS}[fondo];"
-        f"[fondo][onda]overlay=x=(W-w)/2:y={y}:format=auto,format=yuv420p[v]"
+        f"showwaves=s={ancho}x{alto}:mode=cline:colors={ONDA_COLOR}"
+        f":rate={FPS}:scale=sqrt:draw=full[onda]"
     )
+    partes.append(f"[{capa}][onda]overlay=x={x}:y={y}:format=auto,format=yuv420p[v]")
+    return f"{audio},asplit=2[a][w];" + ";".join(partes)
 
 
 def orden(
@@ -149,19 +234,27 @@ def orden(
     duracion_ms: int,
     salida: str,
     codificador: Sequence[str],
-    onda: bool = True,
+    extras: bool = True,
+    diseno: Diseno | None = None,
 ) -> list[str]:
     """La orden entera de FFmpeg para un codificador de [CODIFICADORES].
 
     El recorte va antes de «-i» del audio: asi FFmpeg salta directo al trozo
-    sin decodificar lo de antes, que en una cancion larga es casi todo.
+    sin decodificar lo de antes, que en una cancion larga es casi todo. Lo que
+    se mueve, si hay, es la entrada 2: su PNG repetido lo que dura el video.
     """
+    d = diseno or Diseno()
     segundos = f"{duracion_ms / 1000:.3f}"
+    movil = (
+        ["-loop", "1", "-framerate", str(FPS), "-t", segundos, "-i", d.movil.png]
+        if extras and d.movil is not None else []
+    )
     return [
         ffmpeg, "-hide_banner", "-nostats", "-loglevel", "error", "-y",
         "-f", "concat", "-safe", "0", "-i", lista,
         "-ss", f"{max(0, inicio_ms) / 1000:.3f}", "-t", segundos, "-i", audio,
-        "-filter_complex", filtro(duracion_ms, onda),
+        *movil,
+        "-filter_complex", filtro(duracion_ms, extras, d),
         "-map", "[v]", "-map", "[a]",
         "-t", segundos, "-r", str(FPS),
         *codificador,
@@ -195,12 +288,15 @@ def crear(
     fotogramas: Sequence[tuple[str, int]],
     salida: str,
     limite_s: float = LIMITE_S,
+    diseno: Diseno | None = None,
 ) -> dict[str, Any]:
     """Hace el MP4 en [salida]. Nunca lanza.
 
     [fotogramas] son pares (ruta del PNG, milisegundos que se ve). Devuelve
-    {"ok": True, "ruta", "codificador"} o {"ok": False, "error"}.
+    {"ok": True, "ruta", "codificador", "onda"} o {"ok": False, "error"};
+    «onda» dice si salieron la onda y el movimiento.
     """
+    d = diseno or Diseno()
     lista = Path(f"{salida}.txt")
     try:
         if duracion_ms <= 0:
@@ -213,11 +309,14 @@ def crear(
             return {"ok": False, "error": f"Falta el fotograma {faltan[0]}."}
         if not Path(audio).is_file():
             return {"ok": False, "error": "No se encuentra el audio."}
+        if d.movil is not None and not Path(d.movil.png).is_file():
+            # El fotograma ya lo trae quieto: sin el PNG, simplemente no se mueve.
+            d = Diseno(ancho=d.ancho, alto=d.alto, onda=d.onda)
         lista.write_text(texto_concat(cuadro), encoding="utf-8")
 
         hasta = time.monotonic() + limite_s
         error = "No hay ningun codificador de video."
-        con_onda = True
+        extras = True
         i = 0
         while i < len(CODIFICADORES):
             nombre, opciones = CODIFICADORES[i]
@@ -225,20 +324,20 @@ def crear(
             if restante <= 0:
                 return {"ok": False, "error": "El video tardo demasiado."}
             hecho = subprocess.run(
-                orden(ffmpeg, str(lista), audio, inicio_ms, duracion_ms, salida, opciones, con_onda),
+                orden(ffmpeg, str(lista), audio, inicio_ms, duracion_ms, salida, opciones, extras, d),
                 capture_output=True, text=True, timeout=restante, check=False,
             )
             hay_video = Path(salida).is_file() and Path(salida).stat().st_size > 0
             if hecho.returncode == 0 and hay_video:
-                return {"ok": True, "ruta": salida, "codificador": nombre, "onda": con_onda}
+                return {"ok": True, "ruta": salida, "codificador": nombre, "onda": extras}
             mensaje = hecho.stderr or ""
             error = _ultimas_lineas(mensaje) or f"FFmpeg acabo con el codigo {hecho.returncode}."
             # Lo que quedase a medias no puede pasar por un video bueno.
             _borrar(Path(salida))
             if falla_el_codificador(mensaje):
                 i += 1
-            elif con_onda and falla_un_filtro(mensaje):
-                con_onda = False
+            elif extras and falla_un_filtro(mensaje):
+                extras = False
             else:
                 break
         return {"ok": False, "error": error}

@@ -396,11 +396,15 @@ def sincronizar_letra(ruta: str, inicios: str) -> str:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
-def video_letra(audio: str, inicio_ms: int, duracion_ms: int, fotogramas_json: str, salida: str) -> str:
+def video_letra(
+    audio: str, inicio_ms: int, duracion_ms: int, fotogramas_json: str, salida: str, diseno_json: str = "",
+) -> str:
     """El video de un trozo de la cancion con su letra (ver video_letra.py).
 
     [fotogramas_json] es la lista de los PNG que pinto Flutter, cada uno con
-    los milisegundos que se ve: [{"png": ruta, "ms": 3200}, ...]. Nunca lanza.
+    los milisegundos que se ve: [{"png": ruta, "ms": 3200}, ...]. [diseno_json]
+    trae el lienzo, la onda y lo que se mueve (ver video_letra.diseno_de);
+    vacio, el de siempre. Nunca lanza.
     """
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -409,7 +413,10 @@ def video_letra(audio: str, inicio_ms: int, duracion_ms: int, fotogramas_json: s
         import video_letra as video
 
         fotogramas = [(str(f["png"]), int(f["ms"])) for f in json.loads(fotogramas_json)]
-        return _respuesta(video.crear(ffmpeg, audio, int(inicio_ms), int(duracion_ms), fotogramas, salida))
+        diseno = video.diseno_de(json.loads(diseno_json) if diseno_json else None)
+        return _respuesta(video.crear(
+            ffmpeg, audio, int(inicio_ms), int(duracion_ms), fotogramas, salida, diseno=diseno,
+        ))
     except Exception as exc:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 

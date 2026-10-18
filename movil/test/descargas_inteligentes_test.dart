@@ -1,4 +1,6 @@
 import 'package:descargador_movil/descargas_inteligentes.dart';
+import 'package:descargador_movil/estado_reproductor.dart';
+import 'package:descargador_movil/ritmos.dart';
 import 'package:descargador_movil/hecho_para_ti.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -125,5 +127,92 @@ void main() {
     expect((a.id, a.nombre), ('genero:salsa', 'Mezcla de salsa'));
     expect(a.cuantas, 20);
     expect(a.dias, 7);
+  });
+
+  test('lo de artistas saltados va al final, y con 3 saltos ya no se baja', () {
+    Resultado de(String video, String artista) => Resultado(
+        titulo: 'Tema $video', autor: '$artista - Topic', duracion: 200, url: 'https://www.youtube.com/watch?v=$video');
+    final List<Resultado> candidatas = <Resultado>[
+      de('a', 'Saltado Una Vez'),
+      de('b', 'Nunca Saltado'),
+      de('c', 'Saltado Mucho'),
+      de('d', 'Otro'),
+    ];
+    final List<Resultado> orden = DescargasInteligentes.segunSaltos(
+      candidatas,
+      <String, int>{'saltado una vez': 1, 'saltado mucho': DescargasInteligentes.saltosParaQuitar},
+    );
+    expect(orden.map((Resultado r) => r.url.substring(r.url.length - 1)), <String>['b', 'd', 'a']);
+    expect(DescargasInteligentes.segunSaltos(candidatas, const <String, int>{}), same(candidatas));
+  });
+
+  test('saltar es pasar a otra antes de 30 s, no que una corta acabe sola', () {
+    expect(EstadoReproductor.esSalto(const Duration(seconds: 8), 210), isTrue);
+    expect(EstadoReproductor.esSalto(const Duration(seconds: 45), 210), isFalse, reason: 'ya la oyo');
+    expect(EstadoReproductor.esSalto(Duration.zero, 210), isFalse, reason: 'ni empezo');
+    expect(EstadoReproductor.esSalto(const Duration(seconds: 24), 25), isFalse, reason: 'acabo sola');
+  });
+
+  test('el limite de espacio dice cuantas caben aun', () {
+    const int mb = 1024 * 1024;
+    final List<BajadaInteligente> bajadas = <BajadaInteligente>[_b('u1', 1), _b('u2', 1), _b('u3', 1)];
+    expect(DescargasInteligentes.cabenAun(limiteMb: 0, bajadas: bajadas, pesos: const <String, int>{}), isNull);
+    // Dos de 5 MB conocidas y una sin peso aun (cuenta como la media): 15 MB de 100.
+    expect(
+      DescargasInteligentes.cabenAun(limiteMb: 100, bajadas: bajadas, pesos: <String, int>{'u1': 5 * mb, 'u2': 5 * mb}),
+      17,
+    );
+    expect(DescargasInteligentes.cabenAun(limiteMb: 10, bajadas: bajadas, pesos: <String, int>{'u1': 5 * mb, 'u2': 5 * mb}),
+        0);
+    expect(DescargasInteligentes.textoLimite(0), 'Sin limite');
+    expect(DescargasInteligentes.textoLimite(2048), '2 GB');
+  });
+
+  test('el modo viaje junta canciones hasta llenar las horas', () {
+    final List<Resultado> candidatas = <Resultado>[
+      for (int i = 0; i < 40; i++)
+        Resultado(titulo: 'T$i', autor: 'A', duracion: i == 0 ? 0 : 240, url: 'https://www.youtube.com/watch?v=v$i'),
+    ];
+    final List<Resultado> hora = DescargasInteligentes.paraHoras(candidatas, 1);
+    // 210 s de la que no dice + 14 de 240 s = 3570 s; con la siguiente pasa de la hora.
+    expect(hora, hasLength(16));
+    expect(DescargasInteligentes.paraHoras(candidatas.take(5).toList(), 3), hasLength(5), reason: 'no hay para mas');
+  });
+
+  test('por animo: tus canciones de esa energia y tempo, o artistas de sus generos', () {
+    final List<Elemento> canciones = <Elemento>[
+      _cancion('Fuerte', 'Uno', uri: 'u-fuerte-1'),
+      _cancion('Fuerte', 'Dos', uri: 'u-fuerte-2'),
+      _cancion('Suave', 'Uno', uri: 'u-suave'),
+      _cancion('Lento', 'Uno', uri: 'u-lenta-fuerte'),
+    ];
+    Rasgos r(double bpm) => Rasgos(bpm: bpm, confianza: 0.9, energia: 0, lufs: -9, pulsoInicioMs: 0, pulsoFinMs: 1000);
+    final Map<String, Rasgos> rasgos = <String, Rasgos>{
+      'u-fuerte-1': r(128),
+      'u-fuerte-2': r(140),
+      'u-suave': r(70),
+      'u-lenta-fuerte': r(70),
+    };
+    final Map<String, double> percentiles = <String, double>{
+      'u-fuerte-1': 0.9,
+      'u-fuerte-2': 0.8,
+      'u-suave': 0.1,
+      'u-lenta-fuerte': 0.95,
+    };
+    const MezclaInteligente entrenar =
+        MezclaInteligente(id: 'animo:entrenar', nombre: 'Para entrenar', tipo: TipoMezcla.animo, clave: 'entrenar');
+    final List<({String artista, String tema, String? video})> s = DescargasInteligentes.semillasDe(
+      entrenar,
+      canciones,
+      const <String, Escucha>{},
+      const <String, String>{},
+      rasgos: rasgos,
+      percentil: (String uri) => percentiles[uri],
+    );
+    expect(s.where((({String artista, String tema, String? video}) x) => x.tema.isNotEmpty).map(
+        (({String artista, String tema, String? video}) x) => x.artista).toSet(), <String>{'Fuerte'},
+        reason: 'ni la suave ni la fuerte a 70 BPM');
+    expect(s, hasLength(DescargasInteligentes.semillas), reason: 'el resto, artistas de reggaeton, electronica o rock');
+    expect(entrenar.origen, 'Animo: Para entrenar');
   });
 }

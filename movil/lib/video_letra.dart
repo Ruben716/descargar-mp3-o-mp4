@@ -5,6 +5,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'disenos_letra.dart';
 import 'nucleo.dart';
 import 'portadas.dart';
 import 'tarjeta_letra.dart';
@@ -23,12 +24,7 @@ enum DuracionVideo {
 
 /// Un fotograma del video: el verso que suena, y cuanto se ve.
 class TramoVideo {
-  const TramoVideo({
-    required this.verso,
-    required this.duracion,
-    this.anterior = '',
-    this.siguiente = '',
-  });
+  const TramoVideo({required this.verso, required this.duracion, this.anterior = '', this.siguiente = ''});
 
   final String verso;
 
@@ -111,23 +107,32 @@ PlanVideo? planificarVideo({
   );
 }
 
-/// Un fotograma del video de la letra: 9:16, para estados e historias.
+/// Un fotograma del video de la letra: 9:16 para estados e historias, o
+/// cuadrado.
 ///
-/// Como [TarjetaLetra] en formato historia, se maqueta siempre a [ancho] por
-/// [alto] puntos y se saca a [anchoExportado] px: 720x1280 en cualquier
-/// telefono. La franja de abajo ([franjaOnda]) se deja libre para la onda, que
-/// pinta FFmpeg encima (ver video_letra.py).
+/// Como [TarjetaLetra], se maqueta siempre a [ancho] puntos de ancho y se
+/// saca a [anchoExportado] px: 720x1280 (o 720x720) en cualquier telefono. El
+/// sitio de la onda ([disenoLetra]) se deja libre: la pinta FFmpeg encima (ver
+/// video_letra.py), como lo que se mueve, que aqui va quieto en su sitio.
 class FotogramaVideo extends StatelessWidget {
   const FotogramaVideo({
     required this.elemento,
     required this.tramo,
     this.colores,
     this.portada,
+    this.formato = FormatoTarjeta.historia,
+    this.estilo = EstiloLetra.letra,
+    this.claveMovil,
     super.key,
   });
 
   final Elemento elemento;
   final TramoVideo tramo;
+  final FormatoTarjeta formato;
+  final EstiloLetra estilo;
+
+  /// La del [RepaintBoundary] de lo que se mueve: de ahi sale su PNG.
+  final GlobalKey? claveMovil;
 
   /// La paleta de la cancion. Sin ella, la de la app.
   final ColorScheme? colores;
@@ -137,19 +142,19 @@ class FotogramaVideo extends StatelessWidget {
   final ImageProvider? portada;
 
   static const double ancho = 360;
-  static const double alto = 640;
   static const double anchoExportado = 720;
 
-  /// 240 px abajo: la onda mide 160 y queda a 56 del borde.
-  static const double franjaOnda = 120;
+  /// Px por punto al exportar.
+  static const double escala = anchoExportado / ancho;
 
-  /// Donde pinta FFmpeg la onda, en puntos: la mitad de los px de
-  /// video_letra.py (640x160, centrada, a 56 del borde de abajo).
-  static const Rect zonaOnda = Rect.fromLTWH(20, 532, 320, 80);
+  double get alto => ancho / formato.proporcion;
+
+  bool get _alta => formato == FormatoTarjeta.historia;
 
   /// Lo que hay arriba y abajo del verso que suena: siempre lo mismo, haya o
   /// no anterior y siguiente, para que el verso no baile de un fotograma a otro.
-  static const double _hueco = 66;
+  /// En la cuadrada no caben: solo el que suena.
+  double get _hueco => _alta && estilo == EstiloLetra.letra ? 66 : 0;
 
   double get _tamano {
     final int letras = tramo.verso.length;
@@ -163,6 +168,8 @@ class FotogramaVideo extends StatelessWidget {
   Widget build(BuildContext context) {
     final TintaTarjeta t = TarjetaLetra.tintaDe(FondoTarjeta.cancion, colores);
     final ImageProvider? caratula = portada;
+    final DisenoLetra diseno = disenoLetra(formato, estilo);
+    final Rect? movil = diseno.movil;
     // Sin el tamano de letra del sistema: el video debe salir igual en todos.
     // El Material transparente da el estilo de texto del tema aunque se
     // pinte fuera de la hoja.
@@ -177,11 +184,7 @@ class FotogramaVideo extends StatelessWidget {
             children: <Widget>[
               DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: t.degradado,
-                  ),
+                  gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: t.degradado),
                 ),
               ),
               // La caratula, tan desenfocada que solo queda su luz: da el color
@@ -211,22 +214,87 @@ class FotogramaVideo extends StatelessWidget {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(30, 44, 30, 0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _cabecera(t, caratula),
-                    Expanded(child: _versos(t)),
-                    _marca(t),
-                    const SizedBox(height: franjaOnda),
-                  ],
+              if (movil != null)
+                Positioned.fromRect(
+                  rect: movil,
+                  child: RepaintBoundary(
+                    key: claveMovil,
+                    child: MovilLetra(estilo: estilo, elemento: elemento, portada: caratula),
+                  ),
                 ),
+              Positioned.fromRect(
+                rect: diseno.texto,
+                child: estilo == EstiloLetra.letra
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          _cabecera(t, caratula),
+                          Expanded(child: _versos(t)),
+                          _marca(t),
+                        ],
+                      )
+                    : _conMovil(t),
               ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Con el vinilo o la portada ya no hace falta la miniatura: titulo, el
+  /// verso y la marca. Bajo el vinilo de la historia, centrado.
+  Widget _conMovil(TintaTarjeta t) {
+    final bool centrado = _alta && estilo == EstiloLetra.vinilo;
+    final String artista = elemento.artista;
+    final TextAlign alineado = centrado ? TextAlign.center : TextAlign.start;
+    return Column(
+      crossAxisAlignment: centrado ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          elemento.tema,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: alineado,
+          style: TextStyle(color: t.texto, fontSize: 14.5, fontWeight: FontWeight.w700, height: 1.25),
+        ),
+        if (artista.isNotEmpty)
+          Text(
+            artista,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: alineado,
+            style: TextStyle(color: t.tenue, fontSize: 12.5, fontWeight: FontWeight.w500, height: 1.3),
+          ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Align(
+              alignment: centrado ? Alignment.center : Alignment.centerLeft,
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints limites) => FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: SizedBox(
+                    width: limites.maxWidth,
+                    child: Text(
+                      tramo.verso,
+                      textAlign: alineado,
+                      style: TextStyle(
+                        color: t.texto,
+                        fontSize: _alta ? _tamano : _tamano - 6,
+                        fontWeight: FontWeight.w800,
+                        height: 1.22,
+                        letterSpacing: -0.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        _marca(t),
+      ],
     );
   }
 
@@ -241,13 +309,14 @@ class FotogramaVideo extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        SizedBox(
-          height: _hueco,
-          child: Align(
-            alignment: Alignment.bottomLeft,
-            child: Text(tramo.anterior, maxLines: 2, overflow: TextOverflow.ellipsis, style: tenue),
+        if (_hueco > 0)
+          SizedBox(
+            height: _hueco,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: Text(tramo.anterior, maxLines: 2, overflow: TextOverflow.ellipsis, style: tenue),
+            ),
           ),
-        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
@@ -275,13 +344,14 @@ class FotogramaVideo extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(
-          height: _hueco,
-          child: Align(
-            alignment: Alignment.topLeft,
-            child: Text(tramo.siguiente, maxLines: 2, overflow: TextOverflow.ellipsis, style: tenue),
+        if (_hueco > 0)
+          SizedBox(
+            height: _hueco,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Text(tramo.siguiente, maxLines: 2, overflow: TextOverflow.ellipsis, style: tenue),
+            ),
           ),
-        ),
       ],
     );
   }
@@ -332,15 +402,16 @@ class FotogramaVideo extends StatelessWidget {
   }
 
   Widget _marca(TintaTarjeta t) => Row(
-        children: <Widget>[
-          Icon(Icons.graphic_eq_rounded, size: 15, color: t.tenue),
-          const SizedBox(width: 6),
-          Text(
-            'Tumbao',
-            style: TextStyle(color: t.tenue, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6),
-          ),
-        ],
-      );
+    mainAxisSize: MainAxisSize.min,
+    children: <Widget>[
+      Icon(Icons.graphic_eq_rounded, size: 15, color: t.tenue),
+      const SizedBox(width: 6),
+      Text(
+        'Tumbao',
+        style: TextStyle(color: t.tenue, fontSize: 12.5, fontWeight: FontWeight.w700, letterSpacing: 0.6),
+      ),
+    ],
+  );
 }
 
 /// La onda como la pinta FFmpeg, pero quieta: va encima de la vista previa

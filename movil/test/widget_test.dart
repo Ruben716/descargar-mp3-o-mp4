@@ -112,6 +112,9 @@ void main() {
   /// Si la red de las pruebas es wifi (no cobra por datos).
   bool redSinLimite = true;
 
+  /// Si el telefono de las pruebas esta enchufado.
+  bool cargando = true;
+
   /// Lo que devuelve el selector de archivos al restaurar una copia.
   String? copiaElegida;
   /// Lo que responde la comprobacion de calidad, por enlace. Por defecto, lo
@@ -170,6 +173,7 @@ void main() {
     AutoEq.olvidar();
     AutoEq.bajar = (Uri _) async => throw const ErrorAutoEq('sin red en las pruebas');
     redSinLimite = true;
+    cargando = true;
     copiaElegida = null;
     Nucleo.olvidarCaratulas();
     Paleta.vaciar();
@@ -191,6 +195,7 @@ void main() {
             '${(llamada.arguments as Map<dynamic, dynamic>)['nombre']}"}',
         'abrirCopia' => copiaElegida ?? '{"ok":false,"cancelado":true}',
         'redSinLimite' => redSinLimite,
+        'estaCargando' => cargando,
         'versionApp' => '2.0.0',
         'atajoPendiente' => () {
             final String? pendiente = atajo;
@@ -5372,6 +5377,111 @@ void main() {
       expect(await d.revisar(), 0);
       expect(d.aviso, contains('wifi'));
       expect(descargadas(), isEmpty);
+    });
+
+    test('con «solo cargando», sin enchufar no se baja nada', () async {
+      await conRadios();
+      cargando = false;
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi, cuantas: 2),
+        ]),
+        DescargasInteligentes.claveAjustes: jsonEncode(<String, Object>{'soloCargando': true}),
+      });
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      expect(await d.revisar(), 0);
+      expect(d.aviso, contains('cargando'));
+      cargando = true;
+      expect(await d.revisar(), 2);
+    });
+
+    test('con el limite de espacio lleno no se baja mas', () async {
+      await conRadios();
+      biblioteca = '{"ok":true,"elementos":[{"nombre":"Marc Anthony - Vivir Mi Vida [v1].opus","tamano":3000000,'
+          '"duracion":250,"audio":true,"uri":"content://audio/1"}]}';
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi, cuantas: 2),
+        ]),
+        DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
+          const BajadaInteligente(url: 'https://www.youtube.com/watch?v=v1', uri: 'content://audio/1', mezcla: 'otra', tanda: 1)
+              .aJson(),
+        ]),
+        DescargasInteligentes.claveAjustes: jsonEncode(<String, Object>{'limiteMb': 2}),
+      });
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      expect(await d.revisar(), 0);
+      expect(descargadas(), isEmpty);
+      expect(d.aviso, contains('limite'));
+    });
+
+    test('con «buscar mejor calidad» se pregunta por cada nueva en las fuentes libres', () async {
+      await conRadios();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveMezclas: mezclas(<MezclaInteligente>[
+          const MezclaInteligente(id: 'para-ti', nombre: 'Lo mio', tipo: TipoMezcla.paraTi, cuantas: 1),
+        ]),
+        DescargasInteligentes.claveAjustes: jsonEncode(<String, Object>{'mejorCalidad': true}),
+      });
+      // Lo recien bajado ya esta en la biblioteca, como en el telefono.
+      biblioteca = conArtistas.replaceFirst(']}', ',{"nombre":"Marc Anthony - Aguanile [n1].opus","tamano":100,'
+          '"duracion":240,"audio":true,"uri":"content://audio/99"}]}');
+      expect(await DescargasInteligentes.instancia.revisar(), 1);
+      final Set<String> fuentes = <String>{
+        for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'buscar'))
+          '${(c.arguments as Map<dynamic, dynamic>)['fuente']}',
+      };
+      expect(fuentes, containsAll(<String>['bandcamp', 'audius', 'jamendo']));
+      expect(DescargasInteligentes.instancia.bajadas, hasLength(1), reason: 'sin nada mejor, se queda la de YouTube');
+    });
+
+    test('saltar una cancion de una mezcla apunta a su artista', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
+          const BajadaInteligente(
+            url: 'https://www.youtube.com/watch?v=n1', uri: 'content://audio/n1', mezcla: 'para-ti', tanda: 1,
+            artista: 'Marc Anthony',
+          ).aJson(),
+        ]),
+      });
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      await d.anotarSalto('content://audio/n1');
+      await d.anotarSalto('content://audio/no-es-de-ninguna');
+      expect(d.saltos, <String, int>{'marc anthony': 1});
+      d.reiniciar();
+      await d.cargar();
+      expect(d.saltos, <String, int>{'marc anthony': 1}, reason: 'queda guardado');
+    });
+
+    test('el modo viaje baja unas horas a una lista suya que no se renueva', () async {
+      await conRadios();
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      await d.cargar();
+      final ({String lista, int canciones}) r = await d.modoViaje(
+        horas: 1,
+        plantilla: d.nueva(TipoMezcla.paraTi),
+        ahora: DateTime(2026, 10, 18),
+      );
+      expect(r.lista, 'Viaje del 18 de octubre');
+      expect(r.canciones, 3, reason: 'las tres de las radios que no tienes');
+      expect(Listas.instancia.contiene('Viaje del 18 de octubre', 'content://audio/99'), isTrue);
+      expect(d.bajadas, isEmpty, reason: 'son tuyas: no se borran al renovar');
+    });
+
+    testWidgets('los ajustes de la pantalla se guardan', (WidgetTester tester) async {
+      redSinLimite = false;
+      comoElTelefono(tester);
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const PantallaInteligentes()));
+      await tester.pumpAndSettle();
+      expect(find.text('Modo viaje'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Solo cargando'), 200, scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.text('Solo cargando'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.widgetWithText(ChoiceChip, '2 GB'), 200, scrollable: find.byType(Scrollable).first);
+      await tester.tap(find.widgetWithText(ChoiceChip, '2 GB'));
+      await tester.pumpAndSettle();
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      expect((d.soloCargando, d.limiteMb, d.mejorCalidad), (true, 2048, false));
     });
 
     testWidgets('en su pantalla se cambia cantidad, cada cuanto y se anade por genero', (WidgetTester tester) async {

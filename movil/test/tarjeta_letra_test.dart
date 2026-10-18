@@ -133,6 +133,8 @@ void main() {
     );
 
     // El verso siguiente se anade y se quita.
+    await tester.ensureVisible(find.text('Verso siguiente'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Verso siguiente'));
     await tester.pumpAndSettle();
     expect(
@@ -143,6 +145,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Verso siguiente'), findsNothing, reason: 'era el ultimo');
+    await tester.ensureVisible(find.text('Quitar verso'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Quitar verso'));
     await tester.pumpAndSettle();
     expect(find.text('Quitar verso'), findsNothing);

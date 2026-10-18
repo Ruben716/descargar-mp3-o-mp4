@@ -101,8 +101,54 @@ class OrdenTests(unittest.TestCase):
         self.assertIn("aformat=channel_layouts=mono", grafo)
         self.assertIn("[0:v]scale=720:1280", grafo)
         self.assertIn("fps=30", grafo)
-        self.assertIn(f"overlay=x=(W-w)/2:y={1280 - 160 - video.ONDA_MARGEN}", grafo)
+        self.assertIn(f"[f0][onda]overlay=x=40:y={1280 - 160 - video.ONDA_MARGEN}", grafo)
         self.assertTrue(grafo.endswith("format=yuv420p[v]"))
+        self.assertNotIn("[2:v]", grafo, "sin nada que se mueva no hay tercera entrada")
+
+    def test_el_vinilo_gira_y_la_portada_se_acerca_en_su_sitio(self) -> None:
+        def con(tipo: str) -> str:
+            return video.filtro(15000, diseno=video.diseno_de({
+                "ancho": 720, "alto": 720, "onda": [60, 584, 600, 96],
+                "movil": {"png": "/c/m.png", "tipo": tipo, "x": 48, "y": 108, "ancho": 300, "alto": 300},
+            }))
+
+        vinilo = con("girar")
+        self.assertIn(f"rotate=a=2*PI*t/{video.VUELTA_VINILO_S}:c=black@0[m]", vinilo)
+        self.assertIn("[f0][m]overlay=x=48:y=108:format=auto[f1]", vinilo)
+        self.assertIn("[f1][onda]overlay=x=60:y=584", vinilo, "la onda va encima de todo")
+        self.assertIn("[0:v]scale=720:720", vinilo)
+        self.assertIn("showwaves=s=600x96", vinilo)
+        zoom = con("zoom")
+        self.assertIn("zoompan=z=1+0.008*on/30", zoom)
+        self.assertIn(":s=300x300:fps=30", zoom)
+        self.assertNotIn("rotate", zoom)
+
+        quieto = video.filtro(15000, extras=False, diseno=video.diseno_de({"movil": {
+            "png": "/c/m.png", "tipo": "girar", "x": 0, "y": 0, "ancho": 10, "alto": 10}}))
+        self.assertNotIn("[2:v]", quieto)
+        self.assertNotIn("showwaves", quieto)
+
+    def test_el_diseno_llega_con_medidas_pares(self) -> None:
+        d = video.diseno_de({"ancho": 721, "alto": 720, "onda": [41, 1063, 641, 160],
+                             "movil": {"png": "/c/m.png", "tipo": "otro", "x": 1, "y": 3,
+                                       "ancho": 471, "alto": 472}})
+        self.assertEqual((d.ancho, d.alto), (720, 720))
+        self.assertEqual(d.onda, (40, 1062, 640, 160))
+        assert d.movil
+        self.assertEqual((d.movil.tipo, d.movil.x, d.movil.y, d.movil.ancho), ("zoom", 1, 3, 470))
+        self.assertEqual(video.diseno_de(None), video.Diseno())
+        self.assertIsNone(video.diseno_de({"onda": None}).onda)
+
+    def test_lo_que_se_mueve_es_la_tercera_entrada_y_dura_lo_mismo(self) -> None:
+        d = video.diseno_de({"movil": {"png": "/c/m.png", "tipo": "girar", "x": 0, "y": 0,
+                                       "ancho": 10, "alto": 10}})
+        orden = video.orden("ffmpeg", "/c/l.txt", "/c/a.m4a", 0, 15000, "/c/s.mp4", ("-c:v", "x"), True, d)
+        png = orden.index("/c/m.png")
+        self.assertEqual(orden[png - 7:png + 1],
+                         ["-loop", "1", "-framerate", "30", "-t", "15.000", "-i", "/c/m.png"])
+        self.assertGreater(png, orden.index("/c/a.m4a"))
+        sin = video.orden("ffmpeg", "/c/l.txt", "/c/a.m4a", 0, 15000, "/c/s.mp4", ("-c:v", "x"), False, d)
+        self.assertNotIn("/c/m.png", sin)
 
     def test_en_un_fragmento_cortisimo_los_fundidos_no_se_pisan(self) -> None:
         grafo = video.filtro(600)
@@ -271,6 +317,45 @@ class VideoDeVerdadTests(unittest.TestCase):
             self.assertAlmostEqual(float(info["format"]["duration"]), 2.0, delta=0.1)
 
 
+@unittest.skipUnless(FFMPEG, "Hace falta FFmpeg")
+class MovimientoDeVerdadTests(unittest.TestCase):
+    """Que el FFmpeg de verdad entiende el giro y el zoom, en un video cuadrado."""
+
+    def test_cuadrado_con_vinilo_y_con_portada(self) -> None:
+        assert FFMPEG
+        with tempfile.TemporaryDirectory() as carpeta:
+            base = Path(carpeta)
+
+            def png(nombre: str, medida: str, color: str) -> str:
+                ruta = base / nombre
+                subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                                "-i", f"color=c={color}:s={medida},format=rgba", "-frames:v", "1", str(ruta)],
+                               check=True)
+                return str(ruta)
+
+            fondo = png("0.png", "72x72", "0x334488")
+            tono = base / "tono.wav"
+            subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                            "-i", "sine=f=330:d=3", "-ac", "2", str(tono)], check=True)
+            for tipo, medida in (("girar", "240x240"), ("zoom", "480x480")):
+                movil = png(f"{tipo}.png", medida, "0xcc8844@0.9")
+                salida = base / f"{tipo}.mp4"
+                d = video.diseno_de({"ancho": 720, "alto": 720, "onda": [60, 600, 600, 80],
+                                     "movil": {"png": movil, "tipo": tipo, "x": 40, "y": 40,
+                                               "ancho": 240, "alto": 240}})
+                r = video.crear(FFMPEG, str(tono), 0, 2000, [(fondo, 2000)], str(salida), diseno=d)
+                self.assertTrue(r["ok"], r)
+                self.assertTrue(r["onda"], f"{tipo}: el grafo con movimiento lo entiende FFmpeg")
+                if FFPROBE:
+                    sondeo = subprocess.run(
+                        [FFPROBE, "-v", "error", "-select_streams", "v", "-show_entries",
+                         "stream=width,height", "-of", "json", str(salida)],
+                        capture_output=True, text=True, check=True,
+                    )
+                    flujo = json.loads(sondeo.stdout)["streams"][0]
+                    self.assertEqual((flujo["width"], flujo["height"]), (720, 720))
+
+
 class PuenteVideoLetraTests(unittest.TestCase):
     """video_letra del puente: traduce el JSON y nunca deja escapar nada."""
 
@@ -299,7 +384,20 @@ class PuenteVideoLetraTests(unittest.TestCase):
         self.assertEqual(datos, respuesta)
         crear.assert_called_once_with(
             "/bin/ffmpeg", "/c/a.m4a", 61250, 15000, [("/c/0.png", 4000), ("/c/1.png", 11000)], "/c/s.mp4",
+            diseno=video.Diseno(),
         )
+
+    def test_pasa_el_diseno(self) -> None:
+        diseno = json.dumps({"ancho": 720, "alto": 720, "onda": None,
+                             "movil": {"png": "/c/d.png", "tipo": "girar", "x": 8, "y": 8,
+                                       "ancho": 240, "alto": 240}})
+        with patch.object(self.puente.shutil, "which", return_value="/bin/ffmpeg"), \
+                patch.object(video, "crear", return_value={"ok": True}) as crear, \
+                patch.dict("sys.modules", {"video_letra": video}):
+            self.puente.video_letra("/c/a.m4a", 0, 15000, "[]", "/c/s.mp4", diseno)
+        d = crear.call_args.kwargs["diseno"]
+        self.assertEqual((d.ancho, d.alto, d.onda), (720, 720, None))
+        self.assertEqual(d.movil, video.Movil("/c/d.png", "girar", 8, 8, 240, 240))
 
 
 if __name__ == "__main__":

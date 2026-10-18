@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:descargador_movil/animaciones.dart';
 import 'package:descargador_movil/catalogo.dart';
+import 'package:descargador_movil/disenos_letra.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/paleta.dart';
 import 'package:descargador_movil/panel_letras.dart';
@@ -149,6 +150,46 @@ void main() {
     });
   });
 
+  group('disenos', () {
+    test('cada cosa cabe en su lienzo y nada pisa a lo que se mueve', () {
+      for (final FormatoTarjeta f in FormatoTarjeta.values) {
+        final Rect lienzo = Rect.fromLTWH(0, 0, 360, 360 / f.proporcion);
+        for (final EstiloLetra e in EstiloLetra.values) {
+          for (final bool video in <bool>[true, false]) {
+            final DisenoLetra d = disenoLetra(f, e, video: video);
+            final String que = '$f $e video: $video';
+            final Rect? movil = d.movil;
+            expect(lienzo.intersect(d.texto), d.texto, reason: que);
+            expect(movil == null, e == EstiloLetra.letra, reason: que);
+            if (movil != null) {
+              expect(lienzo.intersect(movil), movil, reason: que);
+              expect(movil.overlaps(d.texto), isFalse, reason: que);
+            }
+            if (!video) continue;
+            expect(lienzo.intersect(d.onda), d.onda, reason: que);
+            expect(d.onda.overlaps(d.texto), isFalse, reason: '$que: la onda va donde no hay texto');
+            if (movil != null) expect(d.onda.overlaps(movil), isFalse, reason: que);
+          }
+        }
+      }
+    });
+
+    test('lo que recibe FFmpeg va en px y sin PNG no se mueve nada', () {
+      final Map<String, Object> historia = disenoParaFfmpeg(FormatoTarjeta.historia, EstiloLetra.letra);
+      expect(historia, <String, Object>{'ancho': 720, 'alto': 1280, 'onda': <int>[40, 1064, 640, 160]},
+          reason: 'el de siempre: lo mismo que pinta video_letra.py sin diseno');
+      final Map<String, Object> vinilo =
+          disenoParaFfmpeg(FormatoTarjeta.cuadrada, EstiloLetra.vinilo, movil: '/c/movil.png');
+      expect(vinilo['alto'], 720);
+      expect(vinilo['movil'], <String, Object>{
+        'png': '/c/movil.png', 'tipo': 'girar', 'x': 36, 'y': 154, 'ancho': 316, 'alto': 316,
+      });
+      expect((disenoParaFfmpeg(FormatoTarjeta.historia, EstiloLetra.portada, movil: '/c/m.png')['movil']!
+              as Map<String, Object>)['tipo'], 'zoom');
+      expect(disenoParaFfmpeg(FormatoTarjeta.cuadrada, EstiloLetra.vinilo).containsKey('movil'), isFalse);
+    });
+  });
+
   group('la hoja', () {
     final List<MethodCall> llamadas = <MethodCall>[];
     late Directory temporal;
@@ -176,6 +217,11 @@ void main() {
           final Map<dynamic, dynamic> argumentos = llamada.arguments as Map<dynamic, dynamic>;
           for (final dynamic f in jsonDecode(argumentos['fotogramas'] as String) as List<dynamic>) {
             medidas.add(_medidaPng(File((f as Map<String, dynamic>)['png'] as String).readAsBytesSync()));
+          }
+          final String diseno = argumentos['diseno'] as String;
+          final dynamic movil = diseno.isEmpty ? null : (jsonDecode(diseno) as Map<String, dynamic>)['movil'];
+          if (movil != null) {
+            medidas.add(_medidaPng(File((movil as Map<String, dynamic>)['png'] as String).readAsBytesSync()));
           }
           return respuestaVideo;
         }
@@ -270,6 +316,40 @@ void main() {
       expect(medidas, List<(int, int)>.filled(3, (720, 1280)));
       expect(temporal.listSync(), isEmpty, reason: 'los fotogramas no se quedan');
       expect(find.byType(HojaCompartirLetra), findsNothing, reason: 'compartido, la hoja se cierra');
+    });
+
+    testWidgets('cuadrado y con el vinilo: el disco va aparte para que FFmpeg lo gire',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 2.75;
+      addTearDown(tester.view.reset);
+      await abrirSobre(tester, 'Con el tumbao que tienen los guapos al caminar');
+
+      await tester.tap(find.text('Video'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vinilo'));
+      await tester.tap(find.text('Cuadrada'));
+      await tester.pumpAndSettle();
+      expect(find.byType(Disco), findsOneWidget);
+      await tester.tap(find.text('Crear video'));
+      await esperarVideo(tester);
+
+      final MethodCall envio = llamadas.singleWhere((MethodCall c) => c.method == 'videoLetra');
+      final Map<String, dynamic> diseno =
+          jsonDecode((envio.arguments as Map<dynamic, dynamic>)['diseno'] as String) as Map<String, dynamic>;
+      expect(diseno['alto'], 720);
+      expect((diseno['movil'] as Map<String, dynamic>)['tipo'], 'girar');
+      expect(medidas, <(int, int)>[(720, 720), (720, 720), (316, 316)],
+          reason: 'dos fotogramas cuadrados y el disco a su tamano en el video');
+      expect(temporal.listSync(), isEmpty);
+    });
+
+    testWidgets('la tarjeta tambien sale con la portada', (WidgetTester tester) async {
+      await abrirSobre(tester, 'Con el tumbao que tienen los guapos al caminar');
+      await tester.tap(find.text('Portada'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortadaGrande), findsOneWidget);
+      expect(find.descendant(of: find.byType(TarjetaLetra), matching: find.text('Pedro Navaja')), findsOneWidget);
     });
 
     testWidgets('si el video falla, se cierra la hoja y se avisa', (WidgetTester tester) async {
