@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'copia_seguridad.dart';
 import 'dialogos.dart';
 import 'hoja_ecualizador.dart';
+import 'descargas_inteligentes.dart';
 import 'hoja_dj.dart';
 import 'hoja_fundido.dart';
 import 'nucleo.dart';
@@ -206,6 +207,7 @@ class _PantallaAjustesState extends State<PantallaAjustes> {
           ),
           const _Titulo('LISTAS QUE SIGUES'),
           ListenableBuilder(listenable: _suscripciones, builder: (BuildContext context, _) => _listasQueSigues()),
+          const AjusteDescargasInteligentes(),
           _portadasGrandes(),
           const _Titulo('COPIA DE SEGURIDAD'),
           _copiaDeSeguridad(),
