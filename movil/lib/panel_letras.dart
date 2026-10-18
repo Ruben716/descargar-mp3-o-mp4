@@ -85,10 +85,12 @@ class _PanelLetrasState extends State<PanelLetras> {
     );
     if (!mounted || e.uri != widget.elemento.uri) return;
     setState(() => _letra = letra);
-    // La primera vez, si nadie la ha ajustado a mano, se intenta sola.
-    if (letra.sincronizada && letra.desfase == Duration.zero && !await _yaIntentada(e.uri)) {
-      await _ajustarConLaVoz(sola: true);
-    }
+    // La primera vez, si nadie la ha ajustado a mano, se intenta sola. Una de
+    // otra version, tambien al buscarla otra vez: hasta cuadrarla no se mueve.
+    final bool toca = letra.porCuadrar
+        ? deNuevo || !await _yaIntentada(e.uri)
+        : letra.sincronizada && letra.desfase == Duration.zero && !await _yaIntentada(e.uri);
+    if (toca) await _ajustarConLaVoz(sola: true);
   }
 
   Future<bool> _yaIntentada(String uri) async {
@@ -114,18 +116,45 @@ class _PanelLetrasState extends State<PanelLetras> {
   /// Escucha donde entra la voz y corre la letra para que cada verso caiga
   /// ahi (ver voz.py). [sola]: sin que nadie lo pida; entonces solo se avisa
   /// si se cambio algo.
+  ///
+  /// Una letra de otra version ([Letra.porCuadrar]) se busca mas lejos, lo
+  /// que difieren las dos versiones, y basta con que el ajuste sea claro,
+  /// aunque sea dejarla como esta: entonces sus tiempos valen y se mueve.
   Future<void> _ajustarConLaVoz({bool sola = false}) async {
     final Letra? letra = _letra;
     final String uri = widget.elemento.uri;
-    if (letra == null || !letra.sincronizada || _escuchando) return;
+    if (letra == null || !(letra.sincronizada || letra.porCuadrar) || _escuchando) return;
+    final bool cuadrar = letra.porCuadrar;
     setState(() => _escuchando = true);
-    final ({int desfaseMs, bool aplicar})? r = await Nucleo.sincronizarLetra(uri, <int>[
-      for (final LineaLetra l in letra.lineas)
-        if (l.texto.trim().isNotEmpty) l.desde.inMilliseconds,
-    ]);
+    final ({int desfaseMs, bool aplicar, bool seguro})? r = await Nucleo.sincronizarLetra(
+      uri,
+      <int>[
+        for (final LineaLetra l in letra.lineas)
+          if (l.texto.trim().isNotEmpty) l.desde.inMilliseconds,
+      ],
+      rango: cuadrar ? Letras.rangoDeCuadre(letra) : null,
+    );
     await _anotarIntentada(uri);
     if (!mounted || uri != widget.elemento.uri) return;
     setState(() => _escuchando = false);
+    if (cuadrar) {
+      if (r != null && r.seguro) {
+        final Letra hecha = await Letras.cuadrar(uri, letra, Duration(milliseconds: r.desfaseMs));
+        if (!mounted || uri != widget.elemento.uri) return;
+        setState(() {
+          _letra = hecha;
+          _resaltada = -1;
+          // La traduccion iba por las lineas de corrido.
+          _traduccion = null;
+        });
+        _avisar('Letra cuadrada con la voz');
+      } else if (!sola) {
+        _avisar(r == null
+            ? 'No se pudo escuchar la cancion.'
+            : 'Esta letra es de otra version y no se pudo cuadrar con la voz.');
+      }
+      return;
+    }
     final Letra? actual = _letra;
     if (r != null && r.aplicar && actual != null) {
       final Duration antes = actual.desfase;
@@ -247,11 +276,20 @@ class _PanelLetrasState extends State<PanelLetras> {
   /// Una sola fila arriba con lo que se toca poco: la sincronia a la izquierda
   /// y la traduccion a la derecha. Antes iban arriba y abajo, cada una con su
   /// hueco, y le quitaban a la letra casi dos lineas.
-  Widget _barra({required bool traducible, Duration? desfase}) {
+  Widget _barra({required bool traducible, Duration? desfase, bool cuadrable = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: Row(
         children: <Widget>[
+          if (cuadrable)
+            TextButton.icon(
+              onPressed: _escuchando ? null : () => _ajustarConLaVoz(),
+              icon: _escuchando
+                  ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.graphic_eq_rounded, size: 18),
+              label: Text(_escuchando ? 'Cuadrando con la voz' : 'Cuadrar con la voz'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
+            ),
           if (desfase != null) _ControlSincronia(desfase: desfase, alAjustar: _ajustar),
           if (desfase != null)
             IconButton(
@@ -292,7 +330,7 @@ class _PanelLetrasState extends State<PanelLetras> {
       final List<String>? traducidas = _traduccion;
       return Column(
         children: <Widget>[
-          _barra(traducible: traducible),
+          _barra(traducible: traducible, cuadrable: letra.porCuadrar),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),

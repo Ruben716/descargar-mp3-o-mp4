@@ -170,13 +170,24 @@ class Nucleo {
   /// Cuanto correr la letra de [uri] para que vaya con la voz, dados los
   /// instantes de sus versos. null si no se pudo analizar; [aplicar] es false
   /// si no salio un ajuste claro.
-  static Future<({int desfaseMs, bool aplicar})?> sincronizarLetra(String uri, List<int> inicios) async {
+  static Future<({int desfaseMs, bool aplicar, bool seguro})?> sincronizarLetra(
+    String uri,
+    List<int> inicios, {
+    Duration? rango,
+  }) async {
     try {
       final Map<String, dynamic> datos = await _pedir('sincronizarLetra', <String, dynamic>{
         'uri': uri,
-        'inicios': jsonEncode(inicios),
+        // Con rango, para una letra de otra version, se busca mas lejos.
+        'inicios': jsonEncode(
+          rango == null ? inicios : <String, Object>{'inicios': inicios, 'rango': rango.inMilliseconds},
+        ),
       });
-      return (desfaseMs: (datos['desfase'] as num?)?.round() ?? 0, aplicar: datos['aplicar'] == true);
+      return (
+        desfaseMs: (datos['desfase'] as num?)?.round() ?? 0,
+        aplicar: datos['aplicar'] == true,
+        seguro: datos['seguro'] == true,
+      );
     } catch (_) {
       return null;
     }
