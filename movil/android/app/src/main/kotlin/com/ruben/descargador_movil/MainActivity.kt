@@ -273,6 +273,7 @@ class MainActivity : AudioServiceActivity() {
                         enHiloSuelto(respuesta) { guardarLista(nombre, contenido) }
                     }
                     "redSinLimite" -> respuesta.success(redSinLimite())
+                    "estaCargando" -> respuesta.success(estaCargando())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
                         abrirEnlace(llamada.argument<String>("url").orEmpty()),
@@ -892,6 +893,12 @@ class MainActivity : AudioServiceActivity() {
     private fun redSinLimite(): Boolean {
         val gestor = getSystemService(ConnectivityManager::class.java) ?: return false
         return gestor.activeNetwork != null && !gestor.isActiveNetworkMetered
+    }
+
+    /** Si el telefono esta enchufado: las descargas inteligentes pueden esperar a eso. */
+    private fun estaCargando(): Boolean {
+        val bateria = getSystemService(android.os.BatteryManager::class.java) ?: return true
+        return bateria.isCharging
     }
 
     private fun versionApp(): String = try {

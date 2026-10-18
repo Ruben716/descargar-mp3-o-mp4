@@ -171,7 +171,10 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   canción se apunta con la `tanda` (la `renovada` de su mezcla). Al renovar, lo de tandas anteriores que nadie
   escuchó, marcó Me gusta ni metió en otra lista se borra; lo tocado, o lo de «Guardar como lista», pasa a ser
   del usuario y se suelta. Sin red no se renueva: se arma antes de borrar. En `main.dart` van detrás de las
-  listas que sigues y de Descubre, una tras otra: comparten `ControlDescarga`.
+  listas que sigues y de Descubre, una tras otra: comparten `ControlDescarga`. Lo que se salta antes de 30 s
+  (`EstadoReproductor.esSalto`) suma al artista: va al final y con 3 saltos no se baja más. El límite de espacio
+  cuenta lo que ocupan las suyas (`cabenAun`, con `pesoTipico` si no se sabe), y el modo viaje no apunta tanda:
+  su lista es del usuario desde el principio.
 - **La portada grande va aparte de la miniatura** (`portada_grande.dart`): se baja una vez, con wifi, a la
   carpeta privada con `Nucleo.clavePortada` (FNV-1a, no `hashCode`, que cambia entre ejecuciones). Ojo con
   `whenComplete(() => mapa.remove(clave))`: devolver el futuro quitado hace que se espere a sí mismo.

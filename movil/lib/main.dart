@@ -142,6 +142,8 @@ class _InicioState extends State<Inicio>
     Navegacion.busquedaPedida.addListener(_alPedirBusqueda);
     unawaited(_atenderAtajo());
     // Lo de fondo, cuando la app ya esta abierta y no le roba tiempo al arranque.
+    // Saltar una cancion de una mezcla le ensenia a las descargas inteligentes.
+    EstadoReproductor.alSaltar = (String uri) => unawaited(DescargasInteligentes.instancia.anotarSalto(uri));
     // Antes que nada: si quedan letras de la busqueda vieja, se olvidan ya.
     if (tareasDeFondo) unawaited(Letras.revisarGuardadas());
     if (tareasDeFondo) {

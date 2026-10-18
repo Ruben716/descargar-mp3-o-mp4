@@ -286,6 +286,16 @@ class Nucleo {
     }
   }
 
+  /// Si el telefono esta enchufado. Si no se puede saber, se da por que si:
+  /// mejor bajar de mas que no bajar nunca.
+  static Future<bool> estaCargando() async {
+    try {
+      return await _canal.invokeMethod<bool>('estaCargando') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   /// La version instalada, la que dice Android (2.0.0...).
   static Future<String> versionApp() async {
     try {

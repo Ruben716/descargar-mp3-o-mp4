@@ -9,9 +9,11 @@ import 'catalogo.dart';
 import 'control_descarga.dart';
 import 'descubre.dart';
 import 'estado_reproductor.dart';
+import 'calidad.dart';
 import 'favoritas.dart';
 import 'hecho_para_ti.dart';
 import 'listas.dart';
+import 'mejor_calidad.dart';
 import 'nucleo.dart';
 import 'pidele.dart';
 import 'ritmos.dart';
@@ -27,7 +29,36 @@ enum TipoMezcla {
 
   /// La radio de un artista: el y los que suenan parecido.
   artista,
+
+  /// Para un momento (entrenar, fiesta...): tus canciones de esa energia y
+  /// ese tempo, segun lo que analizo el DJ.
+  animo,
 }
+
+/// Un animo para mezclar: de que energia (percentil en la biblioteca) y tempo,
+/// y de que generos tirar si aun no hay canciones analizadas de eso.
+typedef Animo = ({
+  String clave,
+  String titulo,
+  double energiaMin,
+  double energiaMax,
+  double bpmMin,
+  double bpmMax,
+  List<String> generos,
+});
+
+const List<Animo> animos = <Animo>[
+  (clave: 'entrenar', titulo: 'Para entrenar', energiaMin: 0.7, energiaMax: 1, bpmMin: 110, bpmMax: 200,
+    generos: <String>['reggaeton', 'electronica', 'rock']),
+  (clave: 'fiesta', titulo: 'De fiesta', energiaMin: 0.55, energiaMax: 1, bpmMin: 88, bpmMax: 135,
+    generos: <String>['reggaeton', 'salsa', 'cumbia']),
+  (clave: 'relajarte', titulo: 'Para relajarte', energiaMin: 0, energiaMax: 0.3, bpmMin: 0, bpmMax: 999,
+    generos: <String>['balada', 'jazz']),
+  (clave: 'concentrarte', titulo: 'Para concentrarte', energiaMin: 0.1, energiaMax: 0.45, bpmMin: 0, bpmMax: 120,
+    generos: <String>['clasica', 'jazz']),
+];
+
+Animo? animoDe(String clave) => animos.where((Animo a) => a.clave == clave).firstOrNull;
 
 /// Una mezcla que se baja sola y se renueva cada cierto tiempo.
 @immutable
@@ -118,6 +149,7 @@ class MezclaInteligente {
         TipoMezcla.paraTi => 'De tus artistas mas escuchados',
         TipoMezcla.genero => 'Genero: ${clave.isEmpty ? '' : clave[0].toUpperCase() + clave.substring(1)}',
         TipoMezcla.artista => 'Artista: $clave',
+        TipoMezcla.animo => 'Animo: ${animoDe(clave)?.titulo ?? clave}',
       };
 }
 
@@ -125,13 +157,20 @@ class MezclaInteligente {
 /// [MezclaInteligente.renovada] de cuando se bajo).
 @immutable
 class BajadaInteligente {
-  const BajadaInteligente({required this.url, required this.uri, required this.mezcla, required this.tanda});
+  const BajadaInteligente({
+    required this.url,
+    required this.uri,
+    required this.mezcla,
+    required this.tanda,
+    this.artista = '',
+  });
 
   factory BajadaInteligente.desdeJson(Map<String, dynamic> j) => BajadaInteligente(
         url: '${j['url']}',
         uri: '${j['uri']}',
         mezcla: '${j['mezcla'] ?? DescargasInteligentes.idParaTi}',
         tanda: (j['tanda'] as num?)?.toInt() ?? 0,
+        artista: '${j['artista'] ?? ''}',
       );
 
   final String url;
@@ -139,7 +178,14 @@ class BajadaInteligente {
   final String mezcla;
   final int tanda;
 
-  Map<String, Object> aJson() => <String, Object>{'url': url, 'uri': uri, 'mezcla': mezcla, 'tanda': tanda};
+  /// De quien es, para aprender de lo que se salta.
+  final String artista;
+
+  BajadaInteligente conUri(String nueva) =>
+      BajadaInteligente(url: url, uri: nueva, mezcla: mezcla, tanda: tanda, artista: artista);
+
+  Map<String, Object> aJson() =>
+      <String, Object>{'url': url, 'uri': uri, 'mezcla': mezcla, 'tanda': tanda, 'artista': artista};
 }
 
 /// Descargas inteligentes: mezclas que, con wifi, se bajan solas y se
@@ -158,6 +204,8 @@ class DescargasInteligentes extends ChangeNotifier {
 
   static const String claveMezclas = 'inteligentes_mezclas';
   static const String claveBajadas = 'inteligentes_bajadas';
+  static const String claveAjustes = 'inteligentes_ajustes';
+  static const String claveSaltos = 'inteligentes_saltos';
 
   // Las de la primera version, que tenia una sola mezcla.
   static const String claveActivas = 'inteligentes_activas';
@@ -170,6 +218,26 @@ class DescargasInteligentes extends ChangeNotifier {
 
   static const List<int> opcionesCantidad = <int>[10, 20, 30, 50, 100];
   static const List<int> opcionesDias = <int>[1, 3, 7, 14, 30];
+
+  /// Limites de espacio, en MB; 0 es sin limite.
+  static const List<int> opcionesLimiteMb = <int>[0, 1024, 2048, 5120, 10240];
+  static const List<int> opcionesHorasViaje = <int>[1, 2, 3, 5];
+
+  /// Lo que pesa una cancion cuando aun no hay ninguna con la que medir:
+  /// unos 4 minutos en Opus a 128 kb/s.
+  static const int pesoTipico = 4 * 1024 * 1024;
+
+  /// Lo que dura una cancion de la que no se sabe, para el modo viaje.
+  static const double duracionTipica = 210;
+
+  /// Con tantos saltos, ese artista ya no se baja solo.
+  static const int saltosParaQuitar = 3;
+
+  static String textoLimite(int mb) => mb == 0
+      ? 'Sin limite'
+      : mb % 1024 == 0
+          ? '${mb ~/ 1024} GB'
+          : '$mb MB';
 
   /// Cuantas semillas se piden por mezcla. Mas semillas, mas variada y mas
   /// pegada al genero, porque lo primero de cada radio es lo mas parecido.
@@ -184,6 +252,12 @@ class DescargasInteligentes extends ChangeNotifier {
       };
 
   bool _cargada = false;
+  bool _soloCargando = false;
+  int _limiteMb = 0;
+  bool _mejorCalidad = false;
+
+  /// Cuantas veces se ha saltado, por artista normalizado.
+  Map<String, int> _saltos = <String, int>{};
   List<MezclaInteligente> _mezclas = <MezclaInteligente>[];
   List<BajadaInteligente> _bajadas = <BajadaInteligente>[];
   bool _trabajando = false;
@@ -196,6 +270,75 @@ class DescargasInteligentes extends ChangeNotifier {
   bool get trabajando => _trabajando;
   String get aviso => _aviso;
   bool get activas => _mezclas.any((MezclaInteligente m) => m.activa);
+
+  /// Solo bajar con el telefono enchufado.
+  bool get soloCargando => _soloCargando;
+
+  /// Cuanto pueden ocupar entre todas, en MB; 0 es sin limite.
+  int get limiteMb => _limiteMb;
+
+  /// Antes de quedarse con lo de YouTube, buscar la misma sin perdida.
+  bool get mejorCalidad => _mejorCalidad;
+
+  Map<String, int> get saltos => Map<String, int>.unmodifiable(_saltos);
+
+  Future<void> ponerAjustes({bool? soloCargando, int? limiteMb, bool? mejorCalidad}) async {
+    await cargar();
+    _soloCargando = soloCargando ?? _soloCargando;
+    _limiteMb = limiteMb ?? _limiteMb;
+    _mejorCalidad = mejorCalidad ?? _mejorCalidad;
+    notifyListeners();
+    await _guardar();
+  }
+
+  /// La reproduccion avisa de que se paso a otra antes de 30 s. Si era de
+  /// una mezcla, su artista gusta menos: la proxima vez va al final, y con
+  /// [saltosParaQuitar] ya no se baja.
+  Future<void> anotarSalto(String uri) async {
+    await cargar();
+    final BajadaInteligente? b = _bajadas.where((BajadaInteligente x) => x.uri == uri).firstOrNull;
+    if (b == null || b.artista.trim().isEmpty) return;
+    final String clave = normalizarFrase(b.artista).trim();
+    _saltos[clave] = (_saltos[clave] ?? 0) + 1;
+    await _guardar();
+  }
+
+  /// [candidatas] con lo de artistas saltados al final, y sin los que se
+  /// saltaron [saltosParaQuitar] veces o mas.
+  static List<Resultado> segunSaltos(List<Resultado> candidatas, Map<String, int> saltos) {
+    if (saltos.isEmpty) return candidatas;
+    int vecesDe(Resultado r) => saltos[normalizarFrase(Descubre.partesDe(r).artista).trim()] ?? 0;
+    return <Resultado>[
+      for (final Resultado r in candidatas)
+        if (vecesDe(r) == 0) r,
+      for (final Resultado r in candidatas)
+        if (vecesDe(r) > 0 && vecesDe(r) < saltosParaQuitar) r,
+    ];
+  }
+
+  /// Cuantas caben aun en el limite de espacio, o null si no hay limite.
+  ///
+  /// [pesos] son los bytes de lo que ya esta en el telefono, por URI; lo bajado
+  /// que aun no aparece ahi cuenta con lo que pesa de media.
+  static int? cabenAun({
+    required int limiteMb,
+    required List<BajadaInteligente> bajadas,
+    required Map<String, int> pesos,
+  }) {
+    if (limiteMb <= 0) return null;
+    final List<int> conocidos = <int>[
+      for (final BajadaInteligente b in bajadas)
+        if ((pesos[b.uri] ?? 0) > 0) pesos[b.uri]!,
+    ];
+    final int medio = conocidos.isEmpty ? pesoTipico : conocidos.reduce((int a, int b) => a + b) ~/ conocidos.length;
+    final int usado = conocidos.fold(0, (int a, int b) => a + b) + (bajadas.length - conocidos.length) * medio;
+    final int libre = limiteMb * 1024 * 1024 - usado;
+    return libre <= 0 ? 0 : libre ~/ medio;
+  }
+
+  /// Lo que ocupan ahora, en bytes, segun [pesos].
+  int ocupado(Map<String, int> pesos) =>
+      _bajadas.fold(0, (int total, BajadaInteligente b) => total + (pesos[b.uri] ?? 0));
 
   List<BajadaInteligente> deMezcla(String id) =>
       <BajadaInteligente>[for (final BajadaInteligente b in _bajadas) if (b.mezcla == id) b];
@@ -249,6 +392,7 @@ class DescargasInteligentes extends ChangeNotifier {
     Map<String, Escucha> escuchas,
     Map<String, String> videos, {
     Map<String, Rasgos> rasgos = const <String, Rasgos>{},
+    double? Function(String uri)? percentil,
   }) {
     // hashCode no vale de semilla: cambia de una ejecucion a otra.
     final int deLaMezcla = m.id.codeUnits.fold(0, (int a, int c) => (a * 31 + c) & 0x3fffffff);
@@ -282,6 +426,25 @@ class DescargasInteligentes extends ChangeNotifier {
           ...propias,
           for (final String a in conocidos.take(semillas - propias.length)) (artista: a, tema: '', video: null),
         ];
+      case TipoMezcla.animo:
+        final Animo? a = animoDe(m.clave);
+        if (a == null) return const <Semilla>[];
+        bool encaja(Elemento e) {
+          final Rasgos? r = rasgos[e.uri];
+          final double? p = percentil?.call(e.uri);
+          if (r == null || p == null || p < a.energiaMin || p > a.energiaMax) return false;
+          return !r.conPulso || (r.bpm! >= a.bpmMin && r.bpm! <= a.bpmMax);
+        }
+        final List<Semilla> propias = sortear(masOidas(canciones.where((Elemento e) => e.audio && encaja(e))));
+        if (propias.length >= semillas) return propias;
+        // Sin bastantes analizadas, artistas conocidos de sus generos.
+        final List<String> conocidos = <String>[
+          for (final String g in a.generos) ...?artistasSemilla[g],
+        ]..shuffle(azar);
+        return <Semilla>[
+          ...propias,
+          for (final String nombre in conocidos.take(semillas - propias.length)) (artista: nombre, tema: '', video: null),
+        ];
       case TipoMezcla.artista:
         final String buscado = normalizarFrase(m.clave).trim();
         final List<Semilla> suyas = sortear(masOidas(canciones.where(
@@ -298,6 +461,7 @@ class DescargasInteligentes extends ChangeNotifier {
       TipoMezcla.paraTi => 'Para ti',
       TipoMezcla.genero => 'Mezcla de $clave',
       TipoMezcla.artista => 'Radio de $clave',
+      TipoMezcla.animo => animoDe(clave)?.titulo ?? clave,
     };
     final String idBase = '${tipo.name}:${normalizarFrase(clave).trim()}';
     String id = idBase;
@@ -314,6 +478,20 @@ class DescargasInteligentes extends ChangeNotifier {
     _cargada = true;
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? ajustes = prefs.getString(claveAjustes);
+      if (ajustes != null) {
+        final Map<String, dynamic> a = jsonDecode(ajustes) as Map<String, dynamic>;
+        _soloCargando = a['soloCargando'] == true;
+        _limiteMb = (a['limiteMb'] as num?)?.toInt() ?? 0;
+        _mejorCalidad = a['mejorCalidad'] == true;
+      }
+      final String? saltos = prefs.getString(claveSaltos);
+      if (saltos != null) {
+        _saltos = <String, int>{
+          for (final MapEntry<String, dynamic> e in (jsonDecode(saltos) as Map<String, dynamic>).entries)
+            e.key: (e.value as num).toInt(),
+        };
+      }
       final String? mezclas = prefs.getString(claveMezclas);
       final String? bajadas = prefs.getString(claveBajadas);
       if (mezclas != null) {
@@ -371,6 +549,11 @@ class DescargasInteligentes extends ChangeNotifier {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(claveMezclas, jsonEncode(<Map<String, Object>>[for (final MezclaInteligente m in _mezclas) m.aJson()]));
     await prefs.setString(claveBajadas, jsonEncode(<Map<String, Object>>[for (final BajadaInteligente b in _bajadas) b.aJson()]));
+    await prefs.setString(
+      claveAjustes,
+      jsonEncode(<String, Object>{'soloCargando': _soloCargando, 'limiteMb': _limiteMb, 'mejorCalidad': _mejorCalidad}),
+    );
+    await prefs.setString(claveSaltos, jsonEncode(_saltos));
   }
 
   MezclaInteligente? mezcla(String id) => _mezclas.where((MezclaInteligente m) => m.id == id).firstOrNull;
@@ -457,21 +640,28 @@ class DescargasInteligentes extends ChangeNotifier {
       notifyListeners();
       return 0;
     }
+    if (_soloCargando && !await Nucleo.estaCargando()) {
+      _aviso = 'Esperando a que el telefono este cargando.';
+      notifyListeners();
+      return 0;
+    }
     _trabajando = true;
     notifyListeners();
     int total = 0;
     try {
-      final List<Elemento> canciones =
-          (await Nucleo.biblioteca()).where((Elemento e) => e.audio).toList();
+      final List<Elemento> todo = await Nucleo.biblioteca();
+      final List<Elemento> canciones = todo.where((Elemento e) => e.audio).toList();
+      final Map<String, int> pesos = <String, int>{for (final Elemento e in todo) e.uri: e.tamano};
       final Map<String, Escucha> escuchas = await Catalogo.instancia.escuchasConFecha();
       await Ritmos.instancia.cargar();
       final Map<String, Rasgos> rasgos = Ritmos.instancia.todos;
       for (final MezclaInteligente original in List<MezclaInteligente>.of(_mezclas)) {
         if (!original.activa || control.activa) continue;
-        total += await _revisarMezcla(original, canciones, escuchas, rasgos, forzar: forzar);
+        total += await _revisarMezcla(original, canciones, escuchas, rasgos, pesos, forzar: forzar);
       }
+      final bool lleno = cabenAun(limiteMb: _limiteMb, bajadas: _bajadas, pesos: pesos) == 0;
       _aviso = total == 0
-          ? 'Tus descargas inteligentes estan al dia.'
+          ? (lleno ? 'Llegaste al limite de espacio: sube el limite o guarda alguna como lista.' : 'Tus descargas inteligentes estan al dia.')
           : 'Se bajaron $total ${total == 1 ? 'cancion nueva' : 'canciones nuevas'}.';
       await _guardar();
     } catch (_) {
@@ -487,7 +677,8 @@ class DescargasInteligentes extends ChangeNotifier {
     MezclaInteligente m,
     List<Elemento> canciones,
     Map<String, Escucha> escuchas,
-    Map<String, Rasgos> rasgos, {
+    Map<String, Rasgos> rasgos,
+    Map<String, int> pesos, {
     required bool forzar,
   }) async {
     final ControlDescarga control = ControlDescarga.instancia;
@@ -505,16 +696,20 @@ class DescargasInteligentes extends ChangeNotifier {
       escuchas,
       <String, String>{for (final MapEntry<String, String> v in bajados.entries) v.value: v.key},
       rasgos: rasgos,
+      percentil: Ritmos.instancia.percentil,
     );
     if (semillasDeAhora.isEmpty) return 0;
     final List<List<Resultado>> radios = await Future.wait(<Future<List<Resultado>>>[
       for (final Semilla s in semillasDeAhora) Descubre.radioDeSemilla(s),
     ]);
-    final List<Resultado> candidatas = Descubre.armar(
-      radios,
-      tengo: bajados.keys.toSet(),
-      conocidas: <String>{for (final Elemento e in canciones) Descubre.claveDe(e.artista, e.tema)},
-      cuantas: m.cuantas * 2,
+    final List<Resultado> candidatas = segunSaltos(
+      Descubre.armar(
+        radios,
+        tengo: bajados.keys.toSet(),
+        conocidas: <String>{for (final Elemento e in canciones) Descubre.claveDe(e.artista, e.tema)},
+        cuantas: m.cuantas * 2,
+      ),
+      _saltos,
     );
     // Sin red no se renueva: mejor lo de antes que quedarse sin nada.
     if (candidatas.isEmpty) return 0;
@@ -526,26 +721,161 @@ class DescargasInteligentes extends ChangeNotifier {
       actual = conVuelta.copiar(renovada: tanda);
       _cambiarEnLista(actual);
     }
+    int faltan = actual.cuantas -
+        _bajadas.where((BajadaInteligente b) => b.mezcla == actual.id && b.tanda == actual.renovada).length;
+    final int? caben = cabenAun(limiteMb: _limiteMb, bajadas: _bajadas, pesos: pesos);
+    if (caben != null) faltan = min(faltan, caben);
     final List<Resultado> nuevas = queBajar(
       candidatas,
       tengo: (await Catalogo.instancia.videos()).keys.toSet(),
       yaBajadas: <String>{for (final BajadaInteligente b in _bajadas) b.url},
-      faltan: actual.cuantas -
-          _bajadas.where((BajadaInteligente b) => b.mezcla == actual.id && b.tanda == actual.renovada).length,
+      faltan: faltan,
     );
     if (nuevas.isEmpty) return 0;
     final List<String> urls = <String>[for (final Resultado r in nuevas) r.url];
     await control.iniciarVarios(urls, con: control.ajustes.copiar(soloAudio: true));
-    int bajadas = 0;
-    for (final String url in urls) {
-      final String? uri = await Catalogo.instancia.buscar(url, audio: true);
+    final List<BajadaInteligente> llegadas = <BajadaInteligente>[];
+    for (final Resultado r in nuevas) {
+      final String? uri = await Catalogo.instancia.buscar(r.url, audio: true);
       if (uri == null) continue;
-      _bajadas.add(BajadaInteligente(url: url, uri: uri, mezcla: actual.id, tanda: actual.renovada));
+      final BajadaInteligente b = BajadaInteligente(
+        url: r.url,
+        uri: uri,
+        mezcla: actual.id,
+        tanda: actual.renovada,
+        artista: Descubre.partesDe(r).artista,
+      );
+      _bajadas.add(b);
+      llegadas.add(b);
       await _alaLista(actual.nombre, uri);
-      bajadas++;
     }
+    if (_mejorCalidad) await _mejorar(llegadas);
     notifyListeners();
-    return bajadas;
+    return llegadas.length;
+  }
+
+  /// Cambia lo recien bajado por la misma cancion sin perdida, si alguna
+  /// fuente libre la tiene (ver [MejorCalidad]). Lo de antes se borra.
+  Future<void> _mejorar(List<BajadaInteligente> llegadas) async {
+    if (llegadas.isEmpty) return;
+    final Map<String, Elemento> porUri = <String, Elemento>{
+      for (final Elemento e in await Nucleo.biblioteca()) e.uri: e,
+    };
+    for (final BajadaInteligente b in llegadas) {
+      final Elemento? e = porUri[b.uri];
+      if (e == null || ControlDescarga.instancia.activa) continue;
+      try {
+        final CalidadAudio actual = await Catalogo.instancia.calidadDe(b.uri) ??
+            const CalidadAudio(codec: 'opus', kbps: 127, hz: 48000);
+        final List<Alternativa> mejores = await MejorCalidad.buscar(e, actual);
+        if (mejores.isEmpty) continue;
+        final String? nueva = await MejorCalidad.cambiar(e, mejores.first);
+        if (nueva == null) continue;
+        await MejorCalidad.borrarAnterior(b.uri);
+        final int i = _bajadas.indexWhere((BajadaInteligente x) => x.uri == b.uri);
+        if (i >= 0) _bajadas[i] = b.conUri(nueva);
+      } catch (_) {
+        // Se queda la de YouTube: ya estaba bajada.
+      }
+    }
+  }
+
+  /// Modo viaje: baja de una vez unas [horas] de musica para ir sin senal,
+  /// sacada como la mezcla [plantilla], a una lista nueva que es tuya (no se
+  /// renueva ni se borra). Devuelve el nombre de la lista y cuantas bajo.
+  Future<({String lista, int canciones})> modoViaje({
+    required int horas,
+    required MezclaInteligente plantilla,
+    DateTime? ahora,
+  }) async {
+    await cargar();
+    final ControlDescarga control = ControlDescarga.instancia;
+    final DateTime hoy = ahora ?? DateTime.now();
+    final String nombre = await _nombreLibre('Viaje del ${hoy.day} de ${_meses[hoy.month - 1]}');
+    if (control.activa || _trabajando) return (lista: nombre, canciones: 0);
+    _trabajando = true;
+    _aviso = 'Preparando $horas ${horas == 1 ? 'hora' : 'horas'} de musica...';
+    notifyListeners();
+    try {
+      final List<Elemento> canciones = (await Nucleo.biblioteca()).where((Elemento e) => e.audio).toList();
+      final Map<String, String> bajados = await Catalogo.instancia.videos();
+      await Ritmos.instancia.cargar();
+      final List<Semilla> semillasDeViaje = semillasDe(
+        plantilla.copiar(vueltas: hoy.millisecondsSinceEpoch ~/ 3600000),
+        canciones,
+        await Catalogo.instancia.escuchasConFecha(),
+        <String, String>{for (final MapEntry<String, String> v in bajados.entries) v.value: v.key},
+        rasgos: Ritmos.instancia.todos,
+        percentil: Ritmos.instancia.percentil,
+      );
+      final List<List<Resultado>> radios = await Future.wait(<Future<List<Resultado>>>[
+        for (final Semilla s in semillasDeViaje) Descubre.radioDeSemilla(s),
+      ]);
+      final List<Resultado> elegidas = paraHoras(
+        segunSaltos(
+          Descubre.armar(
+            radios,
+            tengo: bajados.keys.toSet(),
+            conocidas: <String>{for (final Elemento e in canciones) Descubre.claveDe(e.artista, e.tema)},
+            cuantas: horas * 40,
+          ),
+          _saltos,
+        ),
+        horas,
+      );
+      if (elegidas.isEmpty) {
+        _aviso = 'No se encontro musica para el viaje: revisa la conexion.';
+        return (lista: nombre, canciones: 0);
+      }
+      _aviso = 'Bajando ${elegidas.length} canciones para el viaje...';
+      notifyListeners();
+      await control.iniciarVarios(<String>[for (final Resultado r in elegidas) r.url],
+          con: control.ajustes.copiar(soloAudio: true));
+      int bajadas = 0;
+      for (final Resultado r in elegidas) {
+        final String? uri = await Catalogo.instancia.buscar(r.url, audio: true);
+        if (uri == null) continue;
+        await _alaLista(nombre, uri);
+        bajadas++;
+      }
+      _aviso = 'Listo: «$nombre» con $bajadas canciones.';
+      return (lista: nombre, canciones: bajadas);
+    } catch (_) {
+      _aviso = 'No se pudo preparar el viaje ahora.';
+      return (lista: nombre, canciones: 0);
+    } finally {
+      _trabajando = false;
+      notifyListeners();
+    }
+  }
+
+  static const List<String> _meses = <String>[
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+
+  /// Las primeras de [candidatas] hasta llenar [horas] (las que no dicen su
+  /// duracion cuentan como [duracionTipica]).
+  static List<Resultado> paraHoras(List<Resultado> candidatas, int horas) {
+    final double objetivo = horas * 3600.0;
+    double suma = 0;
+    final List<Resultado> elegidas = <Resultado>[];
+    for (final Resultado r in candidatas) {
+      if (suma >= objetivo) break;
+      elegidas.add(r);
+      suma += r.duracion > 0 ? r.duracion : duracionTipica;
+    }
+    return elegidas;
+  }
+
+  Future<String> _nombreLibre(String base) async {
+    final Listas listas = Listas.instancia;
+    await listas.cargar();
+    String nombre = base;
+    for (int n = 2; listas.nombres.contains(nombre); n++) {
+      nombre = '$base ($n)';
+    }
+    return nombre;
   }
 
   void _cambiarEnLista(MezclaInteligente m) {
@@ -593,6 +923,10 @@ class DescargasInteligentes extends ChangeNotifier {
   @visibleForTesting
   void reiniciar() {
     _cargada = false;
+    _soloCargando = false;
+    _limiteMb = 0;
+    _mejorCalidad = false;
+    _saltos = <String, int>{};
     _mezclas = <MezclaInteligente>[];
     _bajadas = <BajadaInteligente>[];
     _trabajando = false;

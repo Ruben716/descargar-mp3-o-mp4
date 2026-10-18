@@ -44,6 +44,9 @@ class EstadoReproductor extends ChangeNotifier {
   EstadoReproductor._() {
     motor.playerStateStream.listen((_) => notifyListeners());
     motor.positionStream.listen((Duration instante) {
+      // Lo mas lejos que se llego: al cambiar de pista el motor vuelve a 0
+      // antes o despues de avisar del cambio, y eso no puede borrar lo oido.
+      if (instante > _oidoDeLaActual) _oidoDeLaActual = instante;
       _anotarSiYaCuenta(instante);
       _repetirTramo(instante);
       _aplicarFundido(instante);
@@ -57,6 +60,13 @@ class EstadoReproductor extends ChangeNotifier {
       if (_cargasEnCurso > 0) return;
       if (indice == null || indice >= _cola.length) return;
       final Elemento actual = _cola[indice];
+      // Se paso a otra antes de [saltoRapido]: para las descargas
+      // inteligentes, ese estilo gusta menos.
+      final Elemento? antes = _actual?.elemento;
+      if (antes != null && antes.uri != actual.uri) {
+        if (esSalto(_oidoDeLaActual, antes.duracion)) alSaltar?.call(antes.uri);
+        _oidoDeLaActual = Duration.zero;
+      }
       if (actual.uri != _anotada) _anotada = null;
       // El tramo era de la pista anterior: en esta no significa nada.
       if (actual.uri != _actual?.elemento?.uri) _quitarTramo();
@@ -94,6 +104,23 @@ class EstadoReproductor extends ChangeNotifier {
 
   /// La pista que ya se anoto, para no sumarla otra vez mientras siga sonando.
   String? _anotada;
+
+  /// Lo que se lleva oido de la que suena, para saber si se salto.
+  Duration _oidoDeLaActual = Duration.zero;
+
+  /// Pasar a otra antes de esto cuenta como saltarla.
+  static const Duration saltoRapido = Duration(seconds: 30);
+
+  /// A quien avisar cuando se salta una cancion (las descargas inteligentes).
+  static void Function(String uri)? alSaltar;
+
+  /// Si pasar a otra tras oir [oido] de una pista de [duracion] segundos es
+  /// saltarla: se oyo algo, menos de [saltoRapido], y no es que acabara sola
+  /// (una corta llega al final antes de los 30 s).
+  static bool esSalto(Duration oido, double duracion) {
+    final bool acabo = duracion > 0 && oido >= Duration(milliseconds: ((duracion - 3) * 1000).round());
+    return oido > Duration.zero && oido < saltoRapido && !acabo;
+  }
 
   void _anotarSiYaCuenta(Duration instante) {
     final String? uri = _actual?.elemento?.uri;
