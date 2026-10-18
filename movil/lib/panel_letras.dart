@@ -176,6 +176,8 @@ class _PanelLetrasState extends State<PanelLetras> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       behavior: SnackBarBehavior.floating,
       content: Text(texto),
+      // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+      persist: false,
       action: deshacer == null ? null : SnackBarAction(label: 'Deshacer', onPressed: deshacer),
     ));
   }

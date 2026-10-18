@@ -66,6 +66,8 @@ class _PantallaEpisodioState extends State<PantallaEpisodio> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           behavior: SnackBarBehavior.floating,
           content: Text('Retomado en ${formatoTiempo(antes.inSeconds)}'),
+          // Con boton, Flutter lo dejaria fijo hasta tocarlo: que se vaya solo.
+          persist: false,
           action: SnackBarAction(label: 'Desde el principio', onPressed: () => motor.seekTo(Duration.zero)),
         ));
       }

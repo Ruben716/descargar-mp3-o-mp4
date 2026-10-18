@@ -51,8 +51,8 @@ Future<void> main() async {
   Nucleo.escucharVentanaFlotante();
   // Por donde suena (altavoz, cable, Bluetooth): cada salida tiene su ecualizador.
   unawaited(SalidasDeAudio.instancia.empezar());
-  // Cerrar la app desde recientes con la musica en pausa la cierra de verdad.
-  Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararSiNoSuena;
+  // Cerrar la app desde recientes la cierra de verdad: la musica se para.
+  Nucleo.alCerrarTarea = EstadoReproductor.instancia.pararAlCerrar;
   // El widget de la pantalla de inicio: sus botones y lo que ensenia.
   Nucleo.alPulsarWidget = Atajos.pulsarWidget;
   SincroWidget.empezar();

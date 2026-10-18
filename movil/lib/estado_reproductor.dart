@@ -681,15 +681,15 @@ class EstadoReproductor extends ChangeNotifier {
   ///
   /// Al ponerlo se baraja dejando en cabeza lo que ya suena, para no cortar la
   /// cancion a mitad; al quitarlo se vuelve al orden en que se cargo la cola.
-  /// Al cerrar la app: si no suena nada, se para el motor de verdad.
+  /// Al cerrar la app (quitarla de recientes): la musica se para, suene o no.
   ///
   /// El plugin de audio no hace nada cuando se quita la app de recientes, asi
   /// que el servicio y su notificacion seguian vivos aunque la app estuviera
-  /// cerrada. Parado, el servicio se apaga y la notificacion se va. Si esta
-  /// sonando se deja sonar, como en cualquier reproductor: se para desde la
-  /// notificacion. La sesion guardada no se toca, para retomarla al volver.
-  Future<void> pararSiNoSuena() async {
-    if (motor.playing) return;
+  /// cerrada. Antes, sonando, se dejaba sonar; pero quien cierra la app espera
+  /// que se calle. Parado, el servicio se apaga y la notificacion se va. La
+  /// sesion guardada no se toca, para retomarla al volver. Las descargas van
+  /// en su propio servicio y siguen.
+  Future<void> pararAlCerrar() async {
     try {
       await motor.stop();
     } catch (_) {
