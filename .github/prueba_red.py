@@ -230,6 +230,56 @@ def letras_youtube() -> None:
         raise AssertionError("ninguna canción trajo letra de YouTube Music")
 
 
+def letras_lrclib() -> None:
+    """Lo que da lrclib para canciones que en el móvil salían de corrido.
+
+    Primero la consulta exacta (artista, tema y duración, como `_porNombre`)
+    y luego la búsqueda: si la exacta solo trae la letra de corrido, ¿hay en
+    la búsqueda alguna con tiempos que dure parecido?
+    """
+    import json
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+
+    def pedir(ruta: str, consulta: dict[str, str]) -> object:
+        peticion = Request(f"https://lrclib.net{ruta}?{urlencode(consulta)}",
+                          headers={"User-Agent": "Tumbao (proyecto academico)"})
+        try:
+            with urlopen(peticion, timeout=15) as r:
+                return json.load(r)
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+
+    def resumen(d: object) -> str:
+        if not isinstance(d, dict):
+            return str(d)[:120]
+        return (f"{d.get('artistName')} - {d.get('trackName')} | {d.get('duration')} s | "
+                f"tiempos: {bool(d.get('syncedLyrics'))} | de corrido: {bool(d.get('plainLyrics'))}")
+
+    for artista, tema, segundos in (("Avicii", "You Make Me", 230), ("OneRepublic", "If I Lose Myself", 261)):
+        print(f"   -- {artista} - {tema} ({segundos} s)")
+        exacta = pedir("/api/get", {"artist_name": artista, "track_name": tema, "duration": str(segundos)})
+        print("   exacta:", resumen(exacta))
+        halladas = pedir("/api/search", {"q": f"{artista} {tema}"})
+        if not isinstance(halladas, list):
+            print("   búsqueda:", halladas)
+        else:
+            for d in halladas[:12]:
+                print("     ", resumen(d))
+        hallada = motor.search(SearchQuery(f"{artista} {tema}", limit=1, source="ytmusic"))
+        if hallada:
+            ruta = Path(__file__).resolve().parent.parent / "movil/android/app/src/main/python/letras_ytm.py"
+            spec = importlib.util.spec_from_file_location("letras_ytm", ruta)
+            assert spec and spec.loader
+            letras_ytm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(letras_ytm)
+            video = parse_qs(urlparse(hallada[0].url).query).get("v", [""])[0]
+            datos = letras_ytm.letra(video)
+            print("   YouTube Music:", video, "| ok:", datos.get("ok"), "| tiempos:", bool(datos.get("lrc")),
+                  "| de corrido:", bool(datos.get("texto")), "|", datos.get("fuente") or datos.get("error"))
+
+
+seccion("LETRAS EN LRCLIB (las que salían de corrido)", letras_lrclib)
 seccion("PODCASTS (con id corto)", podcasts)
 seccion("HEARTHIS", hearthis)
 seccion("WIKIMEDIA COMMONS", commons)

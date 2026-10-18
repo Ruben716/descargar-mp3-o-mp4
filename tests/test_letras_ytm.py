@@ -262,7 +262,8 @@ class LetraTests(unittest.TestCase):
     def test_si_falla_el_movil_aun_queda_la_plana(self) -> None:
         error = HTTPError("https://music.youtube.com", 400, "Bad Request", Message(), None)
         resultado, _ = self._pedir(_Respuesta(CON_LETRA), error, _Respuesta(respuesta_plana("hola")))
-        self.assertEqual(resultado, {"ok": True, "lrc": "", "texto": "hola", "fuente": "Fuente: Musixmatch"})
+        self.assertEqual(resultado, {"ok": True, "lrc": "", "texto": "hola", "fuente": "Fuente: Musixmatch",
+                                     "completa": False})
 
     def test_si_falla_el_movil_y_la_web_no_trae_nada_no_se_da_por_vacia(self) -> None:
         """Sin respuesta del cliente movil no se sabe si la cancion tiene letra."""

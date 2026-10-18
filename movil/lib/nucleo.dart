@@ -244,23 +244,21 @@ class Nucleo {
   /// La letra de YouTube Music de una cancion, por el id de su [video].
   ///
   /// `lrc` va vacio cuando YouTube no tiene los tiempos y `texto` es la letra
-  /// plana. null si no tiene letra o no se pudo pedir: nunca lanza.
-  static Future<({String lrc, String texto, String fuente})?> letraYoutube(String video) async {
-    try {
-      final String crudo = await _canal.invokeMethod<String>(
-            'letraYoutube',
-            <String, dynamic>{'video': video},
-          ) ??
-          '{}';
-      final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
-      if (datos['ok'] != true) return null;
-      final String lrc = datos['lrc']?.toString() ?? '';
-      final String texto = datos['texto']?.toString() ?? '';
-      if (lrc.isEmpty && texto.isEmpty) return null;
-      return (lrc: lrc, texto: texto, fuente: datos['fuente']?.toString() ?? '');
-    } catch (_) {
-      return null;
-    }
+  /// plana; `completa` es false si es la plana porque los tiempos no se
+  /// pudieron pedir. null si el tema no tiene letra; si no se pudo preguntar,
+  /// falla con [ErrorNucleo], que no es lo mismo: la letra no se da por buscada.
+  static Future<({String lrc, String texto, String fuente, bool completa})?> letraYoutube(String video) async {
+    final String crudo = await _canal.invokeMethod<String>(
+          'letraYoutube',
+          <String, dynamic>{'video': video},
+        ) ??
+        '{}';
+    final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
+    if (datos['ok'] != true) throw ErrorNucleo(datos['error']?.toString() ?? 'YouTube Music no respondio.');
+    final String lrc = datos['lrc']?.toString() ?? '';
+    final String texto = datos['texto']?.toString() ?? '';
+    if (lrc.isEmpty && texto.isEmpty) return null;
+    return (lrc: lrc, texto: texto, fuente: datos['fuente']?.toString() ?? '', completa: datos['completa'] != false);
   }
 
   /// Guarda la copia de seguridad en Descargas/Tumbao. Devuelve donde quedo.

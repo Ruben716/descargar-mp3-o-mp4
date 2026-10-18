@@ -78,7 +78,11 @@ class Letra {
 }
 
 /// Una letra que llega de una fuente, antes de guardarla.
-typedef LetraTraida = ({String lrc, String texto, String fuente});
+typedef LetraTraida = ({String lrc, String texto, String fuente, bool completa});
+
+/// Lo que dio una fuente, y si fallo al preguntarle (sin red, servidor caido):
+/// entonces lo que haya no es todo lo que hay.
+typedef _Respuesta = ({Letra letra, bool fallo});
 
 /// Busca letras en YouTube Music y en lrclib.
 ///
@@ -100,6 +104,10 @@ class Letras {
   @visibleForTesting
   static Future<dynamic> Function(String ruta, Map<String, String> consulta) lrclib = _jsonLrclib;
 
+  /// lrclib a veces responde 503 un rato: se reintenta dos veces, esperando
+  /// esto y el doble.
+  static Duration esperaReintento = const Duration(seconds: 1);
+
   /// Con la busqueda de antes se colaban letras de otra cancion, y quedaban
   /// guardadas para siempre. La primera vez con esta version se olvidan las
   /// guardadas que no se ajustaron a mano, para buscarlas otra vez.
@@ -107,7 +115,7 @@ class Letras {
 
   /// La segunda revision: las que se guardaron de corrido por ser de otra
   /// version se vuelven a buscar, ahora con sus tiempos para cuadrarlos.
-  static const String claveRevisionDeCorrido = 'letras_revisadas_v3';
+  static const String claveRevisionDeCorrido = 'letras_revisadas_v4';
 
   static const String _servidor = 'lrclib.net';
 
@@ -311,12 +319,17 @@ class Letras {
       artista: artista.trim().isNotEmpty ? artista.trim() : delNombre.artista,
       tema: tema.trim().isNotEmpty ? tema.trim() : delNombre.tema,
     );
-    final Letra traida = await _pedir(
+    final ({Letra letra, bool guardar}) pedida = await _pedir(
       partes,
       consultaDe(nombre),
       duracion,
       video: await Catalogo.instancia.videoDe(uri),
     );
+    final Letra traida = pedida.letra;
+    // Si alguna fuente fallo y no hay tiempos, se ensenia lo que haya pero no
+    // se guarda: la proxima vez se vuelve a preguntar. Antes un 503 de lrclib
+    // dejaba la letra de corrido para siempre.
+    if (!pedida.guardar) return traida;
     await Catalogo.instancia.guardarLetra(
       uri,
       lrc: traida.lineas.isEmpty
@@ -366,60 +379,90 @@ class Letras {
   static void reiniciar() {
     youtube = (String _) async => null;
     lrclib = _jsonLrclib;
+    esperaReintento = Duration.zero;
   }
 
   /// Pregunta a las fuentes por orden y se queda con la mejor respuesta.
   ///
   /// Una letra sincronizada de una fuente fiable gana a todo; si solo hay
   /// letra de corrido, se sigue buscando una sincronizada antes de darla.
-  static Future<Letra> _pedir(
+  ///
+  /// [guardar] es false si alguna fuente fallo y no se llego a una con
+  /// tiempos: lo que haya vale para ahora, pero no es todo lo que hay.
+  static Future<({Letra letra, bool guardar})> _pedir(
     ({String artista, String tema}) partes,
     String consulta,
     num duracion, {
     String? video,
   }) async {
     Letra? deCorrido;
+    bool fallo = false;
     if (video != null) {
-      final Letra deYoutube = await _deYoutube(video);
-      if (deYoutube.sincronizada) return deYoutube;
-      if (!deYoutube.vacia) deCorrido = deYoutube;
+      final _Respuesta deYoutube = await _deYoutube(video);
+      if (deYoutube.letra.sincronizada) return (letra: deYoutube.letra, guardar: true);
+      if (!deYoutube.letra.vacia) deCorrido = deYoutube.letra;
+      fallo = deYoutube.fallo;
     }
-    final Letra deLrclib = await _deLrclib(partes, consulta, duracion);
+    final _Respuesta deLrclib = await _deLrclib(partes, consulta, duracion);
     // La de otra version tambien gana a la de corrido: trae tiempos, y la voz
     // puede cuadrarlos.
-    if (deLrclib.sincronizada || deLrclib.porCuadrar) return deLrclib;
-    return deCorrido ?? deLrclib;
+    if (deLrclib.letra.sincronizada || deLrclib.letra.porCuadrar) return (letra: deLrclib.letra, guardar: true);
+    return (letra: deCorrido ?? deLrclib.letra, guardar: !fallo && !deLrclib.fallo);
   }
 
-  static Future<Letra> _deYoutube(String video) async {
+  static Future<_Respuesta> _deYoutube(String video) async {
     try {
       final LetraTraida? traida = await youtube(video);
-      if (traida == null) return const Letra.ninguna();
-      return Letra(lineas: analizarLrc(traida.lrc), texto: traida.texto);
+      if (traida == null) return (letra: const Letra.ninguna(), fallo: false);
+      return (letra: Letra(lineas: analizarLrc(traida.lrc), texto: traida.texto), fallo: !traida.completa);
     } catch (_) {
-      return const Letra.ninguna();
+      return (letra: const Letra.ninguna(), fallo: true);
     }
   }
 
   /// lrclib: primero por nombre exacto, luego buscando.
-  static Future<Letra> _deLrclib(
+  static Future<_Respuesta> _deLrclib(
     ({String artista, String tema}) partes,
     String consulta,
     num duracion,
   ) async {
     try {
-      // La consulta exacta es la buena cuando se sabe el artista: el servidor
-      // casa por nombre y duracion y no puede devolver otra cancion.
-      if (partes.artista.isNotEmpty && partes.tema.isNotEmpty) {
-        final Letra exacta = await _porNombre(partes, duracion);
-        if (!exacta.vacia) return exacta;
-      }
-      final String texto =
-          partes.artista.isNotEmpty && partes.tema.isNotEmpty ? '${partes.artista} ${partes.tema}' : consulta;
-      return await _buscando(texto, partes, duracion);
+      return (letra: await _deLrclibSinRed(partes, consulta, duracion), fallo: false);
     } catch (_) {
-      // Sin red, con el servidor caido o con una respuesta rara: sin letra.
-      return const Letra.ninguna();
+      // Sin red, con el servidor caido o con una respuesta rara: sin letra, y
+      // dicho, para no guardar eso como si fuera lo que hay.
+      return (letra: const Letra.ninguna(), fallo: true);
+    }
+  }
+
+  /// Lo de [_deLrclib], que puede lanzar si no hay red.
+  static Future<Letra> _deLrclibSinRed(
+    ({String artista, String tema}) partes,
+    String consulta,
+    num duracion,
+  ) async {
+    // La consulta exacta es la buena cuando se sabe el artista: el servidor
+    // casa por nombre y duracion y no puede devolver otra cancion.
+    if (partes.artista.isEmpty || partes.tema.isEmpty) return _buscando(consulta, partes, duracion);
+    final Letra exacta = await _porNombre(partes, duracion);
+    if (exacta.sincronizada) return exacta;
+    // La exacta muchas veces es una subida de corrido, y otra de la misma
+    // cancion si trae los tiempos: antes se daba la de corrido y la letra
+    // no se movia.
+    final Letra buscada = await _buscando('${partes.artista} ${partes.tema}', partes, duracion);
+    if (buscada.sincronizada || buscada.porCuadrar || exacta.vacia) return buscada;
+    return exacta;
+  }
+
+  /// Una consulta a lrclib, con sus reintentos (ver [esperaReintento]).
+  static Future<dynamic> _preguntar(String ruta, Map<String, String> consulta) async {
+    for (int intento = 1;; intento++) {
+      try {
+        return await lrclib(ruta, consulta);
+      } catch (_) {
+        if (intento == 3) rethrow;
+        await Future<void>.delayed(esperaReintento * intento);
+      }
     }
   }
 
@@ -431,14 +474,14 @@ class Letras {
       // aplica con holgura: si no cuadra ninguna responde que no hay.
       if (duracion > 0) 'duration': duracion.round().toString(),
     };
-    final dynamic datos = await lrclib('/api/get', consulta);
+    final dynamic datos = await _preguntar('/api/get', consulta);
     if (datos is! Map<String, dynamic>) return const Letra.ninguna();
     return _desde(datos);
   }
 
   static Future<Letra> _buscando(String consulta, ({String artista, String tema}) partes, num duracion) async {
     if (consulta.isEmpty) return const Letra.ninguna();
-    final dynamic datos = await lrclib('/api/search', <String, String>{'q': consulta});
+    final dynamic datos = await _preguntar('/api/search', <String, String>{'q': consulta});
     if (datos is! List<dynamic>) return const Letra.ninguna();
 
     final Map<String, dynamic>? elegida =
@@ -473,7 +516,10 @@ class Letras {
       if (respuesta.statusCode != 200) {
         // Se vacia el cuerpo o la conexion se queda a medias en el reaprovecho.
         await respuesta.drain<void>();
-        return null;
+        // 404 es que no la tiene; lo demas (el 503 de cuando esta saturado)
+        // es que no se pudo preguntar.
+        if (respuesta.statusCode == 404) return null;
+        throw HttpException('lrclib respondio ${respuesta.statusCode}');
       }
       return jsonDecode(await respuesta.transform(utf8.decoder).join());
     } finally {

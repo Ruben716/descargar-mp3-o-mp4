@@ -192,8 +192,10 @@ def letra(video_id: str, timeout: float = 10) -> dict[str, Any]:
     """La letra de un video de YouTube Music. Nunca lanza.
 
     Devuelve {"ok": True, "lrc", "texto", "fuente"}: lrc va vacio si YouTube
-    no tiene los tiempos, y los tres vacios si el tema no tiene letra. Si no
-    se pudo preguntar, {"ok": False, "error"}, que no es lo mismo que no tener.
+    no tiene los tiempos, y los tres vacios si el tema no tiene letra; con
+    «completa» en False si es la plana porque el cliente de los tiempos no
+    respondio. Si no se pudo preguntar, {"ok": False, "error"}, que no es lo
+    mismo que no tener.
     """
     if not isinstance(video_id, str) or not _ID_VIDEO.fullmatch(video_id):
         return {"ok": False, "error": "Id de video no valido."}
@@ -235,7 +237,12 @@ def letra(video_id: str, timeout: float = 10) -> dict[str, Any]:
                 raise fallo
             return dict(_SIN_LETRA)
         texto, fuente = simple
-        return {"ok": True, "lrc": "", "texto": texto, "fuente": fuente}
+        respuesta = {"ok": True, "lrc": "", "texto": texto, "fuente": fuente}
+        if fallo is not None:
+            # La plana vale para ahora, pero los tiempos quiza si los tenga:
+            # que la app no la guarde como si fuera todo lo que hay.
+            respuesta["completa"] = False
+        return respuesta
     except _SinRespuesta as exc:
         return {"ok": False, "error": f"YouTube Music no respondio: {exc}"}
     except Exception as exc:
