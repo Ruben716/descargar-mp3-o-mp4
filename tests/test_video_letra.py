@@ -163,7 +163,8 @@ class CadenaDeCodificadoresTests(unittest.TestCase):
                       "Error opening output files: Encoder not found"),
             _Hecho(0),
         ])
-        self.assertEqual(r, {"ok": True, "ruta": str(self.salida), "codificador": "h264_mediacodec"})
+        self.assertEqual(r, {"ok": True, "ruta": str(self.salida), "codificador": "h264_mediacodec",
+                             "onda": True})
         self.assertEqual([self._codificador(o) for o in llamadas], ["libx264", "h264_mediacodec"])
         self.assertIn("-b:v", llamadas[1])
         self.assertFalse(Path(f"{self.salida}.txt").exists(), "la lista del concat se borra")
@@ -186,6 +187,17 @@ class CadenaDeCodificadoresTests(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("Unknown encoder", r["error"])
         self.assertFalse(self.salida.exists(), "no queda un video a medias")
+
+    def test_si_no_entiende_la_onda_lo_hace_sin_ella(self) -> None:
+        r, llamadas = self._crear([
+            _Hecho(1, "[AVFilterGraph @ 0x1] No such filter: 'showwaves'\n"
+                      "Error initializing complex filters."),
+            _Hecho(0),
+        ])
+        self.assertEqual(r, {"ok": True, "ruta": str(self.salida), "codificador": "libx264", "onda": False})
+        self.assertIn("showwaves", llamadas[0][llamadas[0].index("-filter_complex") + 1])
+        self.assertNotIn("showwaves", llamadas[1][llamadas[1].index("-filter_complex") + 1])
+        self.assertEqual(self._codificador(llamadas[1]), "libx264", "el mismo codificador, sin la onda")
 
     def test_otro_fallo_no_se_arregla_cambiando_de_codificador(self) -> None:
         r, llamadas = self._crear([_Hecho(1, "cancion.m4a: Invalid data found when processing input")])

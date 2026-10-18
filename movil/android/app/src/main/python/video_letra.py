@@ -59,6 +59,18 @@ FALLOS_DE_CODIFICADOR = (
     "Could not open encoder",
 )
 
+#: Lo que dice FFmpeg cuando no entiende algun filtro u opcion del grafo. El
+#: de Android es otra compilacion y puede no traer la onda tal cual: entonces
+#: se repite sin ella, que un video sin onda es mejor que ninguno.
+FALLOS_DE_FILTRO = (
+    "No such filter",
+    "Option not found",
+    "Error applying option",
+    "Error initializing filter",
+    "Error initializing complex filters",
+    "Error reinitializing filters",
+)
+
 
 def ajustar_duraciones(fotogramas: Sequence[tuple[str, int]], duracion_ms: int) -> list[tuple[str, int]]:
     """Los fotogramas que caben en [duracion_ms], el ultimo hasta el final.
@@ -103,18 +115,24 @@ def texto_concat(fotogramas: Sequence[tuple[str, int]]) -> str:
     return "\n".join(lineas) + "\n"
 
 
-def filtro(duracion_ms: int) -> str:
+def filtro(duracion_ms: int, onda: bool = True) -> str:
     """El grafo de FFmpeg: fundidos, la onda y la onda encima de los fotogramas.
 
     El audio se rellena con silencio (apad) por si la cancion acaba antes de
     lo pedido: el corte lo da «-t», y asi video y audio duran siempre igual.
+    Sin [onda], solo los fotogramas.
     """
     segundos = duracion_ms / 1000
     fundido = min(FUNDIDO_MS / 1000, segundos / 2)
     y = ALTO - ONDA_ALTO - ONDA_MARGEN
-    return (
+    audio = (
         f"[1:a]apad,afade=t=in:st=0:d={fundido:.3f},"
-        f"afade=t=out:st={segundos - fundido:.3f}:d={fundido:.3f},asplit=2[a][w];"
+        f"afade=t=out:st={segundos - fundido:.3f}:d={fundido:.3f}"
+    )
+    if not onda:
+        return f"{audio}[a];[0:v]scale={ANCHO}:{ALTO},setsar=1,fps={FPS},format=yuv420p[v]"
+    return (
+        f"{audio},asplit=2[a][w];"
         f"[w]aformat=channel_layouts=mono,lowpass=f={ONDA_PASO_BAJO_HZ},volume={ONDA_VOLUMEN},"
         f"showwaves=s={ONDA_ANCHO}x{ONDA_ALTO}:mode=cline:colors={ONDA_COLOR}"
         f":rate={FPS}:scale=sqrt:draw=full[onda];"
@@ -131,6 +149,7 @@ def orden(
     duracion_ms: int,
     salida: str,
     codificador: Sequence[str],
+    onda: bool = True,
 ) -> list[str]:
     """La orden entera de FFmpeg para un codificador de [CODIFICADORES].
 
@@ -142,7 +161,7 @@ def orden(
         ffmpeg, "-hide_banner", "-nostats", "-loglevel", "error", "-y",
         "-f", "concat", "-safe", "0", "-i", lista,
         "-ss", f"{max(0, inicio_ms) / 1000:.3f}", "-t", segundos, "-i", audio,
-        "-filter_complex", filtro(duracion_ms),
+        "-filter_complex", filtro(duracion_ms, onda),
         "-map", "[v]", "-map", "[a]",
         "-t", segundos, "-r", str(FPS),
         *codificador,
@@ -151,6 +170,11 @@ def orden(
         "-movflags", "+faststart",
         salida,
     ]
+
+
+def falla_un_filtro(mensaje: str) -> bool:
+    """Si FFmpeg no entendio el grafo de filtros."""
+    return any(marca in mensaje for marca in FALLOS_DE_FILTRO)
 
 
 def falla_el_codificador(mensaje: str) -> bool:
@@ -193,22 +217,29 @@ def crear(
 
         hasta = time.monotonic() + limite_s
         error = "No hay ningun codificador de video."
-        for nombre, opciones in CODIFICADORES:
+        con_onda = True
+        i = 0
+        while i < len(CODIFICADORES):
+            nombre, opciones = CODIFICADORES[i]
             restante = hasta - time.monotonic()
             if restante <= 0:
                 return {"ok": False, "error": "El video tardo demasiado."}
             hecho = subprocess.run(
-                orden(ffmpeg, str(lista), audio, inicio_ms, duracion_ms, salida, opciones),
+                orden(ffmpeg, str(lista), audio, inicio_ms, duracion_ms, salida, opciones, con_onda),
                 capture_output=True, text=True, timeout=restante, check=False,
             )
             hay_video = Path(salida).is_file() and Path(salida).stat().st_size > 0
             if hecho.returncode == 0 and hay_video:
-                return {"ok": True, "ruta": salida, "codificador": nombre}
+                return {"ok": True, "ruta": salida, "codificador": nombre, "onda": con_onda}
             mensaje = hecho.stderr or ""
             error = _ultimas_lineas(mensaje) or f"FFmpeg acabo con el codigo {hecho.returncode}."
             # Lo que quedase a medias no puede pasar por un video bueno.
             _borrar(Path(salida))
-            if not falla_el_codificador(mensaje):
+            if falla_el_codificador(mensaje):
+                i += 1
+            elif con_onda and falla_un_filtro(mensaje):
+                con_onda = False
+            else:
                 break
         return {"ok": False, "error": error}
     except subprocess.TimeoutExpired:

@@ -189,8 +189,8 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   720x1280 por verso (`FotogramaVideo`, 360x640 puntos a `pixelRatio` 2) desde `desde + desfase`, y en la lista
   del concat el último va repetido o dura un instante. La onda la pinta FFmpeg en la franja que el fotograma deja
   libre (`zonaOnda` = `ONDA_*` / 2: si se toca uno, el otro). El codificador va en cadena (libx264,
-  h264_mediacodec, mpeg4) porque no se sabe qué trae el FFmpeg del teléfono, y solo se reintenta si el fallo es
-  del codificador. Se guarda en `Pictures/Tumbao`, con las tarjetas: `Movies/Tumbao` es carpeta de la biblioteca
+  h264_mediacodec, mpeg4) porque no se sabe qué trae el FFmpeg del teléfono: si el fallo es del codificador se
+  prueba el siguiente, y si es del grafo (`FALLOS_DE_FILTRO`) se repite sin la onda. Se guarda en `Pictures/Tumbao`, con las tarjetas: `Movies/Tumbao` es carpeta de la biblioteca
   y `mudarVideosADcim` se lo llevaría a DCIM.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
