@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:descargador_movil/volumen_parejo.dart';
+import 'package:descargador_movil/descargas_inteligentes.dart';
 import 'package:descargador_movil/descubre.dart';
 import 'package:descargador_movil/dj.dart';
 import 'package:descargador_movil/pantalla_descubre.dart';
@@ -159,6 +160,7 @@ void main() {
     VolumenParejo.instancia.reiniciar();
     Ritmos.instancia.reiniciar();
     Descubre.instancia.reiniciar();
+    DescargasInteligentes.instancia.reiniciar();
     // Sin animaciones sin fin: pumpAndSettle no acabaria nunca.
     Movimiento.bucles = false;
     tareasDeFondo = false;
@@ -5052,6 +5054,79 @@ void main() {
       await Descubre.instancia.rehacer();
       expect(Descubre.instancia.pistas, hasLength(3));
       expect(Descubre.instancia.armando, isFalse);
+    });
+
+    test('las descargas inteligentes bajan las primeras de Descubre y las meten en su lista', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        Descubre.clave: guardada,
+        DescargasInteligentes.claveActivas: true,
+        DescargasInteligentes.claveCuantas: 2,
+      });
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+
+      expect(await d.revisar(), 2);
+
+      expect(
+        <String>[
+          for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'descargar'))
+            '${(c.arguments as Map<dynamic, dynamic>)['url']}',
+        ],
+        <String>['https://www.youtube.com/watch?v=n1', 'https://www.youtube.com/watch?v=n2'],
+      );
+      expect(d.bajadas, hasLength(2));
+      expect(Listas.instancia.contiene(DescargasInteligentes.lista, 'content://audio/99'), isTrue);
+
+      // Otra vez la misma semana: ya estan, no se baja nada mas.
+      llamadas.clear();
+      expect(await d.revisar(), 0);
+      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
+    });
+
+    test('cada semana se borra lo que bajo sola y no tocaste; lo escuchado se queda', () async {
+      final int semana = Descubre.semanaDe(DateTime.now());
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        Descubre.clave: guardada,
+        DescargasInteligentes.claveActivas: true,
+        DescargasInteligentes.claveCuantas: 1,
+        DescargasInteligentes.claveBajadas: jsonEncode(<Map<String, Object>>[
+          const BajadaInteligente(url: 'https://www.youtube.com/watch?v=v7', uri: 'content://audio/7', semana: 0)
+              .aJson(),
+          const BajadaInteligente(url: 'https://www.youtube.com/watch?v=v8', uri: 'content://audio/8', semana: 0)
+              .aJson(),
+        ]),
+      });
+      await Catalogo.instancia.anotarEscucha('content://audio/8');
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+
+      await d.revisar();
+
+      expect(
+        <String>[
+          for (final MethodCall c in llamadas.where((MethodCall c) => c.method == 'eliminar'))
+            '${(c.arguments as Map<dynamic, dynamic>)['uri']}',
+        ],
+        <String>['content://audio/7'],
+        reason: 'la escuchada no se borra nunca',
+      );
+      expect(d.bajadas.map((BajadaInteligente b) => (b.uri, b.semana)), <(String, int)>[('content://audio/99', semana)],
+          reason: 'la escuchada ya es tuya y entra una nueva de esta semana');
+    });
+
+    test('apagadas o sin wifi no bajan nada', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{Descubre.clave: guardada});
+      final DescargasInteligentes d = DescargasInteligentes.instancia;
+      await d.revisarSiToca();
+      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
+
+      redSinLimite = false;
+      d.reiniciar();
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        Descubre.clave: guardada,
+        DescargasInteligentes.claveActivas: true,
+      });
+      expect(await d.revisar(), 0);
+      expect(d.aviso, contains('wifi'));
+      expect(llamadas.where((MethodCall c) => c.method == 'descargar'), isEmpty);
     });
 
     testWidgets('Inicio la ensenia de lo guardado sin salir a la red', (WidgetTester tester) async {

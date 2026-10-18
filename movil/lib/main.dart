@@ -8,6 +8,7 @@ import 'atajos.dart';
 
 import 'control_descarga.dart';
 import 'copia_seguridad.dart';
+import 'descargas_inteligentes.dart';
 import 'descubre.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
@@ -143,8 +144,13 @@ class _InicioState extends State<Inicio>
     if (tareasDeFondo) {
       _deFondo = Timer(const Duration(seconds: 8), () {
         unawaited(CopiaSeguridad.siToca());
-        unawaited(Suscripciones.instancia.revisarSiToca());
-        unawaited(Descubre.instancia.rehacerSiToca());
+        // Una detras de otra: las tres bajan con el mismo control de descargas,
+        // y si una lo encuentra ocupado se salta su turno.
+        unawaited(() async {
+          await Suscripciones.instancia.revisarSiToca();
+          await Descubre.instancia.rehacerSiToca();
+          await DescargasInteligentes.instancia.revisarSiToca();
+        }());
       });
     }
   }

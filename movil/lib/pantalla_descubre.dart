@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'catalogo.dart';
 import 'control_descarga.dart';
+import 'descargas_inteligentes.dart';
 import 'descubre.dart';
 import 'formato.dart';
 import 'nucleo.dart';
@@ -150,6 +151,8 @@ class _PantallaDescubreState extends State<PantallaDescubre> {
             icon: const Icon(Icons.arrow_downward_rounded, size: 20),
             label: const Text('Bajar todas'),
           ),
+          const SizedBox(height: 8),
+          const AjusteDescargasInteligentes(margen: EdgeInsets.zero),
         ],
       ),
     );
