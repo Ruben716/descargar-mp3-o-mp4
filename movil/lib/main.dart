@@ -10,6 +10,7 @@ import 'control_descarga.dart';
 import 'copia_seguridad.dart';
 import 'descargas_inteligentes.dart';
 import 'descubre.dart';
+import 'letras.dart';
 import 'estado_reproductor.dart';
 import 'favoritas.dart';
 import 'mini_reproductor.dart';
@@ -141,6 +142,8 @@ class _InicioState extends State<Inicio>
     Navegacion.busquedaPedida.addListener(_alPedirBusqueda);
     unawaited(_atenderAtajo());
     // Lo de fondo, cuando la app ya esta abierta y no le roba tiempo al arranque.
+    // Antes que nada: si quedan letras de la busqueda vieja, se olvidan ya.
+    if (tareasDeFondo) unawaited(Letras.revisarGuardadas());
     if (tareasDeFondo) {
       _deFondo = Timer(const Duration(seconds: 8), () {
         unawaited(CopiaSeguridad.siToca());

@@ -4,10 +4,12 @@ Cada fuente va en su propio bloque: si una falla se dice con su traza y se
 sigue con las demás, y al final el proceso acaba con error para que el flujo
 salga en rojo. Así una fuente caída no esconde lo que pasa con las otras.
 """
+import importlib.util
 import sys
 import traceback
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from descargador.application import CheckQuality, StreamVideo
 from descargador.domain import DownloadError, DownloadOptions, DownloadRequest, SearchQuery, VideoInfo
@@ -170,6 +172,64 @@ def radio() -> None:
     print("   con duración:", sum(1 for p in lista.items if p.duration), "de", len(lista.items))
 
 
+def forma_de_las_respuestas(letras_ytm, video: str) -> None:
+    """Qué contestó YouTube en cada paso, para ver dónde cambió la forma."""
+    try:
+        siguiente = letras_ytm._pedir("next", letras_ytm._cliente_web(), {
+            "videoId": video, "isAudioOnly": True, "enablePersistentPlaylistPanel": True,
+            "tunerSettingValue": "AUTOMIX_SETTING_NORMAL",
+        }, 10)
+        pestanas = letras_ytm._nav(siguiente, *letras_ytm.PESTANAS) or []
+        print("   pestañas:", [
+            (letras_ytm._texto(letras_ytm._nav(p, "tabRenderer", "title")),
+             "unselectable" in (letras_ytm._nav(p, "tabRenderer") or {}),
+             letras_ytm._nav(p, "tabRenderer", "endpoint", "browseEndpoint", "browseId"))
+            for p in pestanas
+        ])
+        pestana = letras_ytm.browse_id(siguiente)
+        if pestana is None:
+            print("   sin pestaña de letra; claves de contents:", list(siguiente.get("contents") or {}))
+            return
+        for cliente in (letras_ytm.CLIENTE_MOVIL, letras_ytm._cliente_web()):
+            datos = letras_ytm._pedir("browse", cliente, {"browseId": pestana}, 10)
+            print("  ", cliente["clientName"], "contents:", str(datos.get("contents"))[:300])
+    except Exception as exc:
+        print("   no se pudo ver la forma:", type(exc).__name__, exc)
+
+
+def letras_youtube() -> None:
+    """La letra por el id del video, como la pide el móvil, sincronizada si la hay."""
+    ruta = Path(__file__).resolve().parent.parent / "movil/android/app/src/main/python/letras_ytm.py"
+    spec = importlib.util.spec_from_file_location("letras_ytm", ruta)
+    assert spec and spec.loader
+    letras_ytm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(letras_ytm)
+    canciones = ("marc anthony vivir mi vida", "bad bunny titi me pregunto", "luis fonsi despacito")
+    con_letra = con_tiempos = 0
+    for consulta in canciones:
+        hallada = motor.search(SearchQuery(consulta, limit=1, source="ytmusic"))
+        if not hallada:
+            print("  ", consulta, "| YouTube Music no la encontró")
+            continue
+        video = parse_qs(urlparse(hallada[0].url).query).get("v", [""])[0]
+        datos = letras_ytm.letra(video)
+        print("  ", hallada[0].uploader, "-", hallada[0].title, "|", video)
+        if not datos["ok"] or not datos["texto"]:
+            print("   sin letra" if datos["ok"] else f"   ERROR: {datos['error']}")
+            forma_de_las_respuestas(letras_ytm, video)
+            continue
+        con_letra += 1
+        con_tiempos += bool(datos["lrc"])
+        lineas = (datos["lrc"] or datos["texto"]).splitlines()
+        print("   fuente:", datos["fuente"] or "(no la dice)", "| con tiempos:", bool(datos["lrc"]),
+              "|", len(lineas), "líneas")
+        for linea in lineas[:3]:
+            print("     ", linea)
+    print(f"   con letra: {con_letra} de {len(canciones)}; con tiempos: {con_tiempos}")
+    if not con_letra:
+        raise AssertionError("ninguna canción trajo letra de YouTube Music")
+
+
 seccion("PODCASTS (con id corto)", podcasts)
 seccion("HEARTHIS", hearthis)
 seccion("WIKIMEDIA COMMONS", commons)
@@ -177,6 +237,7 @@ seccion("ARCHIVE (ampliado)", archive)
 seccion("CCMIXTER", ccmixter)
 seccion("YOUTUBE MUSIC", ytmusic)
 seccion("RADIO DE YOUTUBE MUSIC (Descubre)", radio)
+seccion("LETRAS DE YOUTUBE MUSIC", letras_youtube)
 
 if fallos:
     print("\nFALLARON:", ", ".join(fallos))

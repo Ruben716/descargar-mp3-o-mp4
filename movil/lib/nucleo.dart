@@ -143,6 +143,21 @@ class Nucleo {
     }
   }
 
+  /// Cuanto correr la letra de [uri] para que vaya con la voz, dados los
+  /// instantes de sus versos. null si no se pudo analizar; [aplicar] es false
+  /// si no salio un ajuste claro.
+  static Future<({int desfaseMs, bool aplicar})?> sincronizarLetra(String uri, List<int> inicios) async {
+    try {
+      final Map<String, dynamic> datos = await _pedir('sincronizarLetra', <String, dynamic>{
+        'uri': uri,
+        'inicios': jsonEncode(inicios),
+      });
+      return (desfaseMs: (datos['desfase'] as num?)?.round() ?? 0, aplicar: datos['aplicar'] == true);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// El nombre del archivo de la portada grande de [uri]: estable entre
   /// ejecuciones y sin barras, para que no se salga de su carpeta.
   ///
@@ -188,6 +203,28 @@ class Nucleo {
       return (ruta: ruta.isEmpty ? null : ruta, sinPortada: datos['sinPortada'] == true);
     } catch (_) {
       return (ruta: null, sinPortada: false);
+    }
+  }
+
+  /// La letra de YouTube Music de una cancion, por el id de su [video].
+  ///
+  /// `lrc` va vacio cuando YouTube no tiene los tiempos y `texto` es la letra
+  /// plana. null si no tiene letra o no se pudo pedir: nunca lanza.
+  static Future<({String lrc, String texto, String fuente})?> letraYoutube(String video) async {
+    try {
+      final String crudo = await _canal.invokeMethod<String>(
+            'letraYoutube',
+            <String, dynamic>{'video': video},
+          ) ??
+          '{}';
+      final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
+      if (datos['ok'] != true) return null;
+      final String lrc = datos['lrc']?.toString() ?? '';
+      final String texto = datos['texto']?.toString() ?? '';
+      if (lrc.isEmpty && texto.isEmpty) return null;
+      return (lrc: lrc, texto: texto, fuente: datos['fuente']?.toString() ?? '');
+    } catch (_) {
+      return null;
     }
   }
 

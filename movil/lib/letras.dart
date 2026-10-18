@@ -1,8 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'catalogo.dart';
 import 'formato.dart';
+import 'nucleo.dart';
 
 /// Una linea de la letra con el instante en que se canta.
 class LineaLetra {
@@ -60,13 +64,33 @@ class Letra {
   }
 }
 
-/// Busca letras en lrclib.
+/// Una letra que llega de una fuente, antes de guardarla.
+typedef LetraTraida = ({String lrc, String texto, String fuente});
+
+/// Busca letras en YouTube Music y en lrclib.
 ///
-/// Es abierta y no pide clave ni cuenta, que es la condicion de siempre del
-/// proyecto. Lo que se encuentra se guarda en el catalogo, asi que a partir de
-/// la segunda vez la letra sale sin internet.
+/// Ninguna pide clave ni cuenta, que es la condicion de siempre del proyecto.
+/// YouTube Music va primero cuando la cancion se bajo de YouTube: se le pide
+/// por el video exacto, asi que no puede dar la de otra cancion. lrclib queda
+/// de respaldo, buscando por artista y titulo. Lo que se encuentra se guarda en
+/// el catalogo, asi que a partir de la segunda vez la letra sale sin internet.
 class Letras {
   const Letras._();
+
+  /// Como se le pide la letra a YouTube Music por el id del video (en el
+  /// telefono, letras_ytm.py). Las pruebas lo cambian.
+  @visibleForTesting
+  static Future<LetraTraida?> Function(String video) youtube = Nucleo.letraYoutube;
+
+  /// Como se le pregunta a lrclib: ruta y consulta, y devuelve el JSON. Las
+  /// pruebas lo cambian.
+  @visibleForTesting
+  static Future<dynamic> Function(String ruta, Map<String, String> consulta) lrclib = _jsonLrclib;
+
+  /// Con la busqueda de antes se colaban letras de otra cancion, y quedaban
+  /// guardadas para siempre. La primera vez con esta version se olvidan las
+  /// guardadas que no se ajustaron a mano, para buscarlas otra vez.
+  static const String claveRevision = 'letras_revisadas_v2';
 
   static const String _servidor = 'lrclib.net';
 
@@ -164,6 +188,7 @@ class Letras {
     List<dynamic> candidatas,
     num duracion, {
     String tema = '',
+    String artista = '',
   }) {
     Map<String, dynamic>? mejor;
     num mejorPena = double.infinity;
@@ -179,6 +204,10 @@ class Letras {
         final String suyo = cruda['trackName']?.toString() ?? '';
         if (parecido(suyo, tema) < parecidoMinimo) continue;
       }
+      // El mismo titulo de otro artista es otra cancion. Solo se mira si se
+      // sabe el artista de los dos lados.
+      final String suArtista = cruda['artistName']?.toString() ?? '';
+      if (artista.isNotEmpty && suArtista.isNotEmpty && parecido(suArtista, artista) < artistaMinimo) continue;
 
       final num suya = (cruda['duration'] as num?) ?? 0;
       // Sin duracion con la que comparar no se descarta, pero tampoco puede
@@ -198,7 +227,25 @@ class Letras {
   /// Lo que penaliza no poder comparar duraciones, en segundos equivalentes.
   static const int _penaSinDuracion = 30;
 
+  /// Cuanto se tiene que parecer el artista, cuando se sabe.
+  static const double artistaMinimo = 0.5;
+
+  /// Cuanto puede diferir la duracion, en segundos, para ser la misma version.
+  /// Mas alla es otra (un directo, un remix, un videoclip con escenas): las
+  /// palabras valen, pero sus tiempos no le van a nuestro archivo.
+  static const int margenDuracion = 20;
+
+  /// Si [candidata] es otra version que [duracion] (ver [margenDuracion]).
+  static bool otraVersion(Map<String, dynamic> candidata, num duracion) {
+    final num suya = (candidata['duration'] as num?) ?? 0;
+    return duracion > 0 && suya > 0 && (suya - duracion).abs() > margenDuracion;
+  }
+
   /// La letra de una pista: primero de lo guardado, si no de la red.
+  ///
+  /// [artista] y [tema] son los de la cancion (los de sus etiquetas si las
+  /// tiene); si faltan, se sacan del nombre del archivo. Con [deNuevo] se
+  /// olvida lo guardado y se busca otra vez.
   ///
   /// Nunca lanza: quedarse sin letra no puede tumbar el reproductor, y sin
   /// internet lo normal es que falle.
@@ -206,7 +253,11 @@ class Letras {
     required String uri,
     required String nombre,
     required num duracion,
+    String artista = '',
+    String tema = '',
+    bool deNuevo = false,
   }) async {
+    if (deNuevo) await Catalogo.instancia.olvidarLetra(uri);
     final ({String lrc, String texto, int desfase})? guardada =
         await Catalogo.instancia.letraDe(uri);
     if (guardada != null) {
@@ -217,7 +268,17 @@ class Letras {
       );
     }
 
-    final Letra traida = await _pedir(nombre, duracion);
+    final ({String artista, String tema}) delNombre = partesDe(nombre);
+    final ({String artista, String tema}) partes = (
+      artista: artista.trim().isNotEmpty ? artista.trim() : delNombre.artista,
+      tema: tema.trim().isNotEmpty ? tema.trim() : delNombre.tema,
+    );
+    final Letra traida = await _pedir(
+      partes,
+      consultaDe(nombre),
+      duracion,
+      video: await Catalogo.instancia.videoDe(uri),
+    );
     await Catalogo.instancia.guardarLetra(
       uri,
       lrc: traida.lineas.isEmpty ? '' : _aLrc(traida.lineas),
@@ -226,32 +287,78 @@ class Letras {
     return traida;
   }
 
-  /// Pide la letra al servidor: primero por nombre exacto, luego buscando.
-  static Future<Letra> _pedir(String nombre, num duracion) async {
-    final ({String artista, String tema}) partes = partesDe(nombre);
-    final HttpClient cliente = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 8);
+  /// Una sola vez por instalacion, al arrancar (ver [claveRevision]).
+  static Future<void> revisarGuardadas() async {
     try {
-      // La consulta exacta es la buena cuando el archivo trae «Artista - Tema»:
-      // el servidor casa por nombre y no puede devolver otra cancion.
-      if (partes.artista.isNotEmpty && partes.tema.isNotEmpty) {
-        final Letra exacta = await _porNombre(cliente, partes, duracion);
-        if (!exacta.vacia) return exacta;
-      }
-      return await _buscando(cliente, consultaDe(nombre), partes.tema, duracion);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(claveRevision) ?? false) return;
+      await Catalogo.instancia.olvidarLetrasSinAjustar();
+      await prefs.setBool(claveRevision, true);
     } catch (_) {
-      // Sin red, con el servidor caido o con una respuesta rara: sin letra.
-      return const Letra.ninguna();
-    } finally {
-      cliente.close(force: true);
+      // Si no se puede, se intenta la proxima vez que se abra la app.
     }
   }
 
-  static Future<Letra> _porNombre(
-    HttpClient cliente,
+  @visibleForTesting
+  static void reiniciar() {
+    youtube = (String _) async => null;
+    lrclib = _jsonLrclib;
+  }
+
+  /// Pregunta a las fuentes por orden y se queda con la mejor respuesta.
+  ///
+  /// Una letra sincronizada de una fuente fiable gana a todo; si solo hay
+  /// letra de corrido, se sigue buscando una sincronizada antes de darla.
+  static Future<Letra> _pedir(
     ({String artista, String tema}) partes,
+    String consulta,
+    num duracion, {
+    String? video,
+  }) async {
+    Letra? deCorrido;
+    if (video != null) {
+      final Letra deYoutube = await _deYoutube(video);
+      if (deYoutube.sincronizada) return deYoutube;
+      if (!deYoutube.vacia) deCorrido = deYoutube;
+    }
+    final Letra deLrclib = await _deLrclib(partes, consulta, duracion);
+    if (deLrclib.sincronizada) return deLrclib;
+    return deCorrido ?? deLrclib;
+  }
+
+  static Future<Letra> _deYoutube(String video) async {
+    try {
+      final LetraTraida? traida = await youtube(video);
+      if (traida == null) return const Letra.ninguna();
+      return Letra(lineas: analizarLrc(traida.lrc), texto: traida.texto);
+    } catch (_) {
+      return const Letra.ninguna();
+    }
+  }
+
+  /// lrclib: primero por nombre exacto, luego buscando.
+  static Future<Letra> _deLrclib(
+    ({String artista, String tema}) partes,
+    String consulta,
     num duracion,
   ) async {
+    try {
+      // La consulta exacta es la buena cuando se sabe el artista: el servidor
+      // casa por nombre y duracion y no puede devolver otra cancion.
+      if (partes.artista.isNotEmpty && partes.tema.isNotEmpty) {
+        final Letra exacta = await _porNombre(partes, duracion);
+        if (!exacta.vacia) return exacta;
+      }
+      final String texto =
+          partes.artista.isNotEmpty && partes.tema.isNotEmpty ? '${partes.artista} ${partes.tema}' : consulta;
+      return await _buscando(texto, partes, duracion);
+    } catch (_) {
+      // Sin red, con el servidor caido o con una respuesta rara: sin letra.
+      return const Letra.ninguna();
+    }
+  }
+
+  static Future<Letra> _porNombre(({String artista, String tema}) partes, num duracion) async {
     final Map<String, String> consulta = <String, String>{
       'artist_name': partes.artista,
       'track_name': partes.tema,
@@ -259,47 +366,51 @@ class Letras {
       // aplica con holgura: si no cuadra ninguna responde que no hay.
       if (duracion > 0) 'duration': duracion.round().toString(),
     };
-    final dynamic datos = await _json(cliente, '/api/get', consulta);
+    final dynamic datos = await lrclib('/api/get', consulta);
     if (datos is! Map<String, dynamic>) return const Letra.ninguna();
     return _desde(datos);
   }
 
-  static Future<Letra> _buscando(
-    HttpClient cliente,
-    String consulta,
-    String tema,
-    num duracion,
-  ) async {
+  static Future<Letra> _buscando(String consulta, ({String artista, String tema}) partes, num duracion) async {
     if (consulta.isEmpty) return const Letra.ninguna();
-    final dynamic datos =
-        await _json(cliente, '/api/search', <String, String>{'q': consulta});
+    final dynamic datos = await lrclib('/api/search', <String, String>{'q': consulta});
     if (datos is! List<dynamic>) return const Letra.ninguna();
 
     final Map<String, dynamic>? elegida =
-        mejorCandidata(datos, duracion, tema: tema);
-    return elegida == null ? const Letra.ninguna() : _desde(elegida);
+        mejorCandidata(datos, duracion, tema: partes.tema, artista: partes.artista);
+    if (elegida == null) return const Letra.ninguna();
+    return otraVersion(elegida, duracion) ? _soloTexto(_desde(elegida)) : _desde(elegida);
   }
+
+  /// La letra de corrido, sin tiempos: para cuando los que trae son de otra
+  /// version y harian ir la letra a destiempo.
+  static Letra _soloTexto(Letra letra) => Letra(
+        lineas: const <LineaLetra>[],
+        texto: letra.texto.trim().isNotEmpty
+            ? letra.texto
+            : letra.lineas.map((LineaLetra l) => l.texto).join('\n'),
+      );
 
   static Letra _desde(Map<String, dynamic> datos) => Letra(
     lineas: analizarLrc(datos['syncedLyrics'] as String? ?? ''),
     texto: datos['plainLyrics'] as String? ?? '',
   );
 
-  static Future<dynamic> _json(
-    HttpClient cliente,
-    String ruta,
-    Map<String, String> consulta,
-  ) async {
-    final HttpClientRequest peticion =
-        await cliente.getUrl(Uri.https(_servidor, ruta, consulta));
-    peticion.headers.set(HttpHeaders.userAgentHeader, _agente);
-    final HttpClientResponse respuesta = await peticion.close();
-    if (respuesta.statusCode != 200) {
-      // Se vacia el cuerpo o la conexion se queda a medias en el reaprovecho.
-      await respuesta.drain<void>();
-      return null;
+  static Future<dynamic> _jsonLrclib(String ruta, Map<String, String> consulta) async {
+    final HttpClient cliente = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+    try {
+      final HttpClientRequest peticion = await cliente.getUrl(Uri.https(_servidor, ruta, consulta));
+      peticion.headers.set(HttpHeaders.userAgentHeader, _agente);
+      final HttpClientResponse respuesta = await peticion.close();
+      if (respuesta.statusCode != 200) {
+        // Se vacia el cuerpo o la conexion se queda a medias en el reaprovecho.
+        await respuesta.drain<void>();
+        return null;
+      }
+      return jsonDecode(await respuesta.transform(utf8.decoder).join());
+    } finally {
+      cliente.close(force: true);
     }
-    return jsonDecode(await respuesta.transform(utf8.decoder).join());
   }
 
   /// Vuelve a dejar las lineas en LRC para guardarlas tal cual llegaron.

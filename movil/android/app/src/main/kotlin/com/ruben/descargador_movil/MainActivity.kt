@@ -227,9 +227,25 @@ class MainActivity : AudioServiceActivity() {
                         val clave = llamada.argument<String>("clave").orEmpty()
                         enHilo(respuesta) { puente -> caratulaGrande(puente, artista, titulo, clave) }
                     }
+                    // La letra de YouTube Music por el id del video; Python hace la red.
+                    "letraYoutube" -> {
+                        val video = llamada.argument<String>("video").orEmpty()
+                        if (video.isEmpty()) {
+                            respuesta.success(fallo("Falta el video."))
+                        } else {
+                            enHilo(respuesta) { puente ->
+                                puente.callAttr("letra_youtube", video).toString()
+                            }
+                        }
+                    }
                     "analizarAudio" -> {
                         val uri = llamada.argument<String>("uri").orEmpty()
                         enHilo(respuesta) { puente -> analizarAudio(puente, uri) }
+                    }
+                    "sincronizarLetra" -> {
+                        val uri = llamada.argument<String>("uri").orEmpty()
+                        val inicios = llamada.argument<String>("inicios").orEmpty()
+                        enHilo(respuesta) { puente -> sincronizarLetra(puente, uri, inicios) }
                     }
                     // La tarjeta de una frase de la letra, ya en PNG.
                     "compartirImagen" -> compartirImagen(
@@ -498,6 +514,28 @@ class MainActivity : AudioServiceActivity() {
             entrada.use { origen -> copia.outputStream().use { destino -> origen.copyTo(destino) } }
             asegurarFfmpeg(puente)
             puente.callAttr("analizar_audio", copia.absolutePath).toString()
+        } catch (error: Exception) {
+            fallo("No se pudo analizar: ${error.message}")
+        } finally {
+            copia.delete()
+        }
+    }
+
+    /**
+     * Cuanto correr la letra para que vaya con la voz (voz.py). Como el
+     * analisis del DJ: FFmpeg necesita una ruta, asi que se trabaja sobre una
+     * copia en la cache, y con poca prioridad para no cortar lo que suena.
+     */
+    private fun sincronizarLetra(puente: PyObject, uri: String, inicios: String): String {
+        if (uri.isEmpty() || inicios.isEmpty()) return fallo("Falta la cancion o la letra.")
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+        val copia = File(cacheDir, "sincronizar_letra.tmp")
+        return try {
+            val entrada = contentResolver.openInputStream(Uri.parse(uri))
+                ?: return fallo("No se pudo abrir la cancion.")
+            entrada.use { origen -> copia.outputStream().use { destino -> origen.copyTo(destino) } }
+            asegurarFfmpeg(puente)
+            puente.callAttr("sincronizar_letra", copia.absolutePath, inicios).toString()
         } catch (error: Exception) {
             fallo("No se pudo analizar: ${error.message}")
         } finally {

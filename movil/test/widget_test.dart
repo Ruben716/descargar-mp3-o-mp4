@@ -161,6 +161,7 @@ void main() {
     Ritmos.instancia.reiniciar();
     Descubre.instancia.reiniciar();
     DescargasInteligentes.instancia.reiniciar();
+    Letras.reiniciar();
     // Sin animaciones sin fin: pumpAndSettle no acabaria nunca.
     Movimiento.bucles = false;
     tareasDeFondo = false;
@@ -1318,6 +1319,171 @@ void main() {
     });
   });
 
+  group('letras de varias fuentes', () {
+    const String uri = 'content://audio/1';
+    const String lrc = '[00:10.00] Voy a reir\n[00:14.00] voy a bailar\n[00:18.00] vivir mi vida';
+    final List<(String, Map<String, String>)> pedidas = <(String, Map<String, String>)>[];
+
+    setUp(() {
+      pedidas.clear();
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async {
+        pedidas.add((ruta, consulta));
+        return null;
+      };
+    });
+
+    Future<Letra> buscar({String nombre = 'Marc Anthony - Vivir Mi Vida [v1].opus', bool deNuevo = false}) =>
+        Letras.de(
+          uri: uri,
+          nombre: nombre,
+          duracion: 251,
+          artista: 'Marc Anthony',
+          tema: 'Vivir Mi Vida',
+          deNuevo: deNuevo,
+        );
+
+    test('si se bajo de YouTube, primero YouTube Music por su video', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      final List<String> videos = <String>[];
+      Letras.youtube = (String video) async {
+        videos.add(video);
+        return (lrc: lrc, texto: '', fuente: 'LyricFind');
+      };
+
+      final Letra letra = await buscar();
+
+      expect(videos, <String>['YXnjy5YlDwk']);
+      expect(letra.lineas.map((LineaLetra l) => l.texto), <String>['Voy a reir', 'voy a bailar', 'vivir mi vida']);
+      expect(pedidas, isEmpty, reason: 'con la sincronizada de YouTube no hace falta lrclib');
+      expect((await Catalogo.instancia.letraDe(uri))!.lrc, contains('[00:14.00]voy a bailar'));
+    });
+
+    test('si YouTube solo la tiene de corrido, se busca una sincronizada en lrclib', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir\nvoy a bailar', fuente: 'LyricFind');
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async {
+        pedidas.add((ruta, consulta));
+        return ruta == '/api/get' ? <String, dynamic>{'syncedLyrics': lrc, 'plainLyrics': ''} : null;
+      };
+
+      final Letra letra = await buscar();
+
+      expect(letra.sincronizada, isTrue);
+      expect(pedidas.single.$2, <String, String>{
+        'artist_name': 'Marc Anthony',
+        'track_name': 'Vivir Mi Vida',
+        'duration': '251',
+      }, reason: 'por el artista y el titulo de la cancion, no por el nombre del archivo');
+    });
+
+    test('de corrido de YouTube si lrclib no tiene nada mejor', () async {
+      await Catalogo.instancia.registrar('https://www.youtube.com/watch?v=YXnjy5YlDwk', audio: true, uri: uri);
+      Letras.youtube = (String _) async => (lrc: '', texto: 'Voy a reir', fuente: 'LyricFind');
+      final Letra letra = await buscar();
+      expect(letra.sincronizada, isFalse);
+      expect(letra.texto, 'Voy a reir');
+    });
+
+    test('al buscar no se acepta la letra de otro artista ni de otra version', () async {
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async {
+        pedidas.add((ruta, consulta));
+        if (ruta != '/api/search') return null;
+        return <dynamic>[
+          <String, dynamic>{'trackName': 'Vivir Mi Vida', 'artistName': 'Otro Cantante', 'duration': 251.0,
+            'syncedLyrics': '[00:01.00] la de otro'},
+          <String, dynamic>{'trackName': 'Vivir Mi Vida (En Vivo)', 'artistName': 'Marc Anthony', 'duration': 330.0,
+            'syncedLyrics': '[00:01.00] el directo'},
+          <String, dynamic>{'trackName': 'Vivir Mi Vida', 'artistName': 'Marc Anthony', 'duration': 252.0,
+            'syncedLyrics': '[00:01.00] la buena'},
+        ];
+      };
+
+      final Letra letra = await buscar();
+
+      expect(letra.lineas.single.texto, 'la buena');
+      expect(pedidas.last.$2['q'], 'Marc Anthony Vivir Mi Vida');
+    });
+
+    test('la de otra version da las palabras pero sin tiempos', () async {
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async => ruta != '/api/search'
+          ? null
+          : <dynamic>[
+              <String, dynamic>{'trackName': 'Vivir Mi Vida', 'artistName': 'Marc Anthony', 'duration': 300.0,
+                'syncedLyrics': '[00:01.00] voy a reir\n[00:05.00] voy a bailar'},
+            ];
+      final Letra letra = await buscar();
+      expect(letra.sincronizada, isFalse);
+      expect(letra.texto, 'voy a reir\nvoy a bailar');
+    });
+
+    test('buscar otra vez olvida lo guardado', () async {
+      await Catalogo.instancia.guardarLetra(uri, lrc: '[00:01.00] la equivocada', texto: '');
+      expect((await buscar()).lineas.single.texto, 'la equivocada');
+
+      Letras.lrclib = (String ruta, Map<String, String> consulta) async =>
+          ruta == '/api/get' ? <String, dynamic>{'syncedLyrics': lrc} : null;
+      expect((await buscar(deNuevo: true)).lineas, hasLength(3));
+    });
+
+    test('una sola vez se olvidan las guardadas que nadie ajusto a mano', () async {
+      await Catalogo.instancia.guardarLetra('content://audio/a', lrc: '[00:01.00] a', texto: '');
+      await Catalogo.instancia.guardarLetra('content://audio/b', lrc: '[00:01.00] b', texto: '');
+      await Catalogo.instancia.guardarDesfase('content://audio/b', 1500);
+
+      await Letras.revisarGuardadas();
+      expect(await Catalogo.instancia.letraDe('content://audio/a'), isNull);
+      expect((await Catalogo.instancia.letraDe('content://audio/b'))!.desfase, 1500, reason: 'la ajustada se queda');
+
+      await Catalogo.instancia.guardarLetra('content://audio/c', lrc: '[00:01.00] c', texto: '');
+      await Letras.revisarGuardadas();
+      expect(await Catalogo.instancia.letraDe('content://audio/c'), isNotNull, reason: 'solo la primera vez');
+    });
+
+    testWidgets('la voz cuadra la letra sola y tocar un verso salta con el ajuste', (WidgetTester tester) async {
+      const Elemento cancion = Elemento(
+        nombre: 'Marc Anthony - Vivir Mi Vida [v1].opus', uri: uri, duracion: 251, tamano: 1, audio: true);
+      final String versos = <String>[for (int i = 0; i < 8; i++) '[00:${(10 + 4 * i).toString().padLeft(2, '0')}.00] verso $i']
+          .join('\n');
+      await tester.runAsync(() => Catalogo.instancia.guardarLetra(uri, lrc: versos, texto: ''));
+      final List<MethodCall> pedidasVoz = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_canal, (MethodCall llamada) async {
+        if (llamada.method != 'sincronizarLetra') return '{"ok":true}';
+        pedidasVoz.add(llamada);
+        return '{"ok":true,"desfase":1500,"confianza":5.2,"ventaja":1.9,"aplicar":true}';
+      });
+
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const Scaffold(body: PanelLetras(elemento: cancion))));
+      for (int i = 0; i < 6; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+        await tester.pump();
+      }
+
+      expect(jsonDecode((pedidasVoz.single.arguments as Map<dynamic, dynamic>)['inicios'] as String),
+          <int>[for (int i = 0; i < 8; i++) 10000 + 4000 * i]);
+      expect(find.text('+1.5 s'), findsOneWidget);
+      expect(find.textContaining('Letra ajustada a la voz'), findsOneWidget);
+      expect((await tester.runAsync(() => Catalogo.instancia.letraDe(uri)))!.desfase, 1500);
+
+      // Tocar un verso salta a donde se canta, con el ajuste; y si la cancion
+      // se cargo recortada por el fundido al compas, contando desde el corte.
+      final Letra ajustada = Letra(lineas: Letras.analizarLrc(versos), texto: '', desfase: const Duration(milliseconds: 1500));
+      expect(instanteDelVerso(ajustada, 2), const Duration(milliseconds: 19500));
+      expect(instanteDelVerso(ajustada, 2, inicio: const Duration(milliseconds: 2400)), const Duration(milliseconds: 17100));
+      expect(instanteDelVerso(ajustada.conDesfase(const Duration(seconds: -30)), 0), Duration.zero);
+
+      // Ya intentada: al volver a abrirla no se repite.
+      pedidasVoz.clear();
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(MaterialApp(theme: Tema.construir(), home: const Scaffold(body: PanelLetras(elemento: cancion))));
+      for (int i = 0; i < 4; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 60)));
+        await tester.pump();
+      }
+      expect(pedidasVoz, isEmpty);
+    });
+  });
+
   group('letra traducida con la IA del telefono', () {
     const String lrc = '[00:01.00] I just called to say I love you\n'
         '[00:05.00] I just called to say how much I care\n'
@@ -1825,6 +1991,10 @@ void main() {
         Letras.mejorCandidata(candidatas, 245, tema: 'Motor y Motivo');
 
     expect(elegida!['trackName'], 'Motor Y Motivo');
+    // Dura 48 s menos que nuestro archivo: es otra version. Las palabras valen,
+    // pero sus tiempos no, asi que se ensenia de corrido.
+    expect(Letras.otraVersion(elegida, 245), isTrue);
+    expect(Letras.otraVersion(elegida, 200), isFalse);
   });
 
   test('si ninguna es la cancion pedida, se prefiere quedarse sin letra', () {

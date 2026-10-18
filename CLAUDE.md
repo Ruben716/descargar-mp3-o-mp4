@@ -172,6 +172,16 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
 - **La portada grande va aparte de la miniatura** (`portada_grande.dart`): se baja una vez, con wifi, a la
   carpeta privada con `Nucleo.clavePortada` (FNV-1a, no `hashCode`, que cambia entre ejecuciones). Ojo con
   `whenComplete(() => mapa.remove(clave))`: devolver el futuro quitado hace que se espere a sí mismo.
+- **Letras: primero YouTube Music por el video, luego lrclib** (`letras.dart`). Lo bajado de YouTube se pide por
+  su id (`Catalogo.videoDe`) a `letras_ytm.py`, que no puede dar otra canción; la sincronizada solo la da el
+  cliente `ANDROID_MUSIC` (si deja de salir, mirar `prueba_red.py`). lrclib busca por artista y título de las
+  etiquetas (`Elemento.partes`), no por el nombre del archivo, y descarta otro artista; si la duración difiere
+  más de `margenDuracion` es otra versión y se da de corrido, sin sus tiempos. La posición de la letra suma
+  `inicioDelTramo`: con el fundido al compás el motor cuenta desde el corte.
+- **«Ajustar con la voz» no es reconocimiento de voz** (`voz.py`, junto al puente): mira dónde arranca algo en
+  la banda de la voz en el centro de la mezcla y prueba a correr la letra ±8 s. Solo aplica si el mejor ajuste
+  destaca (`CONFIANZA_MINIMA`) y le gana con claridad al mejor de los lejanos (`VENTAJA_MINIMA`): con golpes
+  regulares muchos ajustes puntúan casi igual, y sin esa ventaja salían falsos de 4 s en temas sin voz.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
   un icono (`graphic_eq`), y encima del acento va siempre `Tema.tinta`: un `Switch` con `activeThumbColor:
