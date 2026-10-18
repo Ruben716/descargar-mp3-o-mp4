@@ -303,7 +303,29 @@ class Catalogo {
     };
   }
 
+  /// El video de YouTube del que se bajo esa cancion, o null si no vino de alli.
+  Future<String?> videoDe(String uri) async {
+    final List<Map<String, Object?>> filas = await (await _abierta).query(
+      _tabla,
+      columns: <String>['id'],
+      where: 'uri = ?',
+      whereArgs: <Object>[uri],
+      orderBy: 'audio DESC',
+      limit: 1,
+    );
+    return filas.isEmpty ? null : filas.first['id'] as String?;
+  }
+
   // --- Letras -------------------------------------------------------------
+
+  /// Olvida la letra guardada de esa pista, para buscarla otra vez.
+  Future<void> olvidarLetra(String uri) async {
+    await (await _abierta).delete(_tablaLetras, where: 'uri = ?', whereArgs: <Object>[uri]);
+  }
+
+  /// Olvida las letras guardadas que nadie ajusto a mano. Devuelve cuantas.
+  Future<int> olvidarLetrasSinAjustar() async =>
+      (await _abierta).delete(_tablaLetras, where: 'desfase = 0');
 
   /// Lo guardado para esa pista, o `null` si nunca se busco.
   ///

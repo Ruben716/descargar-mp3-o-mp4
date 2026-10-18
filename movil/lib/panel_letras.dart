@@ -1,6 +1,7 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'animaciones.dart';
 import 'catalogo.dart';
@@ -38,6 +39,13 @@ class _PanelLetrasState extends State<PanelLetras> {
   List<String>? _traduccion;
   bool _traduciendo = false;
 
+  /// Mientras se escucha la voz para cuadrar la letra.
+  bool _escuchando = false;
+
+  /// Las canciones a las que ya se intento cuadrar la letra sola: si no salio
+  /// un ajuste claro, no se repite cada vez que se abre.
+  static const String clavePorVoz = 'letras_por_voz';
+
   /// Alto de cada linea: con traduccion debajo hace falta mas.
   double get _altoLinea => _traduccion == null ? _alto : _alto + 22;
 
@@ -59,19 +67,98 @@ class _PanelLetrasState extends State<PanelLetras> {
     super.dispose();
   }
 
-  Future<void> _cargar() async {
+  Future<void> _cargar({bool deNuevo = false}) async {
     setState(() {
       _letra = null;
       _resaltada = -1;
       _traduccion = null;
     });
+    final Elemento e = widget.elemento;
+    final ({String artista, String tema}) partes = e.partes;
     final Letra letra = await Letras.de(
-      uri: widget.elemento.uri,
-      nombre: widget.elemento.nombre,
-      duracion: widget.elemento.duracion,
+      uri: e.uri,
+      nombre: e.nombre,
+      duracion: e.duracion,
+      artista: partes.artista,
+      tema: partes.tema,
+      deNuevo: deNuevo,
     );
-    if (mounted) setState(() => _letra = letra);
+    if (!mounted || e.uri != widget.elemento.uri) return;
+    setState(() => _letra = letra);
+    // La primera vez, si nadie la ha ajustado a mano, se intenta sola.
+    if (letra.sincronizada && letra.desfase == Duration.zero && !await _yaIntentada(e.uri)) {
+      await _ajustarConLaVoz(sola: true);
+    }
   }
+
+  Future<bool> _yaIntentada(String uri) async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      return (prefs.getStringList(clavePorVoz) ?? const <String>[]).contains(uri);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _anotarIntentada(String uri) async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final List<String> todas = <String>[...?prefs.getStringList(clavePorVoz), uri];
+      // Las mas viejas se olvidan: que la lista no crezca sin fin.
+      await prefs.setStringList(clavePorVoz, todas.skip(todas.length > 500 ? todas.length - 500 : 0).toList());
+    } catch (_) {
+      // Si no se puede apuntar, a lo sumo se vuelve a intentar otro dia.
+    }
+  }
+
+  /// Escucha donde entra la voz y corre la letra para que cada verso caiga
+  /// ahi (ver voz.py). [sola]: sin que nadie lo pida; entonces solo se avisa
+  /// si se cambio algo.
+  Future<void> _ajustarConLaVoz({bool sola = false}) async {
+    final Letra? letra = _letra;
+    final String uri = widget.elemento.uri;
+    if (letra == null || !letra.sincronizada || _escuchando) return;
+    setState(() => _escuchando = true);
+    final ({int desfaseMs, bool aplicar})? r = await Nucleo.sincronizarLetra(uri, <int>[
+      for (final LineaLetra l in letra.lineas)
+        if (l.texto.trim().isNotEmpty) l.desde.inMilliseconds,
+    ]);
+    await _anotarIntentada(uri);
+    if (!mounted || uri != widget.elemento.uri) return;
+    setState(() => _escuchando = false);
+    final Letra? actual = _letra;
+    if (r != null && r.aplicar && actual != null) {
+      final Duration antes = actual.desfase;
+      await _ajustar(Duration(milliseconds: r.desfaseMs) - antes);
+      if (!mounted) return;
+      final double segundos = r.desfaseMs / 1000;
+      _avisar(
+        'Letra ajustada a la voz (${segundos > 0 ? '+' : ''}${segundos.toStringAsFixed(1)} s)',
+        deshacer: () => _ajustar(antes - (_letra?.desfase ?? antes)),
+      );
+    } else if (!sola) {
+      _avisar(r == null
+          ? 'No se pudo escuchar la cancion.'
+          : 'No hubo un ajuste claro: si no va a la par, corrigela a mano.');
+    }
+  }
+
+  void _avisar(String texto, {VoidCallback? deshacer}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      content: Text(texto),
+      action: deshacer == null ? null : SnackBarAction(label: 'Deshacer', onPressed: deshacer),
+    ));
+  }
+
+  /// Donde va la cancion en su archivo. Con el fundido al compas se carga
+  /// recortada y el motor cuenta desde el corte, no desde el principio: sin
+  /// sumarlo, la letra iba adelantada todo lo que se recorto.
+  Duration get _inicio => _estado.inicioDelTramo(widget.elemento);
+
+  /// Salta al momento en que se canta el verso [i], con el ajuste de
+  /// sincronia y el recorte incluidos.
+  void _saltarA(Letra letra, int i) => _estado.motor.seek(instanteDelVerso(letra, i, inicio: _inicio));
 
   /// Corre la letra medio segundo y lo guarda para esta pista.
   Future<void> _ajustar(Duration cuanto) async {
@@ -158,8 +245,25 @@ class _PanelLetrasState extends State<PanelLetras> {
       child: Row(
         children: <Widget>[
           if (desfase != null) _ControlSincronia(desfase: desfase, alAjustar: _ajustar),
+          if (desfase != null)
+            IconButton(
+              tooltip: 'Ajustar con la voz',
+              visualDensity: VisualDensity.compact,
+              onPressed: _escuchando ? null : () => _ajustarConLaVoz(),
+              icon: _escuchando
+                  ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.graphic_eq_rounded, size: 18),
+              color: Colors.white54,
+            ),
           const Spacer(),
           if (traducible) _botonTraducir(),
+          IconButton(
+            tooltip: 'Buscar la letra otra vez',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => _cargar(deNuevo: true),
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            color: Colors.white54,
+          ),
         ],
       ),
     );
@@ -172,7 +276,7 @@ class _PanelLetrasState extends State<PanelLetras> {
       return const Center(child: CircularProgressIndicator());
     }
     if (letra.vacia) {
-      return const _SinLetra();
+      return _SinLetra(alBuscar: () => _cargar(deNuevo: true));
     }
     final bool traducible = TraducirLetra.ofrecer(letra);
     if (!letra.sincronizada) {
@@ -180,7 +284,7 @@ class _PanelLetrasState extends State<PanelLetras> {
       final List<String>? traducidas = _traduccion;
       return Column(
         children: <Widget>[
-          if (traducible) _barra(traducible: true),
+          _barra(traducible: traducible),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(28, 8, 28, 40),
@@ -229,7 +333,7 @@ class _PanelLetrasState extends State<PanelLetras> {
     return StreamBuilder<Duration>(
       stream: _estado.motor.positionStream,
       builder: (BuildContext context, AsyncSnapshot<Duration> instante) {
-        final Duration ahora = instante.data ?? Duration.zero;
+        final Duration ahora = (instante.data ?? Duration.zero) + _inicio;
         // El desplazamiento se pide para despues del fotograma: moverlo
         // mientras se construye la lista es un error en Flutter.
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -286,7 +390,7 @@ class _PanelLetrasState extends State<PanelLetras> {
             return GestureDetector(
               // Tocar una linea salta a ese momento: es la forma mas comoda
               // de repetir el trozo que no se pillo.
-              onTap: () => _estado.motor.seek(letra.lineas[i].desde),
+              onTap: () => _saltarA(letra, i),
               // Mantenerla pulsada, en cambio, la comparte como tarjeta.
               onLongPress: () => _compartir(versos, i),
               behavior: HitTestBehavior.opaque,
@@ -297,6 +401,14 @@ class _PanelLetrasState extends State<PanelLetras> {
       },
     );
   }
+}
+
+/// A que posicion del motor hay que saltar para oir el verso [i]: con el
+/// ajuste de sincronia, y descontando [inicio] si la cancion se cargo
+/// recortada (el motor cuenta desde el corte).
+Duration instanteDelVerso(Letra letra, int i, {Duration inicio = Duration.zero}) {
+  final Duration destino = letra.lineas[i].desde + letra.desfase - inicio;
+  return destino < Duration.zero ? Duration.zero : destino;
 }
 
 /// Cuanto se lleva cantado del verso [linea] en [instante], de 0 a 1.
@@ -416,27 +528,35 @@ class _ControlSincronia extends StatelessWidget {
 }
 
 class _SinLetra extends StatelessWidget {
-  const _SinLetra();
+  const _SinLetra({required this.alBuscar});
+
+  final VoidCallback alBuscar;
 
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
     child: Padding(
-      padding: EdgeInsets.all(40),
+      padding: const EdgeInsets.all(40),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(Icons.lyrics_outlined, size: 48, color: Colors.white24),
-          SizedBox(height: 14),
-          Text(
+          const Icon(Icons.lyrics_outlined, size: 48, color: Colors.white24),
+          const SizedBox(height: 14),
+          const Text(
             'No hay letra para esta.',
             style: TextStyle(color: Colors.white54, fontWeight: FontWeight.w700),
           ),
-          SizedBox(height: 6),
-          Text(
-            'Se busca por el nombre del archivo, asi que\n'
-            'si viene raro puede que no aparezca.',
+          const SizedBox(height: 6),
+          const Text(
+            'Se busca en YouTube Music y en lrclib por el\n'
+            'artista y el titulo de la cancion.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Tema.textoTenue, fontSize: 12, height: 1.5),
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: alBuscar,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text('Buscar otra vez'),
           ),
         ],
       ),

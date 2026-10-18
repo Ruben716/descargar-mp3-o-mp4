@@ -376,6 +376,40 @@ def analizar_audio(ruta: str) -> str:
         return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
+def sincronizar_letra(ruta: str, inicios: str) -> str:
+    """Cuanto correr la letra para que vaya con la voz (ver voz.py).
+
+    [inicios] es la lista JSON de los instantes de cada verso, en ms. Nunca
+    lanza: si no se puede, la letra se queda como estaba.
+    """
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return _respuesta({"ok": False, "error": "FFmpeg no esta disponible."})
+    try:
+        import voz
+
+        marcas = [int(t) for t in json.loads(inicios)]
+        return _respuesta({"ok": True, **voz.sincronizar(ruta, marcas, ffmpeg=ffmpeg)})
+    except subprocess.TimeoutExpired:
+        return _respuesta({"ok": False, "error": "El analisis tardo demasiado."})
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
+def letra_youtube(video_id: str) -> str:
+    """La letra de YouTube Music por el id del video (ver letras_ytm.py).
+
+    Sincronizada cuando YouTube tiene los tiempos y plana si no. Por el id no
+    puede confundirse de cancion, como le pasa a una busqueda por nombre.
+    """
+    try:
+        import letras_ytm
+
+        return _respuesta(letras_ytm.letra(video_id))
+    except Exception as exc:
+        return _respuesta({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+
+
 def etiquetar(origen: str, destino: str, titulo: str, artista: str, nombre: str) -> str:
     """Reescribe titulo y artista de un audio ya descargado.
 
