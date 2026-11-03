@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'acceso.dart';
 import 'calidad.dart';
 import 'formato.dart';
 import 'salida_audio.dart';
@@ -19,10 +20,17 @@ class Nucleo {
 
   static const MethodChannel _canal = MethodChannel('com.ruben.descargador/nucleo');
 
+  /// Lo que usa internet para buscar y bajar: pide el acceso al dia (ver
+  /// acceso.dart). Escuchar lo que ya esta en el telefono no lo necesita.
+  static const Set<String> _conAcceso = <String>{'buscar', 'importarLista', 'descargar', 'calidad'};
+
   static Future<Map<String, dynamic>> _pedir(
     String metodo, [
     Map<String, dynamic>? argumentos,
   ]) async {
+    if (_conAcceso.contains(metodo) && !await Acceso.instancia.permiteDescargar()) {
+      throw const ErrorNucleo(Acceso.sinDescargasMensaje);
+    }
     final String crudo = await _canal.invokeMethod(metodo, argumentos) ?? '{}';
     final Map<String, dynamic> datos = jsonDecode(crudo) as Map<String, dynamic>;
     if (datos.containsKey('ok') && datos['ok'] != true) {
@@ -305,6 +313,15 @@ class Nucleo {
       return await _canal.invokeMethod<bool>('estaCargando') ?? true;
     } catch (_) {
       return true;
+    }
+  }
+
+  /// Que telefono es, resumido (ver MainActivity.idDispositivo); vacio si no se sabe.
+  static Future<String> idDispositivo() async {
+    try {
+      return await _canal.invokeMethod<String>('idDispositivo') ?? '';
+    } catch (_) {
+      return '';
     }
   }
 

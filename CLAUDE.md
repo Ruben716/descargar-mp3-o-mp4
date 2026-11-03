@@ -3,7 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Proyecto académico, local. No se despliega, no se distribuye y no lleva inicio de sesión ni cookies
-(decisión explícita del autor). Toda la interfaz es de consola; no añadas GUI.
+(decisión explícita del autor). Toda la interfaz es de consola; no añadas GUI. La app del móvil (`movil/`)
+es aparte: no tiene cuentas de usuario, pero sí un código de acceso que se valida contra Supabase (ver abajo).
 
 ## Comandos
 
@@ -202,6 +203,17 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   si el fallo es del codificador se prueba el siguiente, y si es del grafo (`FALLOS_DE_FILTRO`) se repite sin
   onda ni movimiento. Se guarda en `Pictures/Tumbao`, con las tarjetas: `Movies/Tumbao` es carpeta de la biblioteca
   y `mudarVideosADcim` se lo llevaría a DCIM.
+- **El acceso a la app es un código, no una cuenta** (`acceso.dart`, `supabase/accesos.sql`). La función
+  `validar_acceso(codigo, telefono)` de Supabase (proyecto `rqudigxjjjtscuvmpjrv`) dice si el código existe, está
+  `activo` y es de ese teléfono (el primero que lo usa se lo queda; `dispositivo` en blanco lo libera). Las
+  tablas tienen RLS y ni un permiso para la clave pública: lo único que se puede hacer con ella es llamar a esa
+  función, así que **la clave publishable va en el código** (no es un secreto) y la de servicio no va nunca. Los
+  códigos los maneja el dueño en el Table Editor. Plazos desde la última validación: pasados 7 días no se busca ni
+  se baja (`_conAcceso` en `Nucleo._pedir`: buscar, importarLista, descargar, calidad), pasados 30 no abre. Con red
+  se renueva solo; **si el servidor no contesta (503, pausado, sin red) nunca se bloquea a nadie**, solo cuenta lo
+  ya dicho. Atrasar el reloj no alarga los plazos (`visto`). La puerta solo se enciende en `main`
+  (`Acceso.exigir = true`): las pruebas y la consola no la ven. Un proyecto gratis de Supabase se pausa tras una
+  semana sin actividad; cada validación cuenta como actividad.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
   un icono (`graphic_eq`), y encima del acento va siempre `Tema.tinta`: un `Switch` con `activeThumbColor:
