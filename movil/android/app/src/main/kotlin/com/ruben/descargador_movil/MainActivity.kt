@@ -275,6 +275,7 @@ class MainActivity : AudioServiceActivity() {
                     }
                     "redSinLimite" -> respuesta.success(redSinLimite())
                     "estaCargando" -> respuesta.success(estaCargando())
+                    "idDispositivo" -> respuesta.success(idDispositivo())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
                         abrirEnlace(llamada.argument<String>("url").orEmpty()),
@@ -901,6 +902,24 @@ class MainActivity : AudioServiceActivity() {
     private fun estaCargando(): Boolean {
         val bateria = getSystemService(android.os.BatteryManager::class.java) ?: return true
         return bateria.isCharging
+    }
+
+    /**
+     * Que telefono es, para el control de acceso: el ANDROID_ID resumido con
+     * SHA-256, que no cambia al reinstalar la app (mientras la firma sea la
+     * misma). Se manda el resumen y no el id.
+     */
+    private fun idDispositivo(): String = try {
+        val id = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+        if (id.isEmpty()) {
+            ""
+        } else {
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest("tumbao:$id".toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
+    } catch (error: Exception) {
+        ""
     }
 
     private fun versionApp(): String = try {

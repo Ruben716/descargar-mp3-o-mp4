@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
+import 'acceso.dart';
 import 'animaciones.dart';
 import 'atajos.dart';
 
@@ -82,6 +83,10 @@ Future<void> main() async {
   unawaited(ControlDescarga.instancia.recuperarAjustes());
   // Sin esperarla: deja la cola como estaba, parada, mientras la app abre.
   unawaited(EstadoReproductor.instancia.restaurarSesion());
+  // Sin un codigo valido la app no abre (ver acceso.dart): se lee lo guardado
+  // antes de dibujar nada, para no ensenar la pantalla del codigo de mas.
+  Acceso.exigir = true;
+  await Acceso.instancia.cargar();
   runApp(const AplicacionTumbao());
 }
 
@@ -95,7 +100,7 @@ class AplicacionTumbao extends StatelessWidget {
       scaffoldMessengerKey: Navegacion.mensajes,
       debugShowCheckedModeBanner: false,
       theme: Tema.construir(),
-      home: const Inicio(),
+      home: Acceso.exigir ? const PuertaDeAcceso(hijo: Inicio()) : const Inicio(),
     );
   }
 }
