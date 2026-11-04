@@ -28,6 +28,9 @@ enum EstadoAcceso {
 
   /// Todo.
   completo,
+
+  /// La app esta firmada con otra clave que la tuya: es una copia reempaquetada.
+  copiaAjena,
 }
 
 /// Lo que contesta el servidor cuando se le da un codigo.
@@ -59,7 +62,26 @@ class Acceso extends ChangeNotifier {
   /// hecha para ir dentro de las apps, y sin permiso sobre ninguna tabla; lo
   /// unico que se puede hacer con ella es llamar a `validar_acceso`.
   static const String url = 'https://rqudigxjjjtscuvmpjrv.supabase.co';
+
+  /// A donde se llama de verdad: [url], salvo en las pruebas (un servidor local).
+  static String direccion = url;
   static const String clavePublica = 'sb_publishable_Ea4AR5HjueMUfBfSfaOGyA_f2ft92V-';
+
+  /// Con que certificado esta firmada la app de verdad (SHA-256, mayusculas, sin
+  /// separadores): el de la clave de depuracion del PC, que es la que usa
+  /// GitHub Actions al compilar (secreto DEBUG_KEYSTORE). Si algun dia se cambia
+  /// esa clave, se cambia aqui o la app se cierra a si misma.
+  ///
+  /// Es un freno, no una cerradura: quien edite el APK puede quitar tambien esta
+  /// comprobacion. Lo que frena es el reempaquetado sin mas, que obliga a firmar
+  /// con otra clave.
+  static const Set<String> firmasValidas = <String>{
+    '299C62F89436A9402F7327B0252F60B6F4A2174F545D0FED5F35CA73F6258527',
+  };
+
+  /// Comprobar la firma: solo en las compilaciones de verdad; las de depuracion
+  /// (flutter run) llevan otra clave y las pruebas no tienen telefono.
+  static bool verificarFirma = !kDebugMode;
 
   static const Duration vigenciaDescargas = Duration(days: 7);
   static const Duration vigenciaApp = Duration(days: 30);
@@ -86,6 +108,9 @@ class Acceso extends ChangeNotifier {
   /// Que telefono es: el de Android, resumido (ver MainActivity.idDispositivo).
   static Future<String> Function() idDispositivo = _idDelTelefono;
 
+  /// La huella de la firma de la app (ver MainActivity.firmaDeLaApp).
+  static Future<String> Function() firma = Nucleo.firmaDeLaApp;
+
   static DateTime Function() ahora = DateTime.now;
 
   EstadoAcceso _estado = EstadoAcceso.cargando;
@@ -95,6 +120,7 @@ class Acceso extends ChangeNotifier {
   int _vistoMs = 0;
   bool _cargado = false;
   bool _validando = false;
+  bool _copiaAjena = false;
   Future<void>? _renovando;
 
   /// Por que se le quito el acceso, para decirlo en la pantalla del codigo.
@@ -152,13 +178,18 @@ class Acceso extends ChangeNotifier {
         // Sin poder leer, se pide el codigo otra vez.
       }
     }
+    if (exigir && verificarFirma) {
+      // Vacio es que Android no la dio: no se castiga a nadie por eso.
+      final String huella = (await firma()).toUpperCase();
+      _copiaAjena = huella.isNotEmpty && !firmasValidas.contains(huella);
+    }
     await _recalcular();
-    if (hayCodigo) unawaited(revalidar());
+    if (hayCodigo && !_copiaAjena) unawaited(revalidar());
   }
 
   /// Al volver a la app: recalcula los plazos y, si ya toca, renueva.
   Future<void> alVolver() async {
-    if (!exigir || !_cargado) return;
+    if (!exigir || !_cargado || _copiaAjena) return;
     await _recalcular();
     final int edad = ahora().millisecondsSinceEpoch - _validadoMs;
     final bool toca = edad > renovarCada.inMilliseconds || _estado != EstadoAcceso.completo;
@@ -191,7 +222,7 @@ class Acceso extends ChangeNotifier {
   Future<void> revalidar() => _renovando ??= _revalidar().whenComplete(() => _renovando = null);
 
   Future<void> _revalidar() async {
-    if (!hayCodigo) return;
+    if (!hayCodigo || _copiaAjena) return;
     _validando = true;
     notifyListeners();
     try {
@@ -266,7 +297,9 @@ class Acceso extends ChangeNotifier {
   /// Pone el estado al dia y apunta la hora mas alta vista (para el reloj).
   Future<void> _recalcular() async {
     final int ahoraMs = ahora().millisecondsSinceEpoch;
-    _estado = estadoDe(hayCodigo: hayCodigo, validadoMs: _validadoMs, vistoMs: _vistoMs, ahoraMs: ahoraMs);
+    _estado = _copiaAjena
+        ? EstadoAcceso.copiaAjena
+        : estadoDe(hayCodigo: hayCodigo, validadoMs: _validadoMs, vistoMs: _vistoMs, ahoraMs: ahoraMs);
     if (ahoraMs > _vistoMs && hayCodigo) {
       _vistoMs = ahoraMs;
       try {
@@ -297,14 +330,23 @@ class Acceso extends ChangeNotifier {
 
   static Future<String> _idDelTelefono() => Nucleo.idDispositivo();
 
+  /// La llamada de verdad (las pruebas la apuntan a un servidor local).
+  static Future<ResultadoAcceso> servidorReal(String codigo, String dispositivo) => _preguntarAlServidor(codigo, dispositivo);
+
   static Future<ResultadoAcceso> _preguntarAlServidor(String codigo, String dispositivo) async {
     final HttpClient cliente = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     try {
-      final HttpClientRequest peticion = await cliente.postUrl(Uri.parse('$url/rest/v1/rpc/validar_acceso'));
+      final HttpClientRequest peticion = await cliente.postUrl(Uri.parse('$direccion/rest/v1/rpc/validar_acceso'));
       peticion.headers
         ..set('apikey', clavePublica)
         ..contentType = ContentType.json;
-      peticion.add(utf8.encode(jsonEncode(<String, String>{'p_codigo': codigo, 'p_dispositivo': dispositivo})));
+      // La version va al historial del servidor (quien usa que version).
+      final String version = await Nucleo.versionApp();
+      peticion.add(utf8.encode(jsonEncode(<String, String>{
+        'p_codigo': codigo,
+        'p_dispositivo': dispositivo,
+        if (version.isNotEmpty) 'p_version': version,
+      })));
       final HttpClientResponse respuesta = await peticion.close().timeout(const Duration(seconds: 15));
       final String cuerpo = await respuesta.transform(utf8.decoder).join();
       // Un 503 o un proyecto pausado no son un «no»: no se bloquea a nadie por eso.
@@ -339,8 +381,12 @@ class Acceso extends ChangeNotifier {
     _vistoMs = 0;
     _cargado = false;
     _validando = false;
+    _copiaAjena = false;
     _renovando = null;
     aviso = '';
+    firma = Nucleo.firmaDeLaApp;
+    verificarFirma = !kDebugMode;
+    direccion = url;
   }
 }
 
@@ -394,6 +440,8 @@ class _PuertaDeAccesoState extends State<PuertaDeAcceso> with WidgetsBindingObse
       case EstadoAcceso.sinCodigo:
       case EstadoAcceso.caducado:
         return const PantallaCodigo();
+      case EstadoAcceso.copiaAjena:
+        return const PantallaCopiaAjena();
     }
   }
 }
@@ -526,6 +574,44 @@ class _PantallaCodigoState extends State<PantallaCodigo> {
                     ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// La app no es la original: no hay nada que escribir ni renovar.
+class PantallaCopiaAjena extends StatelessWidget {
+  const PantallaCopiaAjena({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Tema.fondo,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Icon(Icons.gpp_maybe_outlined, size: 48, color: Tema.peligro),
+                const SizedBox(height: 18),
+                Text(
+                  'Esta copia no es la original',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 22),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Esta version de Tumbao fue modificada o no viene de su origen. '
+                  'Desinstalala y pidele la app original a quien te la dio.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Tema.textoSecundario, height: 1.4),
+                ),
+              ],
             ),
           ),
         ),

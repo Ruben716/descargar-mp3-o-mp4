@@ -325,6 +325,16 @@ class Nucleo {
     }
   }
 
+  /// SHA-256 del certificado con el que esta firmada la app, en mayusculas y
+  /// sin separadores; vacio si Android no lo da.
+  static Future<String> firmaDeLaApp() async {
+    try {
+      return await _canal.invokeMethod<String>('firmaDeLaApp') ?? '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   /// La version instalada, la que dice Android (2.0.0...).
   static Future<String> versionApp() async {
     try {
