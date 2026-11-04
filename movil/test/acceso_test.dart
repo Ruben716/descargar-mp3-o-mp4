@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:descargador_movil/acceso.dart';
 import 'package:descargador_movil/nucleo.dart';
 import 'package:descargador_movil/tema.dart';
@@ -218,6 +221,124 @@ void main() {
       await Nucleo.buscar('algo');
       expect(llamadas, <String>['buscar']);
       expect(Acceso.instancia.estado, EstadoAcceso.completo);
+    });
+  });
+
+  group('la firma de la app', () {
+    const String suya = '299C62F89436A9402F7327B0252F60B6F4A2174F545D0FED5F35CA73F6258527';
+
+    setUp(() {
+      Acceso.verificarFirma = true;
+    });
+
+    test('con la firma de siempre todo sigue igual (aunque Android la de en minusculas)', () async {
+      Acceso.firma = () async => suya.toLowerCase();
+      await Acceso.instancia.introducir('1D43-B59C-7F4E');
+      await Acceso.instancia.cargar();
+      expect(Acceso.instancia.estado, EstadoAcceso.completo);
+    });
+
+    test('con otra firma es una copia: ni pregunta al servidor ni deja descargar', () async {
+      Acceso.firma = () async => 'AB' * 32;
+      await Acceso.instancia.cargar();
+      expect(Acceso.instancia.estado, EstadoAcceso.copiaAjena);
+      expect(Acceso.instancia.puedeDescargar, isFalse);
+      await Acceso.instancia.alVolver();
+      await Acceso.instancia.revalidar();
+      expect(preguntas, isEmpty);
+    });
+
+    test('si Android no da la firma no se castiga a nadie', () async {
+      Acceso.firma = () async => '';
+      await Acceso.instancia.cargar();
+      expect(Acceso.instancia.estado, EstadoAcceso.sinCodigo);
+    });
+
+    test('en las compilaciones de depuracion no se comprueba', () async {
+      Acceso.verificarFirma = false;
+      Acceso.firma = () async => 'AB' * 32;
+      await Acceso.instancia.cargar();
+      expect(Acceso.instancia.estado, EstadoAcceso.sinCodigo);
+    });
+
+    testWidgets('la copia ve un aviso y no la pantalla del codigo', (WidgetTester tester) async {
+      Acceso.firma = () async => 'AB' * 32;
+      await tester.runAsync(Acceso.instancia.cargar);
+      await tester.pumpWidget(MaterialApp(
+        theme: Tema.construir(),
+        home: const PuertaDeAcceso(hijo: Scaffold(body: Text('ADENTRO'))),
+      ));
+      expect(find.text('Esta copia no es la original'), findsOneWidget);
+      expect(find.text('ADENTRO'), findsNothing);
+      expect(find.byType(TextField), findsNothing);
+    });
+  });
+
+  group('el servidor de verdad (uno local)', () {
+    late HttpServer servidor;
+    final List<Map<String, dynamic>> pedidos = <Map<String, dynamic>>[];
+    final List<String?> claves = <String?>[];
+    int estadoHttp = 200;
+    String cuerpo = '{"estado":"ok","nombre":"Carlos"}';
+
+    setUp(() async {
+      HttpOverrides.global = null; // las pruebas de widgets bloquean la red: aqui es el propio equipo
+      pedidos.clear();
+      claves.clear();
+      estadoHttp = 200;
+      cuerpo = '{"estado":"ok","nombre":"Carlos"}';
+      servidor = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      servidor.listen((HttpRequest peticion) async {
+        claves.add(peticion.headers.value('apikey'));
+        final String texto = await utf8.decoder.bind(peticion).join();
+        pedidos.add(<String, dynamic>{'ruta': peticion.uri.path, ...jsonDecode(texto) as Map<String, dynamic>});
+        peticion.response
+          ..statusCode = estadoHttp
+          ..headers.contentType = ContentType.json
+          ..write(cuerpo);
+        await peticion.response.close();
+      });
+      Acceso.direccion = 'http://127.0.0.1:${servidor.port}';
+      Acceso.servidor = Acceso.servidorReal;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(_canal,
+          (MethodCall llamada) async => llamada.method == 'versionApp' ? '2.5.0' : null);
+    });
+
+    tearDown(() async => servidor.close(force: true));
+
+    test('manda el codigo, el telefono, la version y la clave publica a la funcion', () async {
+      final ResultadoAcceso r = await Acceso.servidor('1D43B59C7F4E', 'telefono-de-prueba');
+      expect(r, (estado: RespuestaAcceso.ok, nombre: 'Carlos'));
+      expect(pedidos.single, <String, dynamic>{
+        'ruta': '/rest/v1/rpc/validar_acceso',
+        'p_codigo': '1D43B59C7F4E',
+        'p_dispositivo': 'telefono-de-prueba',
+        'p_version': '2.5.0',
+      });
+      expect(claves.single, Acceso.clavePublica);
+    });
+
+    test('entiende cada respuesta del servidor', () async {
+      for (final (String texto, RespuestaAcceso esperado) in <(String, RespuestaAcceso)>[
+        ('no_existe', RespuestaAcceso.noExiste),
+        ('desactivado', RespuestaAcceso.desactivado),
+        ('otro_telefono', RespuestaAcceso.otroTelefono),
+        ('espera', RespuestaAcceso.espera),
+        ('algo_nuevo', RespuestaAcceso.sinRed),
+      ]) {
+        cuerpo = '{"estado":"$texto"}';
+        expect((await Acceso.servidor('X', 'telefono-de-prueba')).estado, esperado, reason: texto);
+      }
+    });
+
+    test('un 503, un proyecto pausado, un cuerpo roto o nadie escuchando no bloquean: sinRed', () async {
+      estadoHttp = 503;
+      expect((await Acceso.servidor('X', 'telefono-de-prueba')).estado, RespuestaAcceso.sinRed);
+      estadoHttp = 200;
+      cuerpo = '<html>pausado</html>';
+      expect((await Acceso.servidor('X', 'telefono-de-prueba')).estado, RespuestaAcceso.sinRed);
+      await servidor.close(force: true);
+      expect((await Acceso.servidor('X', 'telefono-de-prueba')).estado, RespuestaAcceso.sinRed);
     });
   });
 

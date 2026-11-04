@@ -213,7 +213,13 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   se renueva solo; **si el servidor no contesta (503, pausado, sin red) nunca se bloquea a nadie**, solo cuenta lo
   ya dicho. Atrasar el reloj no alarga los plazos (`visto`). La puerta solo se enciende en `main`
   (`Acceso.exigir = true`): las pruebas y la consola no la ven. Un proyecto gratis de Supabase se pausa tras una
-  semana sin actividad; cada validación cuenta como actividad.
+  semana sin actividad: por eso `.github/workflows/mantener-supabase.yml` llama cada día a `latido()` (escribe de
+  verdad en la base) y **vive en `main`**, la rama por defecto, que es la única desde la que corren los flujos
+  programados. `uso_codigos` guarda 90 días de validaciones (versión de la app e IP) y la vista `resumen_accesos`
+  (Table Editor) las resume; `redes_7d` alto es una pista de código compartido, no una prueba. La app comprueba
+  que su firma sea la de la clave de depuración del PC (`Acceso.firmasValidas`, huella SHA-256 del certificado de
+  `DEBUG_KEYSTORE`): **si algún día se cambia esa clave hay que cambiar la huella aquí o la app se cierra sola**.
+  Es un freno contra el reempaquetado, no una cerradura. El SQL está en `supabase/accesos.sql` y `accesos_v2.sql`.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
   un icono (`graphic_eq`), y encima del acento va siempre `Tema.tinta`: un `Switch` con `activeThumbColor:

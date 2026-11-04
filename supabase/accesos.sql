@@ -11,6 +11,9 @@
 --   cambio de telefono  dejar `dispositivo` en blanco
 --   quien lo usa ...... columnas `dispositivo` y `ultimo_uso`
 --
+-- La segunda parte (latido, historial y resumen_accesos) esta en accesos_v2.sql, que
+-- tambien reemplaza validar_acceso por una con la version de la app.
+--
 -- Con los plazos de la app: pasados 7 dias sin validar no se busca ni se baja,
 -- pasados 30 no abre. Quitar un codigo surte efecto cuando el telefono tiene red.
 

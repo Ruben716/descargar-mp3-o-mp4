@@ -276,6 +276,7 @@ class MainActivity : AudioServiceActivity() {
                     "redSinLimite" -> respuesta.success(redSinLimite())
                     "estaCargando" -> respuesta.success(estaCargando())
                     "idDispositivo" -> respuesta.success(idDispositivo())
+                    "firmaDeLaApp" -> respuesta.success(firmaDeLaApp())
                     "versionApp" -> respuesta.success(versionApp())
                     "abrirEnlace" -> respuesta.success(
                         abrirEnlace(llamada.argument<String>("url").orEmpty()),
@@ -917,6 +918,33 @@ class MainActivity : AudioServiceActivity() {
             java.security.MessageDigest.getInstance("SHA-256")
                 .digest("tumbao:$id".toByteArray())
                 .joinToString("") { "%02x".format(it) }
+        }
+    } catch (error: Exception) {
+        ""
+    }
+
+    /**
+     * Con que certificado esta firmada esta app (SHA-256, en mayusculas y sin
+     * separadores). Una copia reempaquetada se firma con otra clave y aqui sale
+     * otra huella; Dart la compara con la tuya (ver acceso.dart). Vacio si
+     * Android no la da.
+     */
+    @Suppress("DEPRECATION")
+    private fun firmaDeLaApp(): String = try {
+        val firmas = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo
+            if (info == null) null
+            else if (info.hasMultipleSigners()) info.apkContentsSigners else info.signingCertificateHistory
+        } else {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }
+        val primera = firmas?.firstOrNull()
+        if (primera == null) {
+            ""
+        } else {
+            java.security.MessageDigest.getInstance("SHA-256")
+                .digest(primera.toByteArray())
+                .joinToString("") { "%02X".format(it) }
         }
     } catch (error: Exception) {
         ""
