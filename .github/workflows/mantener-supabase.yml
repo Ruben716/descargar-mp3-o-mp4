@@ -1,0 +1,28 @@
+# Mantiene despierto el proyecto de Supabase de Tumbao.
+#
+# Un proyecto gratis de Supabase se pausa tras una semana sin actividad, y con
+# el proyecto pausado nadie puede validar su codigo de acceso (y a los 30 dias
+# la app deja de abrir). Cada dia esto llama a latido(), que escribe de verdad en
+# la base y asi cuenta como actividad. Ver supabase/accesos_v2.sql en la rama movil.
+#
+# Los flujos programados solo corren desde la rama por defecto (main): por eso
+# este archivo vive aqui. La clave es la publica de Supabase (no es un secreto:
+# solo puede llamar a funciones expuestas a proposito, como latido()).
+name: Mantener Supabase
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  latido:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Latido
+        run: |
+          curl --fail-with-body --retry 3 --retry-delay 10 -sS -m 30 -X POST \
+            "https://rqudigxjjjtscuvmpjrv.supabase.co/rest/v1/rpc/latido" \
+            -H "apikey: sb_publishable_Ea4AR5HjueMUfBfSfaOGyA_f2ft92V-" \
+            -H "Content-Type: application/json" -d '{}'
