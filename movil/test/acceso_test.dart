@@ -137,13 +137,43 @@ void main() {
       expect(Acceso.instancia.hayCodigo, isTrue);
     });
 
-    test('si desactivan el codigo, la proxima vez que hay red se cierra', () async {
+    test('si desactivan el codigo, la proxima vez que hay red se bloquea (sin borrarlo)', () async {
       await Acceso.instancia.introducir('1D43-B59C-7F4E');
       respuesta = (estado: RespuestaAcceso.desactivado, nombre: '');
       await Acceso.instancia.revalidar();
       expect(Acceso.instancia.estado, EstadoAcceso.sinCodigo);
-      expect(Acceso.instancia.hayCodigo, isFalse);
+      expect(Acceso.instancia.puedeDescargar, isFalse);
       expect(Acceso.instancia.aviso, contains('desactivado'));
+      expect(Acceso.instancia.hayCodigo, isTrue, reason: 'el codigo se queda para poder reintentar');
+    });
+
+    test('un «otro telefono» equivocado se arregla solo en cuanto el servidor dice que si', () async {
+      await Acceso.instancia.introducir('1D43-B59C-7F4E');
+      respuesta = (estado: RespuestaAcceso.otroTelefono, nombre: '');
+      await Acceso.instancia.revalidar();
+      expect(Acceso.instancia.estado, EstadoAcceso.sinCodigo);
+
+      // Al reabrir la app (el codigo sigue guardado) se vuelve a preguntar sola.
+      respuesta = (estado: RespuestaAcceso.ok, nombre: 'Carlos');
+      await Acceso.instancia.cargar();
+      await Acceso.instancia.revalidar();
+      expect(Acceso.instancia.estado, EstadoAcceso.completo);
+      expect(Acceso.instancia.aviso, isEmpty);
+    });
+
+    test('el rechazo tambien sobrevive a cerrar la app: se sigue sin acceso pero con el codigo', () async {
+      await Acceso.instancia.introducir('1D43-B59C-7F4E');
+      respuesta = (estado: RespuestaAcceso.desactivado, nombre: '');
+      await Acceso.instancia.revalidar();
+
+      Acceso.instancia.reiniciar();
+      Acceso.exigir = true;
+      Acceso.ahora = () => reloj;
+      Acceso.idDispositivo = () async => 'telefono-de-prueba';
+      Acceso.servidor = (String c, String d) async => (estado: RespuestaAcceso.sinRed, nombre: '');
+      await Acceso.instancia.cargar();
+      expect(Acceso.instancia.estado, EstadoAcceso.sinCodigo);
+      expect(Acceso.instancia.hayCodigo, isTrue);
     });
 
     test('pasados 30 dias sin red no abre; con red y el mismo codigo, si', () async {
@@ -158,13 +188,21 @@ void main() {
       expect(Acceso.instancia.estado, EstadoAcceso.completo);
     });
 
-    test('si Android no da el id del telefono, se usa uno propio que se guarda', () async {
-      Acceso.idDispositivo = () async => '';
+    test('sin el id del telefono (motor sin pantalla) no se inventa uno: ni se pregunta ni se castiga', () async {
       await Acceso.instancia.introducir('1D43-B59C-7F4E');
+      preguntas.clear();
+
+      // Lo que paso de verdad: el canal con Android no existia y el id salio vacio.
+      Acceso.idDispositivo = () async => '';
+      respuesta = (estado: RespuestaAcceso.otroTelefono, nombre: '');
+      await Acceso.instancia.cargar();
       await Acceso.instancia.revalidar();
-      expect(preguntas, hasLength(2));
-      expect(preguntas[0].$2, hasLength(32));
-      expect(preguntas[1].$2, preguntas[0].$2, reason: 'el mismo siempre');
+      expect(preguntas, isEmpty, reason: 'antes se mandaba un id al azar y el servidor decia «otro telefono»');
+      expect(Acceso.instancia.estado, EstadoAcceso.completo);
+      expect(Acceso.instancia.hayCodigo, isTrue);
+
+      expect(await Acceso.instancia.introducir('1D43-B59C-7F4E'), contains('identificar el telefono'));
+      expect(preguntas, isEmpty);
     });
 
     test('cerrar quita el codigo para escribir otro', () async {
@@ -377,6 +415,23 @@ void main() {
       await esperar(tester);
       expect(find.text('ADENTRO'), findsOneWidget);
       expect(find.text('Acceso a Tumbao'), findsNothing);
+    });
+
+    testWidgets('rechazado: lo dice y deja reintentar con el codigo guardado', (WidgetTester tester) async {
+      await tester.runAsync(() async {
+        await Acceso.instancia.introducir('1D43-B59C-7F4E');
+        respuesta = (estado: RespuestaAcceso.otroTelefono, nombre: '');
+        await Acceso.instancia.revalidar();
+      });
+      await tester.pumpWidget(app());
+      expect(find.text('Acceso rechazado'), findsOneWidget);
+      expect(find.textContaining('otro telefono'), findsOneWidget);
+      expect(find.text('ADENTRO'), findsNothing);
+
+      respuesta = (estado: RespuestaAcceso.ok, nombre: 'Carlos');
+      await tester.tap(find.text('Reintentar'));
+      await esperar(tester);
+      expect(find.text('ADENTRO'), findsOneWidget);
     });
 
     testWidgets('caducado: ofrece renovar el codigo que ya tiene', (WidgetTester tester) async {

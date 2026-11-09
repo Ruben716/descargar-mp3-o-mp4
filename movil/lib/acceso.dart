@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
+import 'dart:math' show max;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -97,7 +97,6 @@ class Acceso extends ChangeNotifier {
   static const String _claveNombre = 'acceso_nombre';
   static const String _claveValidado = 'acceso_validado';
   static const String _claveVisto = 'acceso_visto';
-  static const String _claveTelefono = 'acceso_telefono';
 
   static const String sinDescargasMensaje =
       'Hace mas de 7 dias que no validas tu acceso. Conectate a internet para renovarlo.';
@@ -201,10 +200,12 @@ class Acceso extends ChangeNotifier {
   Future<String?> introducir(String escrito) async {
     final String codigo = _limpiar(escrito);
     if (codigo.length < 8) return mensajeDe(RespuestaAcceso.noExiste);
+    final String? telefono = await _telefono();
+    if (telefono == null) return 'No se pudo identificar el telefono. Cierra la app y vuelve a abrirla.';
     _validando = true;
     notifyListeners();
     try {
-      final ResultadoAcceso r = await servidor(codigo, await _telefono());
+      final ResultadoAcceso r = await servidor(codigo, telefono);
       if (r.estado != RespuestaAcceso.ok) return mensajeDe(r.estado);
       _codigo = codigo;
       _nombre = r.nombre;
@@ -223,19 +224,24 @@ class Acceso extends ChangeNotifier {
 
   Future<void> _revalidar() async {
     if (!hayCodigo || _copiaAjena) return;
+    final String? telefono = await _telefono();
+    if (telefono == null) return; // sin saber que telefono es, no se pregunta ni se castiga
     _validando = true;
     notifyListeners();
     try {
-      final ResultadoAcceso r = await servidor(_codigo, await _telefono());
+      final ResultadoAcceso r = await servidor(_codigo, telefono);
       switch (r.estado) {
         case RespuestaAcceso.ok:
           _nombre = r.nombre.isNotEmpty ? r.nombre : _nombre;
+          aviso = '';
           await _guardarValidado();
         case RespuestaAcceso.noExiste:
         case RespuestaAcceso.desactivado:
         case RespuestaAcceso.otroTelefono:
+          // Se bloquea, pero el codigo se queda guardado: si fue un error (o el
+          // dueno lo libero y lo reactivo) basta con reintentar, sin escribirlo.
           aviso = mensajeDe(r.estado);
-          await _olvidarCodigo();
+          await _rechazar();
         case RespuestaAcceso.espera:
         case RespuestaAcceso.sinRed:
           break;
@@ -280,6 +286,17 @@ class Acceso extends ChangeNotifier {
     }
   }
 
+  /// El servidor dijo que no: sin acceso hasta que diga que si, con el codigo
+  /// aun guardado para reintentar.
+  Future<void> _rechazar() async {
+    _validadoMs = 0;
+    try {
+      await (await SharedPreferences.getInstance()).remove(_claveValidado);
+    } catch (_) {
+      // Se queda en memoria; al reabrir se vuelve a preguntar.
+    }
+  }
+
   Future<void> _olvidarCodigo() async {
     _codigo = '';
     _nombre = '';
@@ -311,21 +328,15 @@ class Acceso extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// El telefono: el de Android o, si no lo da, uno al azar que se guarda.
-  Future<String> _telefono() async {
+  /// El telefono, el de Android; null si no lo da.
+  ///
+  /// Nunca se inventa uno: el motor de Flutter tambien arranca sin la pantalla
+  /// (por el reproductor en segundo plano) y entonces el canal con Android no
+  /// existe y el id sale vacio. Con un id inventado el servidor veia «otro
+  /// telefono» y la app borraba el codigo del propio dueno.
+  Future<String?> _telefono() async {
     final String id = await idDispositivo();
-    if (id.length >= 8) return id;
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String guardado = prefs.getString(_claveTelefono) ?? '';
-      if (guardado.length >= 8) return guardado;
-      final Random azar = Random.secure();
-      final String nuevo = List<String>.generate(32, (_) => azar.nextInt(16).toRadixString(16)).join();
-      await prefs.setString(_claveTelefono, nuevo);
-      return nuevo;
-    } catch (_) {
-      return 'sin-id-${_codigo.hashCode}';
-    }
+    return id.length >= 8 ? id : null;
   }
 
   static Future<String> _idDelTelefono() => Nucleo.idDispositivo();
@@ -492,7 +503,9 @@ class _PantallaCodigoState extends State<PantallaCodigo> {
 
   @override
   Widget build(BuildContext context) {
-    final bool caducado = _acceso.estado == EstadoAcceso.caducado && _acceso.hayCodigo;
+    // Con un codigo ya guardado (caducado o rechazado) se ofrece reintentarlo.
+    final bool caducado = _acceso.hayCodigo;
+    final bool rechazado = caducado && _acceso.estado != EstadoAcceso.caducado;
     final String mensaje = _error.isNotEmpty ? _error : _acceso.aviso;
     final bool ocupado = _acceso.validando;
     return Scaffold(
@@ -510,22 +523,24 @@ class _PantallaCodigoState extends State<PantallaCodigo> {
                   const Icon(Icons.lock_outline_rounded, size: 44, color: Tema.acento),
                   const SizedBox(height: 18),
                   Text(
-                    caducado ? 'Renueva tu acceso' : 'Acceso a Tumbao',
+                    rechazado ? 'Acceso rechazado' : (caducado ? 'Renueva tu acceso' : 'Acceso a Tumbao'),
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontSize: 24),
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    caducado
-                        ? 'Hace mas de 30 dias que no se valida tu acceso. Conectate a internet y toca Renovar.'
-                        : 'Escribe el codigo que te dio quien te paso la app. Hace falta internet la primera vez.',
+                    rechazado
+                        ? 'Tu codigo guardado no fue aceptado. Si crees que es un error, conectate a internet y toca Reintentar.'
+                        : (caducado
+                            ? 'Hace mas de 30 dias que no se valida tu acceso. Conectate a internet y toca Renovar.'
+                            : 'Escribe el codigo que te dio quien te paso la app. Hace falta internet la primera vez.'),
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Tema.textoSecundario, height: 1.4),
                   ),
                   const SizedBox(height: 24),
                   if (caducado) ...<Widget>[
                     BotonDegradado(
-                      texto: ocupado ? 'Validando' : 'Renovar',
+                      texto: ocupado ? 'Validando' : (rechazado ? 'Reintentar' : 'Renovar'),
                       icono: Icons.refresh_rounded,
                       alPulsar: ocupado ? null : _renovar,
                     ),
