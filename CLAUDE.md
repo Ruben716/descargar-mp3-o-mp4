@@ -219,6 +219,10 @@ Python del sistema), `descargador/__main__.py` y el script `descargar` de [pypro
   (Table Editor) las resume; `redes_7d` alto es una pista de código compartido, no una prueba. La app comprueba
   que su firma sea la de la clave de depuración del PC (`Acceso.firmasValidas`, huella SHA-256 del certificado de
   `DEBUG_KEYSTORE`): **si algún día se cambia esa clave hay que cambiar la huella aquí o la app se cierra sola**.
+  **Nunca se inventa el id del teléfono**: el motor de Flutter también arranca sin la pantalla (reproductor en
+  segundo plano) y entonces el canal con Android no existe y `idDispositivo` sale vacío; con un id al azar el
+  servidor decía «otro teléfono» y la app borraba el código del dueño. Sin id no se pregunta ni se castiga. Y un
+  «no» del servidor bloquea (`_rechazar`) pero **no borra el código**: se reintenta solo al reabrir o con el botón.
   Es un freno contra el reempaquetado, no una cerradura. El SQL está en `supabase/accesos.sql` y `accesos_v2.sql`.
 - **Tema «Ónix»: el acento es blanco.** El color lo ponen las portadas; en `tema.dart` todo es gris neutro y
   el dorado (`Tema.oro`) es solo para el sello de calidad. Por eso lo que suena no se marca con color sino con
